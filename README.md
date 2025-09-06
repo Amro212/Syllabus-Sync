@@ -68,6 +68,26 @@ See [tasks.md](./tasks.md) for detailed milestone tracking.
 - **Budget controls**: Rate limiting and cost guardrails
 - **Data minimization**: PDFs auto-deleted, minimal PII storage
 
+### Secrets Management
+
+**For developers:**
+```bash
+# 1. Copy example file 
+cp server/.dev.vars.example server/.dev.vars
+
+# 2. Add your OpenAI API key to .dev.vars
+# Never commit .dev.vars - it's in .gitignore
+
+# 3. For production deployment:
+cd server && wrangler secret put OPENAI_API_KEY
+```
+
+**Security principles:**
+- ✅ All secrets server-side only via Wrangler secrets
+- ✅ `.dev.vars` is git-ignored (local development only) 
+- ✅ Rate limiting prevents abuse
+- ✅ Budget caps prevent runaway costs
+
 ## 📄 License
 
 MIT License - see LICENSE file for details.

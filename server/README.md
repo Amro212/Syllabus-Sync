@@ -77,13 +77,37 @@ npm test -- --watch   # Watch mode for development
 
 ## 🔧 Configuration
 
-### Environment Variables
-```bash
-# .dev.vars (for local development)
-OPENAI_API_KEY=sk-...        # OpenAI API key
-RATE_LIMIT_REQUESTS=100      # Requests per IP per hour
-RATE_LIMIT_OPENAI=10         # OpenAI calls per IP per day
-```
+### Environment Variables Setup
+
+1. **Copy example environment file:**
+   ```bash
+   cp .dev.vars.example .dev.vars
+   ```
+
+2. **Fill in your secrets in `.dev.vars`:**
+   ```bash
+   # Required for OpenAI parsing
+   OPENAI_API_KEY=sk-your-actual-openai-api-key
+   
+   # Optional: customize rate limits
+   RATE_LIMIT_REQUESTS=100
+   RATE_LIMIT_OPENAI=10
+   OPENAI_DAILY_BUDGET=10.00
+   ```
+
+3. **For production deployment, use Wrangler secrets:**
+   ```bash
+   # Set production secrets (never commit these!)
+   wrangler secret put OPENAI_API_KEY
+   wrangler secret put RATE_LIMIT_REQUESTS
+   wrangler secret put RATE_LIMIT_OPENAI
+   ```
+
+### Security Notes
+- ⚠️ **Never commit `.dev.vars`** - it contains your API keys
+- ✅ The `.dev.vars.example` file is safe to commit (no real secrets)  
+- ✅ Use `wrangler secret put` for production secrets
+- ✅ All secrets are server-side only (never exposed to client)
 
 ### Wrangler Configuration
 See `wrangler.jsonc` for Workers-specific settings:

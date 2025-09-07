@@ -115,7 +115,7 @@ class ThemeManager: ObservableObject {
 
 /// Animated theme toggle component with spring animations
 struct ThemeToggle: View {
-    @StateObject private var themeManager = ThemeManager()
+    @EnvironmentObject var themeManager: ThemeManager
     @Environment(\.colorScheme) private var colorScheme
     
     @State private var isAnimating = false
@@ -199,7 +199,7 @@ private struct ThemeButton: View {
 
 /// Simple animated toggle for light/dark mode only
 struct SimpleThemeToggle: View {
-    @StateObject private var themeManager = ThemeManager()
+    @EnvironmentObject var themeManager: ThemeManager
     @Environment(\.colorScheme) private var colorScheme
     
     private var isDark: Bool {
@@ -244,20 +244,20 @@ struct SimpleThemeToggle: View {
 // MARK: - Environment Integration
 
 /// View modifier to apply theme management to the app
+/// Takes an explicit ThemeManager to avoid requiring an EnvironmentObject in previews
 struct ThemeEnvironment: ViewModifier {
-    @StateObject private var themeManager = ThemeManager()
+    @ObservedObject var themeManager: ThemeManager
     
     func body(content: Content) -> some View {
         content
-            .environmentObject(themeManager)
             .preferredColorScheme(themeManager.currentTheme.colorScheme)
     }
 }
 
 extension View {
-    /// Applies theme management to the view hierarchy
-    func themeManaged() -> some View {
-        modifier(ThemeEnvironment())
+    /// Applies theme management to the view hierarchy with an explicit manager
+    func themeManaged(_ themeManager: ThemeManager) -> some View {
+        modifier(ThemeEnvironment(themeManager: themeManager))
     }
 }
 
@@ -277,6 +277,8 @@ struct ThemeManager_Previews: PreviewProvider {
 }
 
 private struct ThemeShowcase: View {
+    @StateObject private var themeManager = ThemeManager()
+    
     var body: some View {
         ScrollView {
             VStack(spacing: Layout.Spacing.xxl) {
@@ -378,6 +380,7 @@ private struct ThemeShowcase: View {
             .padding(Layout.Spacing.lg)
         }
         .background(AppColors.background)
+        .environmentObject(themeManager)
     }
 }
 

@@ -17,12 +17,12 @@ enum AppRoute: Hashable, CaseIterable {
     case dashboard
     case importSyllabus
     case preview
-    case courseDetail(courseId: String)
+    case courseDetail(course: MockCourse)
     case settings
     
     // Static cases for easier iteration (excluding parameterized routes)
     static var allCases: [AppRoute] {
-        return [.launch, .onboarding, .auth, .dashboard, .importSyllabus, .preview, .courseDetail(courseId: "sample"), .settings]
+        return [.launch, .onboarding, .auth, .dashboard, .importSyllabus, .preview, .settings]
     }
     
     var title: String {
@@ -116,7 +116,7 @@ struct AppRoot: View {
         }
         .environmentObject(navigationManager)
         .environmentObject(themeManager)
-        .modifier(ThemeEnvironment())
+        .modifier(ThemeEnvironment(themeManager: themeManager))
     }
     
     @ViewBuilder
@@ -156,13 +156,13 @@ struct AppRoot: View {
         case .dashboard:
             DashboardView()
         case .importSyllabus:
-            ImportPlaceholderView()
+            ImportView()
         case .preview:
-            PreviewPlaceholderView()
-        case .courseDetail(let courseId):
-            CourseDetailPlaceholderView(courseId: courseId)
+            CalendarView()
+        case .courseDetail(let course):
+            CourseDetailView(course: course)
         case .settings:
-            SettingsPlaceholderView()
+            SettingsView()
         }
     }
 }
@@ -195,12 +195,12 @@ struct TabNavigationView: View {
                 .tag(AppRoute.dashboard)
             
             // Calendar tab
-            CalendarPlaceholderView()
-                .tabItem {
-                    Image(systemName: "calendar")
-                    Text("Calendar")
-                }
-                .tag(AppRoute.preview) // Using preview route for now
+                CalendarView()
+                    .tabItem {
+                        Image(systemName: "calendar")
+                        Text("Calendar")
+                    }
+                    .tag(AppRoute.preview) // Using preview route for now
             
             // Reminders tab
             RemindersPlaceholderView()
@@ -208,10 +208,10 @@ struct TabNavigationView: View {
                     Image(systemName: "bell")
                     Text("Reminders")
                 }
-                .tag(AppRoute.courseDetail(courseId: "reminders")) // Temporary
+                .tag(AppRoute.courseDetail(course: MockCourse.sampleCourses[0])) // Temporary
             
             // Settings tab
-            SettingsPlaceholderView()
+            SettingsView()
                 .tabItem {
                     Image(systemName: "gear")
                     Text("Settings")
@@ -522,46 +522,309 @@ struct CourseDetailPlaceholderView: View {
     }
 }
 
-/// Settings placeholder
-struct SettingsPlaceholderView: View {
+/// Real Settings View
+struct SettingsView: View {
     @EnvironmentObject var themeManager: ThemeManager
+    @EnvironmentObject var navigationManager: AppNavigationManager
+    
+    @State private var showingResetAlert = false
+    @State private var notificationsEnabled = true
+    @State private var hapticEnabled = true
     
     var body: some View {
-        ScrollView {
-            VStack(spacing: Layout.Spacing.xl) {
-                AppIcon("gear", size: .xlarge, style: .filled)
-                
-                VStack(spacing: Layout.Spacing.md) {
-                    Text("Settings")
-                        .font(.titleL)
-                        .foregroundColor(AppColors.textPrimary)
+        NavigationView {
+            ScrollView {
+                VStack(spacing: Layout.Spacing.xl) {
+                    // App Info Section
+                    VStack(spacing: Layout.Spacing.lg) {
+                        AppIcon("graduationcap.circle.fill", size: .xlarge, style: .filled)
+                        
+                        VStack(spacing: Layout.Spacing.md) {
+                            Text("Syllabus Sync")
+                                .font(.titleL)
+                                .fontWeight(.bold)
+                                .foregroundColor(AppColors.textPrimary)
+                            
+                            Text("Version 1.0 (Beta)")
+                                .font(.body)
+                                .foregroundColor(AppColors.textSecondary)
+                        }
+                    }
                     
-                    Text("Customize your experience")
-                        .font(.body)
+                    // Appearance Section
+                    SettingsSection(title: "Appearance", icon: "paintbrush") {
+                        VStack(spacing: Layout.Spacing.lg) {
+                            SettingsRow(
+                                title: "Theme",
+                                subtitle: "Choose your preferred theme",
+                                icon: "circle.lefthalf.filled"
+                            ) {
+                                ThemeToggle()
+                            }
+                        }
+                    }
+                    
+                    // Preferences Section
+                    SettingsSection(title: "Preferences", icon: "slider.horizontal.3") {
+                        VStack(spacing: Layout.Spacing.lg) {
+                            SettingsToggleRow(
+                                title: "Notifications",
+                                subtitle: "Get notified about upcoming events",
+                                icon: "bell",
+                                isOn: $notificationsEnabled
+                            )
+                            
+                            SettingsToggleRow(
+                                title: "Haptic Feedback",
+                                subtitle: "Feel interactions with haptic feedback",
+                                icon: "iphone.radiowaves.left.and.right",
+                                isOn: $hapticEnabled
+                            )
+                        }
+                    }
+                    
+                    // Testing Section
+                    SettingsSection(title: "Testing", icon: "wrench.and.screwdriver") {
+                        VStack(spacing: Layout.Spacing.lg) {
+                            SettingsActionRow(
+                                title: "Test Haptic Feedback",
+                                subtitle: "Try different haptic patterns",
+                                icon: "hand.tap"
+                            ) {
+                                testHapticFeedback()
+                            }
+                            
+                            SettingsActionRow(
+                                title: "Reset to Empty State",
+                                subtitle: "Clear all data and return to onboarding",
+                                icon: "trash",
+                                isDestructive: true
+                            ) {
+                                showingResetAlert = true
+                            }
+                        }
+                    }
+                    
+                    // About Section
+                    SettingsSection(title: "About", icon: "info.circle") {
+                        VStack(spacing: Layout.Spacing.lg) {
+                            SettingsActionRow(
+                                title: "Privacy Policy",
+                                subtitle: "View our privacy policy",
+                                icon: "hand.raised"
+                            ) {
+                                // Open privacy policy (mock)
+                                HapticFeedbackManager.shared.lightImpact()
+                            }
+                            
+                            SettingsActionRow(
+                                title: "Terms of Service",
+                                subtitle: "View terms and conditions",
+                                icon: "doc.text"
+                            ) {
+                                // Open terms (mock)
+                                HapticFeedbackManager.shared.lightImpact()
+                            }
+                            
+                            SettingsActionRow(
+                                title: "Contact Support",
+                                subtitle: "Get help with your account",
+                                icon: "envelope"
+                            ) {
+                                // Contact support (mock)
+                                HapticFeedbackManager.shared.lightImpact()
+                            }
+                        }
+                    }
+                }
+                .padding(Layout.Spacing.lg)
+            }
+            .background(AppColors.background)
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.large)
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
+        .alert("Reset App Data", isPresented: $showingResetAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Reset", role: .destructive) {
+                resetAppData()
+            }
+        } message: {
+            Text("This will delete all your courses and events, and return the app to its initial state. This action cannot be undone.")
+        }
+    }
+    
+    private func testHapticFeedback() {
+        let patterns: [(String, () -> Void)] = [
+            ("Light Impact", { HapticFeedbackManager.shared.lightImpact() }),
+            ("Medium Impact", { HapticFeedbackManager.shared.mediumImpact() }),
+            ("Heavy Impact", { HapticFeedbackManager.shared.heavyImpact() }),
+            ("Success", { HapticFeedbackManager.shared.success() }),
+            ("Warning", { HapticFeedbackManager.shared.warning() }),
+            ("Error", { HapticFeedbackManager.shared.error() }),
+            ("Selection", { HapticFeedbackManager.shared.selection() })
+        ]
+        
+        // Cycle through patterns with delays
+        for (index, (_, action)) in patterns.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.3) {
+                action()
+            }
+        }
+    }
+    
+    private func resetAppData() {
+        HapticFeedbackManager.shared.success()
+        
+        // Reset to launch screen, then onboarding (mock implementation)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            navigationManager.currentRoute = .launch
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                navigationManager.currentRoute = .onboarding
+            }
+        }
+    }
+}
+
+// MARK: - Settings Components
+
+struct SettingsSection<Content: View>: View {
+    let title: String
+    let icon: String
+    @ViewBuilder let content: Content
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.lg) {
+            HStack(spacing: Layout.Spacing.sm) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(AppColors.accent)
+                
+                Text(title)
+                    .font(.titleS)
+                    .fontWeight(.semibold)
+                    .foregroundColor(AppColors.textPrimary)
+            }
+            
+            CardView(style: .elevated) {
+                content
+            }
+        }
+    }
+}
+
+struct SettingsRow<Accessory: View>: View {
+    let title: String
+    let subtitle: String?
+    let icon: String
+    @ViewBuilder let accessory: Accessory
+    
+    init(
+        title: String,
+        subtitle: String? = nil,
+        icon: String,
+        @ViewBuilder accessory: () -> Accessory
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.icon = icon
+        self.accessory = accessory()
+    }
+    
+    var body: some View {
+        HStack(spacing: Layout.Spacing.md) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundColor(AppColors.accent)
+                .frame(width: 24)
+            
+            VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
+                Text(title)
+                    .font(.body)
+                    .fontWeight(.medium)
+                    .foregroundColor(AppColors.textPrimary)
+                
+                if let subtitle = subtitle {
+                    Text(subtitle)
+                        .font(.caption)
                         .foregroundColor(AppColors.textSecondary)
                 }
+            }
+            
+            Spacer()
+            
+            accessory
+        }
+    }
+}
+
+struct SettingsToggleRow: View {
+    let title: String
+    let subtitle: String?
+    let icon: String
+    @Binding var isOn: Bool
+    
+    var body: some View {
+        SettingsRow(title: title, subtitle: subtitle, icon: icon) {
+            Toggle("", isOn: $isOn)
+                .onChange(of: isOn) {
+                    HapticFeedbackManager.shared.lightImpact()
+                }
+        }
+    }
+}
+
+struct SettingsActionRow: View {
+    let title: String
+    let subtitle: String?
+    let icon: String
+    let isDestructive: Bool
+    let action: () -> Void
+    
+    init(
+        title: String,
+        subtitle: String? = nil,
+        icon: String,
+        isDestructive: Bool = false,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.icon = icon
+        self.isDestructive = isDestructive
+        self.action = action
+    }
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Layout.Spacing.md) {
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(isDestructive ? .red : AppColors.accent)
+                    .frame(width: 24)
                 
-                CardView(style: .elevated) {
-                    VStack(alignment: .leading, spacing: Layout.Spacing.lg) {
-                        HStack {
-                            Image(systemName: "paintbrush")
-                                .foregroundColor(AppColors.accent)
-                            Text("Appearance")
-                                .font(.titleS)
-                                .foregroundColor(AppColors.textPrimary)
-                            Spacer()
-                        }
-                        
-                        ThemeToggle()
+                VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
+                    Text(title)
+                        .font(.body)
+                        .fontWeight(.medium)
+                        .foregroundColor(isDestructive ? .red : AppColors.textPrimary)
+                    
+                    if let subtitle = subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundColor(AppColors.textSecondary)
                     }
                 }
                 
-                NavigationTestSection()
+                Spacer()
+                
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(AppColors.textTertiary)
             }
-            .padding(Layout.Spacing.lg)
         }
-        .background(AppColors.background)
-        .navigationTitle("Settings")
+        .buttonStyle(PlainButtonStyle())
     }
 }
 
@@ -612,7 +875,7 @@ struct QuickActionsGrid: View {
             
             // Course Details - stays in dashboard tab with NavigationLink
             CardView(style: .elevated) {
-                NavigationLink(value: AppRoute.courseDetail(courseId: "CS101")) {
+                NavigationLink(value: AppRoute.courseDetail(course: MockCourse.sampleCourses[0])) {
                     VStack(spacing: Layout.Spacing.sm) {
                         AppIcon("book", size: .medium, style: .filled)
                         Text("Course Details")

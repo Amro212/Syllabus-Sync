@@ -264,6 +264,48 @@ SyllabusSync/
 
 ---
 
+### 6a) iCloud / CloudKit Persistence & Lightweight Auth (MVP+)
+
+**Goal:** Ensure user data (courses, parsed events, prefs) survives delete/reinstall with $0 infra and no custom DB. Use the user’s **iCloud Private Database**.
+
+**Approach (recommended): Core Data + NSPersistentCloudKitContainer**
+- Use Core Data locally for speed + offline.
+- Mirror to CloudKit automatically for backup/sync.
+
+**Entities (mirror your Domain models):**
+- `Course`: id (UUID string), code, title, instructor?, colorHex
+- `EventItem`: id, courseId (string ref), type, title, start, end?, allDay?, notes?, reminderMinutes?, confidence?
+- `UserPrefs`: id (singleton), theme, hapticsOn, lastCalendarId?, lastImportHashByCourse (JSON)
+
+**What goes to CloudKit:** Only **metadata** above. **Do NOT** store PDFs or raw syllabus text.
+
+**Minimal setup (pseudocode):**
+```swift
+// Persistence/CoreDataStack.swift
+let container = NSPersistentCloudKitContainer(name: "SyllabusSync")
+let options = NSPersistentCloudKitContainerOptions(containerIdentifier: "iCloud.com.your.bundle")
+container.persistentStoreDescriptions.first?.cloudKitContainerOptions = options
+container.loadPersistentStores { _, error in
+    if let error = error { fatalError("Core Data load error: \(error)") }
+}
+
+Sync pattern:
+	1.	On launch → fetch Core Data (which syncs with iCloud in background).
+	2.	After parse/preview approve → write Course, EventItem[], UserPrefs.
+	3.	On re-import → use stored lastImportHashByCourse to detect changes (client diff).
+
+Auth stance (MVP):
+	•	Rely on Apple ID implicitly via iCloud for CloudKit.
+	•	Keep app “force login” UX, but client remains anonymous UUID for server rate-limiting.
+	•	Optional later: Sign in with Apple → app sends identity token to server → server issues short-lived JWT for API calls.
+
+Security & Privacy:
+	•	iCloud Private DB is per-user. No cross-user access.
+	•	Provide “Delete my Cloud Data” action: delete all CK-backed Core Data records.
+	•	Continue to keep OpenAI/API keys server-side only. CloudKit stores no secrets.
+
+---
+
 ## 7) Data Models (Shared DTO)
 
 ```ts

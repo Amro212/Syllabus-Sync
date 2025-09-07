@@ -267,6 +267,50 @@
 
 ---
 
+## Milestone 9.5 — CloudKit Backup/Sync (Core Data + iCloud)
+
+### 9.5.1 Enable iCloud/CloudKit capability
+- **Start:** In Xcode, add Signing & Capabilities → iCloud (CloudKit).
+- **End:** Container `iCloud.com.your.bundle` exists.
+- **Done When:** Build succeeds with iCloud entitlement.
+
+### 9.5.2 Add Core Data model
+- **Start:** Create `SyllabusSync.xcdatamodeld` with entities: Course, EventItem, UserPrefs (fields per architecture).
+- **End:** Generate NSManagedObject subclasses if desired.
+- **Done When:** Model compiles.
+
+### 9.5.3 Wire NSPersistentCloudKitContainer
+- **Start:** Implement `CoreDataStack` as in architecture; set CloudKit container options.
+- **End:** Inject a `managedObjectContext` into SwiftUI environment.
+- **Done When:** App launches without Core Data errors.
+
+### 9.5.4 Repositories → Core Data
+- **Start:** Implement `CourseRepository` and `EventRepository` using Core Data (CRUD + fetch).
+- **End:** Replace in-memory mocks behind same protocols.
+- **Done When:** Dashboard/Preview load from Core Data seed.
+
+### 9.5.5 Write-through on Preview approve
+- **Start:** On “Approve changes” in Preview, persist `Course`, `EventItem[]`, update `UserPrefs.lastImportHashByCourse`.
+- **End:** Save context; show success haptic.
+- **Done When:** Relaunching app shows the same data (even after simulator reinstall with same iCloud account).
+
+### 9.5.6 iCloud sync sanity check
+- **Start:** Install on two simulators/devices with different Apple IDs; use the primary one for sync check.
+- **End:** Confirm records appear in CloudKit Dashboard (Development schema).
+- **Done When:** Data reappears after delete/reinstall on the same Apple ID device.
+
+### 9.5.7 Delete my Cloud Data (safety valve)
+- **Start:** Add Settings → “Delete Cloud Backup” button.
+- **End:** Deletes Core Data objects (which mirrors to CloudKit); confirm alert.
+- **Done When:** Cloud data disappears on next sync.
+
+### 9.5.8 Docs update
+- **Start:** Add a short “Cloud Backup” note to `README_DEMO.md`.
+- **End:** Mention Private DB, what’s stored, how to wipe.
+- **Done When:** README committed.
+
+---
+
 ## Milestone 10 — Calendar & Notifications (Local Only)
 
 ### 10.1 EventKit integration

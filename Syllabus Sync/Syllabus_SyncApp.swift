@@ -11,7 +11,7 @@ import SwiftUI
 struct Syllabus_SyncApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            AppRoot()
         }
     }
 }

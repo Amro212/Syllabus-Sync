@@ -127,10 +127,10 @@ struct AppRoot: View {
                 LaunchScreenView()
                     .transition(.scale.combined(with: .opacity))
             case .onboarding:
-                OnboardingPlaceholderView()
+                OnboardingView()
                     .transition(.slideUp)
             case .auth:
-                AuthPlaceholderView()
+                AuthView()
                     .transition(.dissolve)
             case .dashboard, .importSyllabus, .settings:
                 TabNavigationView()
@@ -150,11 +150,11 @@ struct AppRoot: View {
         case .launch:
             LaunchScreenView()
         case .onboarding:
-            OnboardingPlaceholderView()
+            OnboardingView()
         case .auth:
-            AuthPlaceholderView()
+            AuthView()
         case .dashboard:
-            DashboardPlaceholderView()
+            DashboardView()
         case .importSyllabus:
             ImportPlaceholderView()
         case .preview:
@@ -186,53 +186,37 @@ struct TabNavigationView: View {
     
     var body: some View {
         TabView(selection: $navigationManager.selectedTabRoute) {
-            // Dashboard tab with its own navigation stack
-            NavigationStack {
-                NavigationTransitionContainer(transitionType: .dissolve) {
-                    DashboardPlaceholderView()
+            // Dashboard tab
+            DashboardView()
+                .tabItem {
+                    Image(systemName: "house.fill")
+                    Text("Dashboard")
                 }
-                .navigationDestination(for: AppRoute.self) { route in
-                    NavigationTransitionContainer(transitionType: .slide) {
-                        switch route {
-                        case .preview:
-                            PreviewPlaceholderView()
-                        case .courseDetail(let courseId):
-                            CourseDetailPlaceholderView(courseId: courseId)
-                        default:
-                            EmptyView()
-                        }
-                    }
-                }
-            }
-            .tabItem {
-                Image(systemName: AppRoute.dashboard.systemImage)
-                Text(AppRoute.dashboard.title)
-            }
-            .tag(AppRoute.dashboard)
+                .tag(AppRoute.dashboard)
             
-            // Import tab with its own navigation stack  
-            NavigationStack {
-                NavigationTransitionContainer(transitionType: .dissolve) {
-                    ImportPlaceholderView()
+            // Calendar tab
+            CalendarPlaceholderView()
+                .tabItem {
+                    Image(systemName: "calendar")
+                    Text("Calendar")
                 }
-            }
-            .tabItem {
-                Image(systemName: AppRoute.importSyllabus.systemImage)
-                Text(AppRoute.importSyllabus.title)
-            }
-            .tag(AppRoute.importSyllabus)
+                .tag(AppRoute.preview) // Using preview route for now
             
-            // Settings tab with its own navigation stack
-            NavigationStack {
-                NavigationTransitionContainer(transitionType: .dissolve) {
-                    SettingsPlaceholderView()
+            // Reminders tab
+            RemindersPlaceholderView()
+                .tabItem {
+                    Image(systemName: "bell")
+                    Text("Reminders")
                 }
-            }
-            .tabItem {
-                Image(systemName: AppRoute.settings.systemImage)
-                Text(AppRoute.settings.title)
-            }
-            .tag(AppRoute.settings)
+                .tag(AppRoute.courseDetail(courseId: "reminders")) // Temporary
+            
+            // Settings tab
+            SettingsPlaceholderView()
+                .tabItem {
+                    Image(systemName: "gear")
+                    Text("Settings")
+                }
+                .tag(AppRoute.settings)
         }
         .onAppear {
             // Configure tab bar appearance
@@ -253,6 +237,54 @@ struct TabNavigationView: View {
 }
 
 // MARK: - Placeholder Views
+
+/// Calendar placeholder view
+struct CalendarPlaceholderView: View {
+    var body: some View {
+        NavigationView {
+            VStack {
+                Spacer()
+                Text("📅")
+                    .font(.system(size: 80))
+                Text("Calendar View")
+                    .font(.titleL)
+                    .fontWeight(.bold)
+                    .foregroundColor(AppColors.textPrimary)
+                Text("Coming Soon")
+                    .font(.body)
+                    .foregroundColor(AppColors.textSecondary)
+                Spacer()
+            }
+            .background(AppColors.background)
+            .navigationTitle("Calendar")
+            .navigationBarTitleDisplayMode(.large)
+        }
+    }
+}
+
+/// Reminders placeholder view
+struct RemindersPlaceholderView: View {
+    var body: some View {
+        NavigationView {
+            VStack {
+                Spacer()
+                Text("🔔")
+                    .font(.system(size: 80))
+                Text("Reminders View")
+                    .font(.titleL)
+                    .fontWeight(.bold)
+                    .foregroundColor(AppColors.textPrimary)
+                Text("Coming Soon")
+                    .font(.body)
+                    .foregroundColor(AppColors.textSecondary)
+                Spacer()
+            }
+            .background(AppColors.background)
+            .navigationTitle("Reminders")
+            .navigationBarTitleDisplayMode(.large)
+        }
+    }
+}
 
 /// Generic placeholder view for any route
 struct RoutePlaceholderView: View {
@@ -696,20 +728,25 @@ struct LaunchScreenView: View {
                 VStack(spacing: Layout.Spacing.lg) {
                     ZStack {
                         Circle()
-                            .fill(AppColors.accent.gradient)
-                            .frame(width: 120, height: 120)
+                            .fill(AppColors.accent.gradient.opacity(0.1))
+                            .frame(width: 140, height: 140)
                             .scaleEffect(showLogo ? 1.0 : 0.6)
                             .opacity(showLogo ? 1.0 : 0.0)
                         
-                        AppIcon(
-                            "book.fill",
-                            size: .xlarge,
-                            style: .filled
-                        )
-                        .foregroundColor(.white)
-                        .scaleEffect(showLogo ? 1.0 : 0.8)
-                        .opacity(showLogo ? 1.0 : 0.0)
+                        Circle()
+                            .fill(AppColors.accent.gradient.opacity(0.2))
+                            .frame(width: 120, height: 120)
+                            .scaleEffect(showLogo ? 1.0 : 0.7)
+                            .opacity(showLogo ? 1.0 : 0.0)
+                        
+                        Image("SyllabusIcon")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 80, height: 80)
+                            .scaleEffect(showLogo ? 1.0 : 0.8)
+                            .opacity(showLogo ? 1.0 : 0.0)
                     }
+                    .shadow(color: AppColors.accent.opacity(0.3), radius: 20, x: 0, y: 10)
                     
                     VStack(spacing: Layout.Spacing.sm) {
                         Text("Syllabus Sync")

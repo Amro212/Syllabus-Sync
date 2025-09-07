@@ -21,20 +21,20 @@ struct Layout {
         /// Small spacing - 8pt (compact layouts, close elements)
         static let sm: CGFloat = 8
         
-        /// Medium spacing - 12pt (default spacing, comfortable layouts)
-        static let md: CGFloat = 12
+        /// Medium spacing - 16pt (comfortable spacing, internal elements)
+        static let md: CGFloat = 16
         
-        /// Large spacing - 16pt (section spacing, card padding)
-        static let lg: CGFloat = 16
+        /// Large spacing - 20pt (section spacing, card padding, horizontal margins)
+        static let lg: CGFloat = 20
         
-        /// Extra large spacing - 20pt (prominent spacing, major sections)
-        static let xl: CGFloat = 20
+        /// Extra large spacing - 24pt (prominent spacing, major sections)
+        static let xl: CGFloat = 24
         
-        /// Double extra large spacing - 24pt (page margins, major separations)
-        static let xxl: CGFloat = 24
+        /// Double extra large spacing - 32pt (page margins, major separations)
+        static let xxl: CGFloat = 32
         
-        /// Triple extra large spacing - 32pt (hero sections, major breaks)
-        static let xxxl: CGFloat = 32
+        /// Triple extra large spacing - 40pt (hero sections, major breaks)
+        static let xxxl: CGFloat = 40
         
         /// Massive spacing - 48pt (page breaks, major layout sections)
         static let massive: CGFloat = 48

@@ -92,27 +92,17 @@ export async function callOpenAIParse(
     throw Object.assign(new Error('OPENAI_API_KEY missing'), { code: 'CONFIG_MISSING' });
   }
 
-  const useResponsesAPI = prompt.response_format && (prompt.response_format as any).type === 'json_schema';
-  const url = useResponsesAPI
-    ? 'https://api.openai.com/v1/responses'
-    : 'https://api.openai.com/v1/chat/completions';
-
-  // Build body compatible with chosen endpoint
-  const body = useResponsesAPI
-    ? {
-        model: prompt.model,
-        input: prompt.messages,
-        text: {
-          format: prompt.response_format,
-        },
-        temperature: prompt.temperature ?? 0,
-      }
-    : {
-        model: prompt.model,
-        messages: prompt.messages,
-        response_format: prompt.response_format,
-        temperature: prompt.temperature ?? 0,
-      };
+  // Use Chat Completions for maximum compatibility. Some Responses API deployments
+  // expect a different structure (e.g., text.format) and reject response_format.
+  // We include response_format if present; on 400 complaining about response_format,
+  // we retry without it and rely on strict prompting + local validation.
+  let url = 'https://api.openai.com/v1/chat/completions';
+  let body: any = {
+    model: prompt.model,
+    messages: prompt.messages,
+    temperature: prompt.temperature ?? 0,
+  };
+  if (prompt.response_format) body.response_format = prompt.response_format;
 
   const init: RequestInit = {
     method: 'POST',
@@ -130,6 +120,19 @@ export async function callOpenAIParse(
       if (!res.ok) {
         const status = res.status;
         const text = await res.text().catch(() => '');
+        // Fallback: some servers reject response_format; retry once without it
+        if (
+          status === 400 &&
+          body.response_format &&
+          /Unsupported parameter:\s*'response_format'|moved to 'text\.format'/i.test(text) &&
+          attempt < retries
+        ) {
+          delete body.response_format;
+          init.body = JSON.stringify(body);
+          const delay = calcBackoff(attempt);
+          await sleep(delay);
+          continue;
+        }
         if (isRetriableStatus(status) && attempt < retries) {
           const delay = calcBackoff(attempt);
           await sleep(delay);
@@ -210,4 +213,3 @@ export async function callOpenAIParse(
   });
   throw lastError || Object.assign(new Error('OpenAI call failed'), { code: 'OPENAI_ERROR' });
 }
-

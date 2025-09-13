@@ -16,6 +16,30 @@ import { callOpenAIParse } from './clients/openai';
 // Basic in-memory token buckets by IP (per-isolate, best-effort)
 const buckets = new Map<string, { tokens: number; lastRefill: number }>();
 
+// Basic in-memory OpenAI usage tracking (per-isolate, best-effort)
+type OpenAIUsage = {
+  dayKey: string; // YYYY-MM-DD UTC
+  totalCalls: number;
+  totalCost: number;
+  perIpCalls: Map<string, number>;
+};
+const openaiUsage: OpenAIUsage = {
+  dayKey: new Date().toISOString().slice(0, 10),
+  totalCalls: 0,
+  totalCost: 0,
+  perIpCalls: new Map(),
+};
+
+function resetOpenAIUsageIfNewDay() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (openaiUsage.dayKey !== today) {
+    openaiUsage.dayKey = today;
+    openaiUsage.totalCalls = 0;
+    openaiUsage.totalCost = 0;
+    openaiUsage.perIpCalls.clear();
+  }
+}
+
 function getClientIp(req: Request): string {
   // Prefer Cloudflare-provided header; fallback to X-Forwarded-For
   const h = req.headers;
@@ -316,26 +340,55 @@ export default {
 						}
 					};
 
-					const needsOpenAI = finalEvents.length === 0 || overallConfidence < threshold;
+				const needsOpenAI = finalEvents.length === 0 || overallConfidence < threshold;
 					if (needsOpenAI) {
 						try {
-							const tz = request.headers.get('CF-Timezone') || 'UTC';
-							const promptReq = buildParseSyllabusRequest(text, {
-								courseId: parseConfig.courseId,
-								courseCode: parseConfig.courseCode,
-								termStart: (body as any).termStart,
-								termEnd: (body as any).termEnd,
-								timezone: tz,
-								model: (env as any).OPENAI_MODEL || 'gpt-5-mini',
-							});
-							const aiStarted = Date.now();
-							const aiItems = (await callOpenAIParse(env, promptReq, { requestId, route: path, method })) as any[];
-							const aiTime = Date.now() - aiStarted;
-							source = 'openai';
-							finalEvents = aiItems;
-							const confidences = finalEvents.map((e) => typeof e.confidence === 'number' ? e.confidence : 0.7);
-							finalConfidence = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : 0.7;
-							diags.openai = { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-5-mini' };
+							// Cost guardrails (Milestone 6.4)
+							resetOpenAIUsageIfNewDay();
+							const ip = getClientIp(request);
+							const perIpLimit = Number.parseInt((env as any).RATE_LIMIT_OPENAI || '10', 10) || 10;
+							const dailyBudget = Number.parseFloat((env as any).OPENAI_DAILY_BUDGET || '0');
+							const costPerCall = Number.parseFloat(((env as any).OPENAI_COST_PER_CALL as string) || '0.02');
+							const usedByIp = openaiUsage.perIpCalls.get(ip) || 0;
+
+							if (usedByIp >= perIpLimit) {
+								// Deny due to per-IP cap
+								diags.openai = { denied: 'per_ip_cap', perIpLimit, usedByIp };
+								logRequest(env, 'info', {
+									ts: nowIso(), requestId, route: path, method, status: 200, durationMs: Date.now() - startedAt,
+									parserPath: 'heuristics', openaiDenied: 'per_ip_cap', perIpLimit, usedByIp,
+								});
+							} else if (dailyBudget > 0 && (openaiUsage.totalCost + costPerCall) > dailyBudget) {
+								// Deny due to daily budget cap
+								diags.openai = { denied: 'budget_exceeded', dailyBudget, estimatedNextCost: costPerCall, spent: openaiUsage.totalCost };
+								logRequest(env, 'info', {
+									ts: nowIso(), requestId, route: path, method, status: 200, durationMs: Date.now() - startedAt,
+									parserPath: 'heuristics', openaiDenied: 'budget_exceeded', dailyBudget, spent: openaiUsage.totalCost,
+								});
+							} else {
+								// Proceed with OpenAI
+								const tz = request.headers.get('CF-Timezone') || 'UTC';
+								const promptReq = buildParseSyllabusRequest(text, {
+									courseId: parseConfig.courseId,
+									courseCode: parseConfig.courseCode,
+									termStart: (body as any).termStart,
+									termEnd: (body as any).termEnd,
+									timezone: tz,
+									model: (env as any).OPENAI_MODEL || 'gpt-5-mini',
+								});
+								const aiStarted = Date.now();
+								const aiItems = (await callOpenAIParse(env, promptReq, { requestId, route: path, method })) as any[];
+								const aiTime = Date.now() - aiStarted;
+								source = 'openai';
+								finalEvents = aiItems;
+								const confidences = finalEvents.map((e) => typeof e.confidence === 'number' ? e.confidence : 0.7);
+								finalConfidence = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : 0.7;
+								diags.openai = { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-5-mini' };
+								// Record usage post-call
+								openaiUsage.totalCalls += 1;
+								openaiUsage.totalCost += costPerCall;
+								openaiUsage.perIpCalls.set(ip, usedByIp + 1);
+							}
 						} catch (e) {
 							diags.openai = { error: { message: (e as any)?.message, code: (e as any)?.code }, fallback: 'heuristics' };
 						}

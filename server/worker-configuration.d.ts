@@ -7,6 +7,7 @@ declare namespace Cloudflare {
 		RATE_LIMIT_REQUESTS: string;
 		RATE_LIMIT_OPENAI: string;
 		OPENAI_DAILY_BUDGET: string;
+		OPENAI_COST_PER_CALL: string;
 		OPENAI_MODEL: string;
 		PARSE_CONFIDENCE_THRESHOLD: string;
 		ALLOWED_ORIGINS: string;

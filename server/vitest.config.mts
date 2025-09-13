@@ -8,6 +8,4 @@ export default defineWorkersConfig({
 			},
 		},
 	},
-	// Ensure tests run from the correct directory
-	testDir: './test',
 });

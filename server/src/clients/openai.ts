@@ -101,8 +101,10 @@ export async function callOpenAIParse(
   const body = useResponsesAPI
     ? {
         model: prompt.model,
-        messages: prompt.messages,
-        response_format: prompt.response_format,
+        input: prompt.messages,
+        text: {
+          format: prompt.response_format,
+        },
         temperature: prompt.temperature ?? 0,
       }
     : {

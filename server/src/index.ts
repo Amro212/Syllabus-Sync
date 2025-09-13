@@ -10,6 +10,8 @@ import { logRequest, logError, nowIso } from './logging';
 import { ensureOpenAIKey } from './env';
 import { buildEvents } from './parsing/eventBuilder';
 import { validateEvents, type ValidationConfig } from './validation/eventValidation';
+import { buildParseSyllabusRequest } from './prompts/parseSyllabus';
+import { callOpenAIParse } from './clients/openai';
 
 // Basic in-memory token buckets by IP (per-isolate, best-effort)
 const buckets = new Map<string, { tokens: number; lastRefill: number }>();
@@ -282,39 +284,69 @@ export default {
 						? validationResult.events.reduce((sum, e) => sum + (e.confidence || 0), 0) / validationResult.events.length
 						: 0;
 
-					const response = {
-						events: validationResult.events,
-						confidence: overallConfidence,
-						diagnostics: {
-							source: 'heuristics' as const,
-							processingTimeMs: Date.now() - parseStarted,
-							textLength: text.length,
-							warnings: [
-								...buildResult.stats.warnings,
-								...validationResult.warnings
-							],
-							parsing: {
-								totalLines: buildResult.stats.totalLines,
-								linesWithDates: buildResult.stats.linesWithDates,
-								linesWithTypes: buildResult.stats.linesWithTypes,
-								candidatesGenerated: buildResult.stats.candidatesGenerated,
-								candidatesAfterDedup: buildResult.stats.candidatesAfterDedup,
-								averageConfidence: buildResult.stats.averageConfidence
-							},
-							validation: {
-								totalEvents: validationResult.stats.totalEvents,
-								validEvents: validationResult.stats.validEvents,
-								invalidEvents: validationResult.stats.invalidEvents,
-								clampedEvents: validationResult.stats.clampedEvents,
-								defaultsApplied: validationResult.stats.defaultsApplied,
-								errors: validationResult.errors
-							}
+					// Confidence router (Milestone 6.3)
+					const threshold = Math.max(0, Math.min(1, Number.parseFloat((env as any).PARSE_CONFIDENCE_THRESHOLD || '0.6')));
+					let source: 'heuristics' | 'openai' = 'heuristics';
+					let finalEvents = validationResult.events as any[];
+					let finalConfidence = overallConfidence;
+					const diags: any = {
+						source: 'heuristics' as const,
+						processingTimeMs: Date.now() - parseStarted,
+						textLength: text.length,
+						threshold,
+						warnings: [
+							...buildResult.stats.warnings,
+							...validationResult.warnings
+						],
+						parsing: {
+							totalLines: buildResult.stats.totalLines,
+							linesWithDates: buildResult.stats.linesWithDates,
+							linesWithTypes: buildResult.stats.linesWithTypes,
+							candidatesGenerated: buildResult.stats.candidatesGenerated,
+							candidatesAfterDedup: buildResult.stats.candidatesAfterDedup,
+							averageConfidence: buildResult.stats.averageConfidence
 						},
+						validation: {
+							totalEvents: validationResult.stats.totalEvents,
+							validEvents: validationResult.stats.validEvents,
+							invalidEvents: validationResult.stats.invalidEvents,
+							clampedEvents: validationResult.stats.clampedEvents,
+							defaultsApplied: validationResult.stats.defaultsApplied,
+							errors: validationResult.errors
+						}
 					};
 
-					if (!validationResult.valid && validationResult.errors.length > 0) {
-						response.diagnostics.warnings.push(`Validation errors: ${validationResult.errors.join('; ')}`);
+					const needsOpenAI = finalEvents.length === 0 || overallConfidence < threshold;
+					if (needsOpenAI) {
+						try {
+							const tz = request.headers.get('CF-Timezone') || 'UTC';
+							const promptReq = buildParseSyllabusRequest(text, {
+								courseId: parseConfig.courseId,
+								courseCode: parseConfig.courseCode,
+								termStart: (body as any).termStart,
+								termEnd: (body as any).termEnd,
+								timezone: tz,
+								model: (env as any).OPENAI_MODEL || 'gpt-5-mini',
+							});
+							const aiStarted = Date.now();
+							const aiItems = (await callOpenAIParse(env, promptReq, { requestId, route: path, method })) as any[];
+							const aiTime = Date.now() - aiStarted;
+							source = 'openai';
+							finalEvents = aiItems;
+							const confidences = finalEvents.map((e) => typeof e.confidence === 'number' ? e.confidence : 0.7);
+							finalConfidence = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : 0.7;
+							diags.openai = { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-5-mini' };
+						} catch (e) {
+							diags.openai = { error: { message: (e as any)?.message, code: (e as any)?.code }, fallback: 'heuristics' };
+						}
 					}
+
+					const response = {
+						events: finalEvents,
+						source,
+						confidence: Number.isFinite(finalConfidence) ? Number(finalConfidence.toFixed(3)) : 0,
+						diagnostics: diags,
+					};
 
 					const res = json(response, { status: 200 });
 					logRequest(env, 'info', {
@@ -324,10 +356,10 @@ export default {
 						method,
 						status: 200,
 						durationMs: Date.now() - startedAt,
-						// Redacted metrics only; never log raw text
 						payloadChars: typeof text === 'string' ? text.length : 0,
-						eventsFound: validationResult.events.length,
-						overallConfidence: Math.round(overallConfidence * 100) / 100
+						parserPath: source,
+						eventsFound: Array.isArray(finalEvents) ? finalEvents.length : 0,
+						overallConfidence: response.confidence,
 					});
 					return res;
 

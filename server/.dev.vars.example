@@ -13,6 +13,7 @@ RATE_LIMIT_OPENAI=10         # Max OpenAI calls per IP per day
 # OpenAI Budget Controls
 OPENAI_DAILY_BUDGET=10.00    # Daily spend limit in USD
 OPENAI_MODEL=gpt-4o-mini     # Default model to use
+PARSE_CONFIDENCE_THRESHOLD=0.6  # Router threshold for heuristics fallback
 
 # Storage Configuration (Optional - for Task 7.x)
 # R2_BUCKET_NAME=syllabus-sync-pdfs

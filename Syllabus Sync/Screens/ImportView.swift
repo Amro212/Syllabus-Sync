@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 struct ImportView: View {
@@ -15,6 +16,10 @@ struct ImportView: View {
     @State private var isProcessing = false
     @State private var processingProgress: Double = 0.0
     @State private var processingStep = "Preparing..."
+    @State private var extractedSnippet: String? = nil
+    @State private var extractedTSV: String? = nil
+    @State private var firstPageImage: UIImage? = nil
+    @State private var showPreview: Bool = false
     
     private let processingSteps = [
         "Preparing...",
@@ -58,6 +63,9 @@ struct ImportView: View {
                 }
             }
         }
+        .sheet(isPresented: $showPreview) {
+            ExtractionPreviewView(image: firstPageImage, text: extractedSnippet ?? "", tsv: extractedTSV ?? "")
+        }
         .fileImporter(
             isPresented: $isShowingFilePicker,
             allowedContentTypes: [.pdf],
@@ -71,9 +79,7 @@ struct ImportView: View {
         withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
             isProcessing = true
         }
-        
         HapticFeedbackManager.shared.mediumImpact()
-        simulateProcessing()
     }
     
     private func simulateProcessing() {
@@ -114,8 +120,35 @@ struct ImportView: View {
     private func handleFileImport(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
-            print("Selected files: \(urls)")
+            guard let url = urls.first else { return }
             startImporting()
+            Task {
+                processingStep = "Reading PDF..."
+                let extractor = PDFKitExtractor()
+                let preview = await extractor.firstPagePreview(from: url, maxDimension: 600)
+                await MainActor.run { self.firstPageImage = preview }
+                processingStep = "Extracting text..."
+                do {
+                    let structured = try await extractor.extractStructured(from: url)
+                    let snippet = structured.plain // show full text in preview
+                    await MainActor.run {
+                        self.extractedSnippet = snippet
+                        self.extractedTSV = structured.tsv
+                        self.processingStep = "Completed"
+                        self.processingProgress = 1.0
+                        self.isProcessing = false
+                        self.showPreview = true
+                    }
+                    HapticFeedbackManager.shared.success()
+                } catch {
+                    await MainActor.run {
+                        self.extractedSnippet = "Extraction failed: \(error.localizedDescription)"
+                        self.isProcessing = false
+                        self.showPreview = true
+                    }
+                    HapticFeedbackManager.shared.warning()
+                }
+            }
         case .failure(let error):
             print("File import error: \(error)")
         }

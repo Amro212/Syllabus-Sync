@@ -19,6 +19,7 @@ enum AppRoute: Hashable, CaseIterable {
     case preview
     case courseDetail(course: MockCourse)
     case settings
+    case networkingTest
     
     // Static cases for easier iteration (excluding parameterized routes)
     static var allCases: [AppRoute] {
@@ -35,6 +36,7 @@ enum AppRoute: Hashable, CaseIterable {
         case .preview: return "Preview"
         case .courseDetail: return "Course Details"
         case .settings: return "Settings"
+        case .networkingTest: return "Networking Test"
         }
     }
     
@@ -48,6 +50,7 @@ enum AppRoute: Hashable, CaseIterable {
         case .preview: return "eye"
         case .courseDetail: return "book"
         case .settings: return "gear"
+        case .networkingTest: return "network"
         }
     }
 }
@@ -163,6 +166,8 @@ struct AppRoot: View {
             CourseDetailView(course: course)
         case .settings:
             SettingsView()
+        case .networkingTest:
+            NetworkingTestView()
         }
     }
 }
@@ -592,6 +597,14 @@ struct SettingsView: View {
                                 icon: "hand.tap"
                             ) {
                                 testHapticFeedback()
+                            }
+                            
+                            SettingsActionRow(
+                                title: "Test Networking",
+                                subtitle: "Test API client and parsing functionality",
+                                icon: "network"
+                            ) {
+                                navigationManager.navigate(to: .networkingTest)
                             }
                             
                             SettingsActionRow(

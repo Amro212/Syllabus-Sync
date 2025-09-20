@@ -10,6 +10,8 @@ declare namespace Cloudflare {
 		OPENAI_COST_PER_CALL: string;
 		OPENAI_MODEL: string;
 		PARSE_CONFIDENCE_THRESHOLD: string;
+		OPENAI_TIMEOUT_MS: string;
+		OPENAI_RETRIES: string;
 		ALLOWED_ORIGINS: string;
 		NODE_ENV: string;
 		LOG_LEVEL: string;

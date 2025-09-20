@@ -8,6 +8,8 @@ declare namespace Cloudflare {
 		RATE_LIMIT_OPENAI: string;
 		OPENAI_DAILY_BUDGET: string;
 		OPENAI_MODEL: string;
+		OPENAI_TIMEOUT_MS: string;
+		OPENAI_RETRIES: string;
 		ALLOWED_ORIGINS: string;
 		NODE_ENV: string;
 		LOG_LEVEL: string;

@@ -5,7 +5,15 @@
 //  Created by Amro Zabin on 2025-09-06.
 //
 
+import Foundation
 import SwiftUI
+
+private let defaultAPIBaseURL: URL = {
+    if let env = ProcessInfo.processInfo.environment["API_BASE_URL"], let url = URL(string: env) {
+        return url
+    }
+    return URL(string: "http://localhost:8787")!
+}()
 
 // MARK: - App Routes
 
@@ -109,7 +117,20 @@ class AppNavigationManager: ObservableObject {
 struct AppRoot: View {
     @StateObject private var navigationManager = AppNavigationManager()
     @StateObject private var themeManager = ThemeManager()
-    
+    @StateObject private var importViewModel = ImportViewModel(
+        extractor: PDFKitExtractor(),
+        parser: {
+            let config = URLSessionAPIClient.Configuration(
+                baseURL: defaultAPIBaseURL,
+                defaultHeaders: ["Content-Type": "application/json"],
+                requestTimeout: 45,
+                maxRetryCount: 1
+            )
+            let client = URLSessionAPIClient(configuration: config)
+            return SyllabusParserRemote(apiClient: client)
+        }()
+    )
+
     var body: some View {
         NavigationStack(path: $navigationManager.navigationPath) {
             rootView
@@ -119,6 +140,7 @@ struct AppRoot: View {
         }
         .environmentObject(navigationManager)
         .environmentObject(themeManager)
+        .environmentObject(importViewModel)
         .modifier(ThemeEnvironment(themeManager: themeManager))
     }
     
@@ -161,7 +183,7 @@ struct AppRoot: View {
         case .importSyllabus:
             ImportView()
         case .preview:
-            CalendarView()
+            PreviewView()
         case .courseDetail(let course):
             CourseDetailView(course: course)
         case .settings:
@@ -200,7 +222,7 @@ struct TabNavigationView: View {
                 .tag(AppRoute.dashboard)
             
             // Calendar tab
-                CalendarView()
+                PreviewView()
                     .tabItem {
                         Image(systemName: "calendar")
                         Text("Calendar")
@@ -497,7 +519,7 @@ struct PreviewPlaceholderView: View {
 
 /// Course detail placeholder
 struct CourseDetailPlaceholderView: View {
-    let courseId: String
+    let courseCode: String
     
     var body: some View {
         ScrollView {
@@ -509,7 +531,7 @@ struct CourseDetailPlaceholderView: View {
                         .font(.titleL)
                         .foregroundColor(AppColors.textPrimary)
                     
-                    Text("Course ID: \(courseId)")
+                    Text("Course Code: \(courseCode)")
                         .font(.body)
                         .foregroundColor(AppColors.textSecondary)
                         .padding(.horizontal, Layout.Spacing.md)

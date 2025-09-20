@@ -18,11 +18,8 @@ export interface EventItemDTO {
   /** Unique identifier for the event */
   id: string;
   
-  /** Identifier for the course this event belongs to */
-  courseId: string;
-  
-  /** Optional course code (e.g., 'CS101') */
-  courseCode?: string;
+  /** Course code (e.g., 'CS101') */
+  courseCode: string;
   
   /** Type of the event */
   type: EventType;

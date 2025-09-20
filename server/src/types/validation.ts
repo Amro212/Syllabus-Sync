@@ -9,10 +9,10 @@ import { EventItemDTO, EventItemsResponse, EventType } from './eventItem.js';
 const validEventTypes = new Set<EventType>(['ASSIGNMENT', 'QUIZ', 'MIDTERM', 'FINAL', 'LAB', 'LECTURE', 'OTHER']);
 
 // ISO8601 date regex (simplified)
-const iso8601Regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+const iso8601Regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}$/;
 
-// Course code regex (2-4 letters, 2-4 digits, optional letter)
-const courseCodeRegex = /^[A-Z]{2,4}[0-9]{2,4}[A-Z]?$/;
+// Course code regex (letters + digits, allow separators)
+const courseCodeRegex = /^[A-Z]{2,6}[A-Z0-9\s\-\*]{0,26}$/;
 
 /**
  * Validates a single EventItem manually
@@ -24,13 +24,13 @@ export function validateEventItem(data: unknown): boolean {
   
   // Required fields
   if (!item.id || typeof item.id !== 'string' || item.id.length === 0) return false;
-  if (!item.courseId || typeof item.courseId !== 'string' || item.courseId.length === 0) return false;
+  if (!item.courseCode || typeof item.courseCode !== 'string' || item.courseCode.trim().length === 0 || !courseCodeRegex.test(item.courseCode.trim())) return false;
   if (!item.type || !validEventTypes.has(item.type as EventType)) return false;
   if (!item.title || typeof item.title !== 'string' || item.title.length === 0 || item.title.length > 200) return false;
   if (!item.start || typeof item.start !== 'string' || !iso8601Regex.test(item.start)) return false;
   
   // Optional fields validation
-  if (item.courseCode !== undefined && (typeof item.courseCode !== 'string' || !courseCodeRegex.test(item.courseCode))) return false;
+  // courseCode already validated
   if (item.end !== undefined && (typeof item.end !== 'string' || !iso8601Regex.test(item.end))) return false;
   if (item.allDay !== undefined && typeof item.allDay !== 'boolean') return false;
   if (item.location !== undefined && (typeof item.location !== 'string' || item.location.length > 100)) return false;
@@ -89,7 +89,7 @@ export function validateEventItemsStrict(data: unknown): EventItemsResponse {
  * Helper to create a valid EventItem with defaults
  */
 export function createEventItem(
-  partial: Partial<EventItemDTO> & Pick<EventItemDTO, 'id' | 'courseId' | 'type' | 'title' | 'start'>
+  partial: Partial<EventItemDTO> & Pick<EventItemDTO, 'id' | 'courseCode' | 'type' | 'title' | 'start'>
 ): EventItemDTO {
   const eventItem: EventItemDTO = {
     allDay: false,

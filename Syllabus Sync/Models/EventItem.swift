@@ -20,8 +20,7 @@ struct EventItem: Identifiable, Codable, Equatable {
     }
 
     let id: String
-    let courseId: String
-    let courseCode: String?
+    let courseCode: String
     let type: EventType
     let title: String
     let start: Date

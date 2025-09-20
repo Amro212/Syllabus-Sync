@@ -2,5 +2,6 @@
 	"files.associations": {
 		"wrangler.json": "jsonc"
 	},
-	"chatgpt.openOnStartup": false
+	"chatgpt.openOnStartup": false,
+	"chatgpt.commentCodeLensEnabled": false
 }

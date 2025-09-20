@@ -9,6 +9,47 @@ public protocol ClientIDProviding {
     var clientID: String { get }
 }
 
+private extension URLSessionAPIClient {
+    static let primaryDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate, .withFullTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter
+    }()
+
+    static let fallbackDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate, .withFullTime]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter
+    }()
+
+    static let localISOWithMillis = try! NSRegularExpression(pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}$")
+    static let localISONoMillis = try! NSRegularExpression(pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$")
+    static let isoDateOnly = try! NSRegularExpression(pattern: "^\\d{4}-\\d{2}-\\d{2}$")
+
+    static func normalizeISOIfNeeded(_ string: String) -> String {
+        if string.hasSuffix("Z") || string.contains("+") {
+            return string
+        }
+
+        let range = NSRange(location: 0, length: string.utf16.count)
+        if localISOWithMillis.firstMatch(in: string, options: [], range: range) != nil {
+            return string + "Z"
+        }
+
+        if localISONoMillis.firstMatch(in: string, options: [], range: range) != nil {
+            return string + ".000Z"
+        }
+
+        if isoDateOnly.firstMatch(in: string, options: [], range: range) != nil {
+            return string + "T00:00:00.000Z"
+        }
+
+        return string
+    }
+}
+
 public final class DefaultClientIDProvider: ClientIDProviding {
     static let shared = DefaultClientIDProvider()
 
@@ -72,7 +113,18 @@ final class URLSessionAPIClient: APIClient {
 
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let string = try container.decode(String.self)
+            let normalized = Self.normalizeISOIfNeeded(string)
+            if let date = Self.primaryDateFormatter.date(from: normalized) {
+                return date
+            }
+            if let fallback = Self.fallbackDateFormatter.date(from: normalized) {
+                return fallback
+            }
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid ISO8601 date string: \(string)")
+        }
         jsonDecoder = decoder
 
     }
@@ -167,6 +219,46 @@ final class URLSessionAPIClient: APIClient {
         }
 
         throw APIClientError.requestFailed(underlying: URLError(.unknown))
+    }
+    
+    func sendWithRawResponse<T>(_ request: APIRequest, as type: T.Type) async throws -> (T, String) where T: Decodable {
+        guard let endpoint = URL(string: request.path, relativeTo: configuration.baseURL)?.absoluteURL else {
+            throw APIClientError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: endpoint)
+        urlRequest.httpMethod = request.method.rawValue
+        urlRequest.httpBody = request.body
+        urlRequest.timeoutInterval = request.timeout ?? configuration.requestTimeout
+
+        var headers = configuration.defaultHeaders
+        headers["Content-Type"] = headers["Content-Type"] ?? "application/json"
+        headers["Accept"] = headers["Accept"] ?? "application/json"
+        headers["x-client-id"] = clientIDProvider.clientID
+        for (key, value) in request.headers { headers[key] = value }
+        for (key, value) in headers { urlRequest.setValue(value, forHTTPHeaderField: key) }
+
+        let (data, response) = try await session.data(for: urlRequest)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIClientError.requestFailed(underlying: URLError(.badServerResponse))
+        }
+
+        switch http.statusCode {
+        case 200..<300:
+            let rawString = String(data: data, encoding: .utf8) ?? "<binary data>"
+            do {
+                let decoded = try jsonDecoder.decode(T.self, from: data)
+                return (decoded, rawString)
+            } catch {
+                throw APIClientError.decoding
+            }
+        case 401:
+            let message = try decodeServerMessage(from: data)
+            throw APIClientError.server(status: http.statusCode, message: message, retryAfter: nil)
+        default:
+            let message = try decodeServerMessage(from: data)
+            throw APIClientError.server(status: http.statusCode, message: message, retryAfter: parseRetryAfter(from: http))
+        }
     }
 
     private func decodeServerMessage(from data: Data) throws -> String? {

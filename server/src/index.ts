@@ -11,6 +11,7 @@ import { ensureOpenAIKey } from './env';
 import { buildEvents } from './parsing/eventBuilder';
 import { validateEvents, type ValidationConfig } from './validation/eventValidation';
 import { buildParseSyllabusRequest } from './prompts/parseSyllabus';
+import { detectCourseCode } from './utils/courseCode';
 import { callOpenAIParse } from './clients/openai';
 
 // Basic in-memory token buckets by IP (per-isolate, best-effort)
@@ -278,11 +279,30 @@ export default {
 					});
 				}
 
+				const providedCourseCode = typeof (body as any).courseCode === 'string'
+					? (body as any).courseCode.trim()
+					: '';
+				const detectedCourseCode = detectCourseCode(text);
+				const courseCode = providedCourseCode || detectedCourseCode;
+
+				if (!courseCode) {
+					const status = 422;
+					logRequest(env, 'info', {
+						ts: nowIso(), requestId, route: path, method, status,
+						durationMs: Date.now() - startedAt,
+						parserPath: 'heuristics',
+						error: 'Course code could not be determined from syllabus text',
+					});
+					return new Response(JSON.stringify({ error: 'Unable to determine courseCode from syllabus text.' }), {
+						status,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+
 				// Parse syllabus text using heuristics
 				try {
 					const parseConfig = {
-						courseId: (body as any).courseId || 'unknown',
-						courseCode: (body as any).courseCode,
+						courseCode,
 						defaultYear: (body as any).defaultYear || new Date().getFullYear(),
 						minConfidence: 0.3,
 						deduplicate: true
@@ -293,7 +313,6 @@ export default {
 					
 					// Step 2: Validate and process events
 					const validationConfig: ValidationConfig = {
-						defaultCourseId: parseConfig.courseId,
 						defaultCourseCode: parseConfig.courseCode,
 						// Add term window if provided
 						...(body as any).termStart && { termStart: new Date((body as any).termStart) },
@@ -341,6 +360,18 @@ export default {
 					};
 
 				const needsOpenAI = finalEvents.length === 0 || overallConfidence < threshold;
+					
+					// Debug logging
+					logRequest(env, 'debug', {
+						ts: nowIso(), requestId, route: path, method, status: 0, durationMs: Date.now() - startedAt,
+						debug: {
+							overallConfidence,
+							threshold,
+							needsOpenAI,
+							eventsCount: finalEvents.length
+						}
+					});
+					
 					if (needsOpenAI) {
 						try {
 							// Cost guardrails (Milestone 6.4)
@@ -369,12 +400,11 @@ export default {
 								// Proceed with OpenAI
 								const tz = request.headers.get('CF-Timezone') || 'UTC';
 								const promptReq = buildParseSyllabusRequest(text, {
-									courseId: parseConfig.courseId,
 									courseCode: parseConfig.courseCode,
 									termStart: (body as any).termStart,
 									termEnd: (body as any).termEnd,
 									timezone: tz,
-									model: (env as any).OPENAI_MODEL || 'gpt-5-mini',
+									model: (env as any).OPENAI_MODEL || 'gpt-4o-mini',
 								});
 								const aiStarted = Date.now();
 								const aiItems = (await callOpenAIParse(env, promptReq, { requestId, route: path, method })) as any[];
@@ -383,14 +413,34 @@ export default {
 								finalEvents = aiItems;
 								const confidences = finalEvents.map((e) => typeof e.confidence === 'number' ? e.confidence : 0.7);
 								finalConfidence = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : 0.7;
-								diags.openai = { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-5-mini' };
+								diags.openai = { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-4o-mini' };
 								// Record usage post-call
 								openaiUsage.totalCalls += 1;
 								openaiUsage.totalCost += costPerCall;
 								openaiUsage.perIpCalls.set(ip, usedByIp + 1);
 							}
 						} catch (e) {
-							diags.openai = { error: { message: (e as any)?.message, code: (e as any)?.code }, fallback: 'heuristics' };
+							// Log the OpenAI error for debugging but don't prevent response
+							diags.openai = { 
+								error: { 
+									message: (e as any)?.message, 
+									code: (e as any)?.code 
+								}, 
+								fallback: 'heuristics' 
+							};
+							// Make sure we log the specific error for debugging
+							logError(env, {
+								ts: nowIso(),
+								requestId,
+								route: path,
+								method,
+								status: 200,
+								durationMs: Date.now() - startedAt,
+								error: {
+									message: `OpenAI fallback triggered: ${(e as any)?.message}`,
+									code: (e as any)?.code || 'OPENAI_FALLBACK'
+								}
+							});
 						}
 					}
 

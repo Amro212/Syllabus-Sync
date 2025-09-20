@@ -11,8 +11,10 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
     private let encoder: JSONEncoder
 
     @Published private(set) var diagnostics: ParseDiagnostics?
+    @Published private(set) var latestRawResponse: String?
 
     var latestDiagnostics: ParseDiagnostics? { diagnostics }
+    var rawResponse: String? { latestRawResponse }
 
     init(apiClient: APIClient) {
         self.apiClient = apiClient
@@ -35,10 +37,12 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
         request.headers["Content-Type"] = "application/json"
 
         do {
-            let response: ParseResult = try await apiClient.send(request, as: ParseResult.self)
+            let (response, rawResponse): (ParseResult, String) = try await apiClient.sendWithRawResponse(request, as: ParseResult.self)
             diagnostics = mapDiagnostics(from: response)
+            latestRawResponse = rawResponse
             return response.events
         } catch {
+            latestRawResponse = nil
             throw mapToParserError(error)
         }
     }

@@ -55,7 +55,7 @@ describe('Event Validation', () => {
 
       const event = result.events[0];
       expect(event.id).toBe('test-123');
-      expect(event.courseId).toBe('cs101');
+      expect(event.courseCode).toBe('cs101');
       expect(event.courseCode).toBe('CS 101');
       expect(event.type).toBe('ASSIGNMENT');
       expect(event.title).toBe('Assignment 1');
@@ -85,7 +85,7 @@ describe('Event Validation', () => {
       const event = result.events[0];
       expect(event.title).toBe('Quiz'); // Default title
       expect(event.allDay).toBe(true); // Default based on time
-      expect(event.courseId).toBe('unknown'); // Default course ID
+      expect(event.courseCode).toBe('unknown'); // Default course ID
     });
 
     it('should handle validation errors gracefully', () => {
@@ -269,7 +269,7 @@ describe('Event Validation', () => {
     it('should validate a correct event', () => {
       const event: EventItemDTO = {
         id: 'test-123',
-        courseId: 'cs101',
+        courseCode: 'cs101',
         courseCode: 'CS 101',
         type: 'ASSIGNMENT',
         title: 'Assignment 1',
@@ -304,7 +304,7 @@ describe('Event Validation', () => {
       const incompleteEvent = {
         id: 'test-123',
         type: 'ASSIGNMENT'
-        // Missing required fields: courseId, title, start
+        // Missing required fields: courseCode, title, start
       };
 
       const result = validateSingleEvent(incompleteEvent);
@@ -367,7 +367,7 @@ describe('Event Validation', () => {
       const events: EventItemDTO[] = [
         {
           id: 'test-1',
-          courseId: 'cs101',
+          courseCode: 'cs101',
           type: 'ASSIGNMENT',
           title: '  Assignment 1  ', // Should be trimmed
           start: '2025-09-15T23:59:59.000Z',
@@ -377,7 +377,7 @@ describe('Event Validation', () => {
         },
         {
           id: 'test-2',
-          courseId: 'cs101',
+          courseCode: 'cs101',
           courseCode: '  CS 101  ', // Should be trimmed
           type: 'QUIZ',
           title: 'Quiz 1',
@@ -408,7 +408,7 @@ describe('Event Validation', () => {
     it('should handle missing optional fields', () => {
       const events: EventItemDTO[] = [{
         id: 'test-minimal',
-        courseId: 'cs101',
+        courseCode: 'cs101',
         type: 'LECTURE',
         title: 'Minimal Event',
         start: '2025-09-10T09:00:00.000Z'

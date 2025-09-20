@@ -199,6 +199,14 @@ struct NetworkingTestView: View {
                 await MainActor.run {
                     testResults.append("✅ Parse endpoint successful")
                     testResults.append("📊 Found \(result.count) events")
+                    if let diag = parser.latestDiagnostics {
+                        let path = (diag.source == .heuristics) ? "heuristics" : "openai"
+                        testResults.append("🧭 Parser path: \(path)")
+                        testResults.append(String(format: "🎯 Confidence: %.3f", diag.confidence))
+                        if diag.source == .openai, let model = diag.openAIModel {
+                            testResults.append("🤖 OpenAI model: \(model)")
+                        }
+                    }
                     
                     for (index, event) in result.enumerated() {
                         let formatter = DateFormatter()

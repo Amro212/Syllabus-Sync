@@ -11,42 +11,26 @@ import UniformTypeIdentifiers
 
 struct ImportView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
+    @EnvironmentObject var importViewModel: ImportViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var isShowingFilePicker = false
-    @State private var isProcessing = false
-    @State private var processingProgress: Double = 0.0
-    @State private var processingStep = "Preparing..."
-    @State private var extractedSnippet: String? = nil
-    @State private var extractedTSV: String? = nil
-    @State private var firstPageImage: UIImage? = nil
-    @State private var showPreview: Bool = false
-    
-    private let processingSteps = [
-        "Preparing...",
-        "Reading PDF...",
-        "Extracting text...",
-        "Analyzing content...",
-        "Finding dates...",
-        "Creating events...",
-        "Finalizing..."
-    ]
-    
+
     var body: some View {
         NavigationView {
             ZStack {
                 AppColors.background
                     .ignoresSafeArea()
                 
-                if isProcessing {
+                if importViewModel.isProcessing {
                     ProcessingView(
-                        progress: processingProgress,
-                        step: processingStep
+                        progress: importViewModel.progress,
+                        step: importViewModel.statusMessage
                     )
                     .transition(.opacity)
                 } else {
                     ImportContentView(
                         onFilePicker: { isShowingFilePicker = true },
-                        onImport: { startImporting() }
+                        onImport: { isShowingFilePicker = true }
                     )
                     .transition(.opacity)
                 }
@@ -60,11 +44,9 @@ struct ImportView: View {
                         dismiss()
                     }
                     .foregroundColor(AppColors.textSecondary)
+                    .disabled(importViewModel.isProcessing)
                 }
             }
-        }
-        .sheet(isPresented: $showPreview) {
-            ExtractionPreviewView(image: firstPageImage, text: extractedSnippet ?? "", tsv: extractedTSV ?? "")
         }
         .fileImporter(
             isPresented: $isShowingFilePicker,
@@ -73,80 +55,30 @@ struct ImportView: View {
         ) { result in
             handleFileImport(result)
         }
-    }
-    
-    private func startImporting() {
-        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-            isProcessing = true
-        }
-        HapticFeedbackManager.shared.mediumImpact()
-    }
-    
-    private func simulateProcessing() {
-        let stepDuration = 0.8
-        let totalSteps = processingSteps.count
-        
-        for (index, step) in processingSteps.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * stepDuration) {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    processingStep = step
-                    processingProgress = Double(index + 1) / Double(totalSteps)
-                }
-                
-                // Add haptic feedback for progress milestones
-                if index == 2 || index == 5 {
-                    HapticFeedbackManager.shared.lightImpact()
-                }
+        .alert("Import Failed", isPresented: Binding<Bool>(
+            get: { importViewModel.errorMessage != nil },
+            set: { newValue in if !newValue { importViewModel.errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {
+                importViewModel.errorMessage = nil
             }
-        }
-        
-        // Complete the import
-        DispatchQueue.main.asyncAfter(deadline: .now() + Double(totalSteps) * stepDuration + 0.5) {
-            completeImport()
+        } message: {
+            Text(importViewModel.errorMessage ?? "Unknown error.")
         }
     }
-    
-    private func completeImport() {
-        HapticFeedbackManager.shared.success()
-        
-        // Dismiss modal and navigate to Calendar tab
-        dismiss()
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            navigationManager.switchTab(to: .preview) // Calendar tab
-        }
-    }
-    
+
     private func handleFileImport(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
-            startImporting()
             Task {
-                processingStep = "Reading PDF..."
-                let extractor = PDFKitExtractor()
-                let preview = await extractor.firstPagePreview(from: url, maxDimension: 600)
-                await MainActor.run { self.firstPageImage = preview }
-                processingStep = "Extracting text..."
-                do {
-                    let structured = try await extractor.extractStructured(from: url)
-                    let snippet = structured.plain // show full text in preview
+                await MainActor.run { isShowingFilePicker = false }
+                let success = await importViewModel.importSyllabus(from: url)
+                if success {
                     await MainActor.run {
-                        self.extractedSnippet = snippet
-                        self.extractedTSV = structured.tsv
-                        self.processingStep = "Completed"
-                        self.processingProgress = 1.0
-                        self.isProcessing = false
-                        self.showPreview = true
+                        dismiss()
+                        navigationManager.switchTab(to: .preview)
                     }
-                    HapticFeedbackManager.shared.success()
-                } catch {
-                    await MainActor.run {
-                        self.extractedSnippet = "Extraction failed: \(error.localizedDescription)"
-                        self.isProcessing = false
-                        self.showPreview = true
-                    }
-                    HapticFeedbackManager.shared.warning()
                 }
             }
         case .failure(let error):

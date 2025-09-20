@@ -18,7 +18,7 @@ export interface OpenAIClientOptions {
   retries?: number; // default 2 (total attempts = retries + 1)
 }
 
-const DEFAULT_TIMEOUT_MS = 20000;
+const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_RETRIES = 2;
 
 function sleep(ms: number) {
@@ -71,7 +71,14 @@ export async function callOpenAIParse(
   reqMeta?: { requestId?: string; route?: string; method?: string },
   options: OpenAIClientOptions = {}
 ): Promise<unknown[]> {
-  const { timeoutMs = DEFAULT_TIMEOUT_MS, retries = DEFAULT_RETRIES } = options;
+  const timeoutOverride = parseInt((env as any).OPENAI_TIMEOUT_MS || '', 10);
+  const retriesOverride = parseInt((env as any).OPENAI_RETRIES || '', 10);
+  const timeoutMs = options.timeoutMs
+    ?? (Number.isFinite(timeoutOverride) && timeoutOverride > 0 ? timeoutOverride : undefined)
+    ?? DEFAULT_TIMEOUT_MS;
+  const retries = options.retries
+    ?? (Number.isFinite(retriesOverride) && retriesOverride >= 0 ? retriesOverride : undefined)
+    ?? DEFAULT_RETRIES;
   const apiKey = env.OPENAI_API_KEY;
   const started = Date.now();
   const requestId = reqMeta?.requestId || (globalThis as any).crypto?.randomUUID?.() || 'unknown';
@@ -116,6 +123,19 @@ export async function callOpenAIParse(
   let lastError: any = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
+      // Log the request attempt for debugging
+      if (attempt === 0) {
+        logRequest(env, 'debug', {
+          ts: nowIso(),
+          requestId,
+          route,
+          method,
+          status: 0,
+          durationMs: 0,
+          openaiRequest: { model: body.model, temperature: body.temperature, timeoutMs, retries }
+        });
+      }
+      
       const res = await fetchWithTimeout(url, init, timeoutMs);
       if (!res.ok) {
         const status = res.status;
@@ -124,9 +144,18 @@ export async function callOpenAIParse(
         if (
           status === 400 &&
           body.response_format &&
-          /Unsupported parameter:\s*'response_format'|moved to 'text\.format'/i.test(text) &&
-          attempt < retries
+          (/Unsupported parameter:\s*'response_format'|moved to 'text\.format'|Invalid value for 'response_format'/i.test(text)) &&
+          attempt === 0 // Only try this fallback on first attempt
         ) {
+          logRequest(env, 'warn', {
+            ts: nowIso(),
+            requestId,
+            route,
+            method,
+            status: 0,
+            durationMs: Date.now() - started,
+            openaiWarning: 'Removing response_format due to API incompatibility'
+          });
           delete body.response_format;
           init.body = JSON.stringify(body);
           const delay = calcBackoff(attempt);
@@ -160,16 +189,17 @@ export async function callOpenAIParse(
         throw err;
       }
 
-      if (!Array.isArray(parsed)) {
-        const err = new Error('Expected JSON array of EventItemDTO');
+      const eventsArray = extractEventsArray(parsed);
+      if (!eventsArray) {
+        const err = new Error('Expected JSON object with events array');
         (err as any).code = 'INVALID_SHAPE';
         throw err;
       }
 
       // Light validation: ensure each item roughly matches EventItemDTO
       const invalids: string[] = [];
-      for (let i = 0; i < parsed.length; i++) {
-        const v = validateSingleEvent((parsed as any[])[i]);
+      for (let i = 0; i < eventsArray.length; i++) {
+        const v = validateSingleEvent(eventsArray[i]);
         if (!v.valid) invalids.push(`item ${i + 1}: ${v.errors.join('; ')}`);
       }
       if (invalids.length > 0) {
@@ -185,11 +215,11 @@ export async function callOpenAIParse(
         method,
         status: 200,
         durationMs: Date.now() - started,
-        items: (parsed as any[]).length,
+        items: eventsArray.length,
       });
-      return parsed as unknown[];
+      return eventsArray as unknown[];
     } catch (error) {
-      lastError = error;
+      lastError = normalizeOpenAIError(error);
       if (attempt < retries) {
         const delay = calcBackoff(attempt);
         await sleep(delay);
@@ -211,5 +241,32 @@ export async function callOpenAIParse(
       code: (lastError as any)?.code || 'OPENAI_ERROR',
     },
   });
-  throw lastError || Object.assign(new Error('OpenAI call failed'), { code: 'OPENAI_ERROR' });
+  throw (lastError as Error) || Object.assign(new Error('OpenAI call failed'), { code: 'OPENAI_ERROR' });
+}
+
+function extractEventsArray(parsed: unknown): unknown[] | null {
+  if (Array.isArray(parsed)) {
+    return parsed;
+  }
+  if (parsed && typeof parsed === 'object') {
+    const events = (parsed as any).events;
+    if (Array.isArray(events)) {
+      return events;
+    }
+  }
+  return null;
+}
+
+function normalizeOpenAIError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+  if (typeof error === 'string') {
+    const err = new Error(error);
+    (err as any).code = error === 'timeout' ? 'OPENAI_TIMEOUT' : 'OPENAI_ERROR';
+    return err;
+  }
+  const err = new Error('OpenAI call failed');
+  Object.assign(err as any, error ?? {});
+  return err;
 }

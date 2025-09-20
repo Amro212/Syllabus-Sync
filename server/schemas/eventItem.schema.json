@@ -10,15 +10,12 @@
       "description": "Unique identifier for the event",
       "pattern": "^[a-zA-Z0-9_-]+$"
     },
-    "courseId": {
-      "type": "string",
-      "description": "Identifier for the course this event belongs to",
-      "pattern": "^[a-zA-Z0-9_-]+$"
-    },
     "courseCode": {
       "type": "string",
-      "description": "Optional course code (e.g., 'CS101')",
-      "pattern": "^[A-Z]{2,4}[0-9]{2,4}[A-Z]?$"
+      "description": "Course code extracted from the syllabus (e.g., 'ENGG*3990', 'CS 101')",
+      "minLength": 2,
+      "maxLength": 32,
+      "pattern": "^[A-Za-z]{2,6}[A-Za-z0-9\\s\\-\\*]{0,26}$"
     },
     "type": {
       "type": "string",
@@ -33,13 +30,13 @@
     },
     "start": {
       "type": "string",
-      "format": "date-time",
-      "description": "Start date/time of the event in ISO8601 format"
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}$",
+      "description": "Start date/time of the event in ISO8601 format without timezone"
     },
     "end": {
       "type": "string",
-      "format": "date-time",
-      "description": "End date/time of the event in ISO8601 format"
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}$",
+      "description": "End date/time of the event in ISO8601 format without timezone"
     },
     "allDay": {
       "type": "boolean",
@@ -69,6 +66,6 @@
       "description": "Confidence score from the parser (0-1)"
     }
   },
-  "required": ["id", "courseId", "type", "title", "start"],
+  "required": ["id", "courseCode", "type", "title", "start"],
   "additionalProperties": false
 }

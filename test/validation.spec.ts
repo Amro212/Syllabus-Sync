@@ -15,7 +15,7 @@ import type { EventItemDTO } from '../src/types/eventItem.js';
 describe('EventItem Validation', () => {
   const validEventItem: EventItemDTO = {
     id: 'event-123',
-    courseId: 'course-456',
+    courseCode: 'course-456',
     courseCode: 'CS101',
     type: 'ASSIGNMENT',
     title: 'Homework 1',
@@ -36,7 +36,7 @@ describe('EventItem Validation', () => {
     it('should validate a minimal valid event item', () => {
       const minimal: EventItemDTO = {
         id: 'event-123',
-        courseId: 'course-456',
+        courseCode: 'course-456',
         type: 'QUIZ',
         title: 'Quiz 1',
         start: '2025-09-15T10:00:00.000Z',
@@ -130,7 +130,7 @@ describe('EventItem Validation', () => {
     it('should create valid event item with defaults', () => {
       const partial = {
         id: 'event-123',
-        courseId: 'course-456',
+        courseCode: 'course-456',
         type: 'ASSIGNMENT' as const,
         title: 'Test Assignment',
         start: '2025-09-15T23:59:00.000Z',
@@ -145,7 +145,7 @@ describe('EventItem Validation', () => {
     it('should override defaults when provided', () => {
       const partial = {
         id: 'event-123',
-        courseId: 'course-456',
+        courseCode: 'course-456',
         type: 'QUIZ' as const,
         title: 'Test Quiz',
         start: '2025-09-15T10:00:00.000Z',
@@ -161,7 +161,7 @@ describe('EventItem Validation', () => {
     it('should throw error for invalid created item', () => {
       const invalid = {
         id: '', // Invalid: empty string
-        courseId: 'course-456',
+        courseCode: 'course-456',
         type: 'ASSIGNMENT' as const,
         title: 'Test',
         start: '2025-09-15T23:59:00.000Z',

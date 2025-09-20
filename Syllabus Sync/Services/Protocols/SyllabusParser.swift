@@ -9,6 +9,9 @@ import Foundation
 protocol SyllabusParser {
     @MainActor
     var latestDiagnostics: ParseDiagnostics? { get }
+    
+    @MainActor
+    var rawResponse: String? { get }  // Raw JSON response for debugging
 
     @MainActor
     func parse(text: String) async throws -> [EventItem]

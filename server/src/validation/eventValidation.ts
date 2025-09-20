@@ -7,6 +7,12 @@
 
 import type { EventItemDTO, EventType } from '../types/eventItem.js';
 import type { EventCandidate } from '../parsing/eventBuilder.js';
+import {
+  formatUtcDateWithoutTimezone,
+  parseFlexibleISODate,
+  matchesAcceptedISOFormat,
+  ACCEPTED_ISO_LOCAL_PATTERNS,
+} from '../utils/date.js';
 
 /**
  * Configuration for validation and processing
@@ -16,8 +22,6 @@ export interface ValidationConfig {
   termStart?: Date;
   /** Academic term end date for date clamping */
   termEnd?: Date;
-  /** Default course ID if not provided */
-  defaultCourseId?: string;
   /** Default course code if not provided */
   defaultCourseCode?: string;
   /** Whether to apply strict validation */
@@ -77,11 +81,8 @@ function validateEventItemDTO(event: unknown): { valid: boolean; errors: string[
     errors.push('id must match pattern ^[a-zA-Z0-9_-]+$');
   }
   
-  if (!e.courseId || typeof e.courseId !== 'string' || e.courseId.trim().length === 0) {
-    errors.push('courseId is required and must be a non-empty string');
-  } else if (!/^[a-zA-Z0-9_-]+$/.test(e.courseId.replace(/[^a-zA-Z0-9_-]/g, ''))) {
-    // Allow more flexible courseId patterns (relax validation)
-    // errors.push('courseId must match pattern ^[a-zA-Z0-9_-]+$');
+  if (!e.courseCode || typeof e.courseCode !== 'string' || e.courseCode.trim().length === 0) {
+    errors.push('courseCode is required and must be a non-empty string');
   }
   
   if (!e.type || !VALID_EVENT_TYPES.includes(e.type)) {
@@ -101,14 +102,7 @@ function validateEventItemDTO(event: unknown): { valid: boolean; errors: string[
   }
   
   // Optional fields
-  if (e.courseCode !== undefined) {
-    if (typeof e.courseCode !== 'string') {
-      errors.push('courseCode must be a string');
-    } else if (e.courseCode.trim().length > 0 && !/^[A-Z]{2,4}[0-9]{2,4}[A-Z]?$/i.test(e.courseCode.trim())) {
-      // Make course code validation case-insensitive and more flexible
-      // errors.push('courseCode must match pattern ^[A-Z]{2,4}[0-9]{2,4}[A-Z]?$');
-    }
-  }
+  // courseCode already validated above
   
   if (e.end !== undefined) {
     if (typeof e.end !== 'string') {
@@ -241,12 +235,11 @@ export function validateEvents(
 function candidateToDTO(candidate: EventCandidate, config: ValidationConfig): EventItemDTO {
   return {
     id: candidate.id,
-    courseId: config.defaultCourseId || 'unknown',
-    courseCode: config.defaultCourseCode,
+    courseCode: candidate.courseCode ?? config.defaultCourseCode ?? '',
     type: candidate.type,
     title: candidate.title,
-    start: candidate.start.toISOString(),
-    end: candidate.end?.toISOString(),
+    start: formatUtcDateWithoutTimezone(candidate.start),
+    end: candidate.end ? formatUtcDateWithoutTimezone(candidate.end) : undefined,
     allDay: candidate.allDay,
     location: candidate.location,
     notes: candidate.notes,
@@ -262,8 +255,9 @@ function applyDefaults(dto: EventItemDTO, config: ValidationConfig): EventItemDT
   
   // Apply allDay default if no time specified and no end date
   if (result.allDay === undefined) {
-    const hasTime = result.start.includes('T') && !result.start.endsWith('T00:00:00.000Z');
-    result.allDay = !hasTime;
+    const hasDateTime = result.start.includes('T');
+    const hasNonMidnightTime = hasDateTime && !result.start.endsWith('T00:00:00.000');
+    result.allDay = hasDateTime ? !hasNonMidnightTime : true;
   }
   
   // Ensure title is not empty
@@ -302,33 +296,33 @@ function clampDatesToTerm(
     return { event: result, wasClamped };
   }
   
-  const startDate = new Date(result.start);
-  let endDate = result.end ? new Date(result.end) : null;
+  const startDate = parseFlexibleISODate(result.start);
+  let endDate = result.end ? parseFlexibleISODate(result.end) : null;
   
   // Clamp start date
   if (termStart && startDate < termStart) {
-    result.start = termStart.toISOString();
+    result.start = formatUtcDateWithoutTimezone(termStart);
     wasClamped = true;
   } else if (termEnd && startDate > termEnd) {
-    result.start = termEnd.toISOString();
+    result.start = formatUtcDateWithoutTimezone(termEnd);
     wasClamped = true;
   }
   
   // Clamp end date if present
   if (endDate) {
     if (termStart && endDate < termStart) {
-      result.end = termStart.toISOString();
+      result.end = formatUtcDateWithoutTimezone(termStart);
       wasClamped = true;
     } else if (termEnd && endDate > termEnd) {
-      result.end = termEnd.toISOString();
+      result.end = formatUtcDateWithoutTimezone(termEnd);
       wasClamped = true;
     }
   }
   
   // Ensure end date is after start date (always check, not just when clamping)
   if (result.end) {
-    const finalStart = new Date(result.start);
-    const finalEnd = new Date(result.end);
+    const finalStart = parseFlexibleISODate(result.start);
+    const finalEnd = parseFlexibleISODate(result.end);
     
     if (finalEnd <= finalStart) {
       // If end is not after start, remove end date or adjust it
@@ -337,7 +331,7 @@ function clampDatesToTerm(
       } else {
         // Add 1 hour to start time
         const newEnd = new Date(finalStart.getTime() + 60 * 60 * 1000);
-        result.end = newEnd.toISOString();
+        result.end = formatUtcDateWithoutTimezone(newEnd);
       }
       wasClamped = true;
     }
@@ -407,11 +401,35 @@ export function createTermWindow(
 
 /**
  * Utility to check if a date string is valid ISO 8601
+ * Accepts various ISO 8601 formats and validates actual date validity
  */
 export function isValidISODate(dateString: string): boolean {
   try {
-    const date = new Date(dateString);
-    return !isNaN(date.getTime()) && dateString === date.toISOString();
+    if (!matchesAcceptedISOFormat(dateString)) {
+      return false;
+    }
+
+    const parsed = parseFlexibleISODate(dateString);
+    if (Number.isNaN(parsed.getTime())) {
+      return false;
+    }
+
+    if (ACCEPTED_ISO_LOCAL_PATTERNS.ISO_LOCAL_WITH_MS.test(dateString)) {
+      return formatUtcDateWithoutTimezone(parsed) === dateString;
+    }
+
+    if (ACCEPTED_ISO_LOCAL_PATTERNS.ISO_LOCAL_NO_MS.test(dateString)) {
+      const formatted = formatUtcDateWithoutTimezone(parsed);
+      return formatted.startsWith(`${dateString}.`);
+    }
+
+    if (ACCEPTED_ISO_LOCAL_PATTERNS.ISO_DATE_ONLY.test(dateString)) {
+      const formatted = formatUtcDateWithoutTimezone(parsed);
+      return formatted.startsWith(`${dateString}T`);
+    }
+
+    // Fallback for canonical ISO strings with timezone (e.g., heuristics historical values)
+    return !Number.isNaN(parsed.getTime());
   } catch {
     return false;
   }
@@ -424,8 +442,8 @@ export function normalizeEventData(events: EventItemDTO[]): EventItemDTO[] {
   return events.map(event => ({
     ...event,
     // Ensure consistent ISO date format
-    start: new Date(event.start).toISOString(),
-    end: event.end ? new Date(event.end).toISOString() : undefined,
+    start: formatUtcDateWithoutTimezone(parseFlexibleISODate(event.start)),
+    end: event.end ? formatUtcDateWithoutTimezone(parseFlexibleISODate(event.end)) : undefined,
     // Normalize string fields
     title: event.title.trim(),
     location: event.location?.trim(),

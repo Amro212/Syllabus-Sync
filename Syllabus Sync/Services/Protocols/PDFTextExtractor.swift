@@ -19,4 +19,9 @@ protocol PDFTextExtractor {
     /// - Parameter url: Local file URL to the PDF.
     /// - Returns: The rendered first page image, if available.
     func firstPagePreview(from url: URL, maxDimension: CGFloat) async -> UIImage?
+
+    /// Extracts structured content from a PDF, including plain text and TSV-friendly rows.
+    /// - Parameter url: Local file URL to the PDF.
+    /// - Returns: Tuple containing joined plain text, TSV formatted rows, and page count.
+    func extractStructured(from url: URL) async throws -> (plain: String, tsv: String, pages: Int)
 }

@@ -30,6 +30,7 @@ struct APIRequest {
 /// Abstraction over URLSession to make the app's networking testable.
 protocol APIClient {
     func send<T: Decodable>(_ request: APIRequest, as type: T.Type) async throws -> T
+    func sendWithRawResponse<T: Decodable>(_ request: APIRequest, as type: T.Type) async throws -> (T, String)
 }
 
 /// Errors thrown by the APIClient.

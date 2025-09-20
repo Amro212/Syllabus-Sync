@@ -5,10 +5,10 @@ type EnvLike = Partial<Env> & { [k: string]: any };
 
 const goodEvent = {
   id: 'a1',
-  courseId: 'cs101',
+  courseCode: 'CS101',
   type: 'ASSIGNMENT',
   title: 'Assignment 1',
-  start: '2025-09-12T00:00:00.000Z',
+  start: '2025-09-12T00:00:00.000',
 };
 
 describe('OpenAI client', () => {
@@ -67,7 +67,7 @@ describe('OpenAI client', () => {
 
     const res = await callOpenAIParse(env as Env, prompt, reqMeta, { timeoutMs: 5000, retries: 0 });
     expect(Array.isArray(res)).toBe(true);
-    expect((res as any[])[0].courseId).toBe('cs101');
+    expect((res as any[])[0].courseCode).toBe('CS101');
   });
 
   it('retries on 500 then succeeds', async () => {
@@ -125,4 +125,3 @@ describe('OpenAI client', () => {
     expect((res as any[])[0].id).toBe('a1');
   });
 });
-

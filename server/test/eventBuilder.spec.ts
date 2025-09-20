@@ -324,10 +324,9 @@ describe('Event Builder', () => {
     });
 
     describe('Configuration Options', () => {
-      it('should use provided courseId and courseCode', () => {
+      it('should use provided courseCode', () => {
         const text = 'Assignment 1 due September 15, 2025';
         const config: EventBuilderConfig = {
-          courseId: 'cs101-fall2025',
           courseCode: 'CS 101',
           defaultYear: 2025
         };
@@ -336,7 +335,6 @@ describe('Event Builder', () => {
         const dtos = candidatesToDTO(result.events, config);
         
         if (dtos.length > 0) {
-          expect(dtos[0].courseId).toBe('cs101-fall2025');
           expect(dtos[0].courseCode).toBe('CS 101');
         }
       });
@@ -469,7 +467,6 @@ describe('Event Builder', () => {
       }];
       
       const config: EventBuilderConfig = {
-        courseId: 'cs101',
         courseCode: 'CS 101'
       };
       
@@ -477,11 +474,10 @@ describe('Event Builder', () => {
       
       expect(dtos).toHaveLength(1);
       expect(dtos[0].id).toBe('test-id');
-      expect(dtos[0].courseId).toBe('cs101');
       expect(dtos[0].courseCode).toBe('CS 101');
       expect(dtos[0].type).toBe('ASSIGNMENT');
       expect(dtos[0].title).toBe('Test Assignment');
-      expect(dtos[0].start).toBe(new Date(2025, 8, 15).toISOString());
+      expect(dtos[0].start).toBe('2025-09-15T00:00:00.000');
       expect(dtos[0].allDay).toBe(true);
       expect(dtos[0].confidence).toBe(0.85);
     });
@@ -503,8 +499,7 @@ describe('Event Builder', () => {
       const dtos = candidatesToDTO(candidates);
       
       expect(dtos).toHaveLength(1);
-      expect(dtos[0].courseId).toBe('unknown');
-      expect(dtos[0].courseCode).toBeUndefined();
+      expect(dtos[0].courseCode).toBe('');
     });
   });
 
@@ -600,7 +595,6 @@ describe('Event Builder', () => {
       
       const result = buildEvents(syllabus, {
         defaultYear: 2025,
-        courseId: 'cs101-fall2025',
         courseCode: 'CS 101',
         minConfidence: 0.4
       });

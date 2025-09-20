@@ -9,6 +9,7 @@ import { normalizeText, splitIntoLines } from './textNormalization.js';
 import { extractDates, type DateMatch } from './dateExtraction.js';
 import { classifyLines, type ClassificationResult } from './keywordClassifier.js';
 import type { EventType, EventItemDTO } from '../types/eventItem.js';
+import { formatUtcDateWithoutTimezone } from '../utils/date.js';
 
 /**
  * Represents a candidate event with parsing metadata
@@ -16,6 +17,8 @@ import type { EventType, EventItemDTO } from '../types/eventItem.js';
 export interface EventCandidate {
   /** Unique identifier for this candidate */
   id: string;
+  /** Course code inferred for this event */
+  courseCode?: string;
   /** Event type classification */
   type: EventType;
   /** Generated title */
@@ -46,9 +49,7 @@ export interface EventCandidate {
  * Configuration for the event builder
  */
 export interface EventBuilderConfig {
-  /** Default course ID for generated events */
-  courseId?: string;
-  /** Default course code for generated events */
+  /** Course code for generated events */
   courseCode?: string;
   /** Default year to use when dates don't include year */
   defaultYear?: number;
@@ -332,6 +333,7 @@ function createEventCandidate(
 
   const candidate: EventCandidate = {
     id: generateEventId(),
+    courseCode: config.courseCode,
     type: classification.type,
     title,
     start: primaryDate.date,
@@ -571,32 +573,59 @@ function deduplicateEvents(events: EventCandidate[]): EventCandidate[] {
 function eventsAreSimilar(event1: EventCandidate, event2: EventCandidate): boolean {
   // Same type
   if (event1.type !== event2.type) return false;
-  
-  // Same or very close dates (within 1 day)
-  const timeDiff = Math.abs(event1.start.getTime() - event2.start.getTime());
-  if (timeDiff > 24 * 60 * 60 * 1000) return false; // More than 1 day apart
-  
-  // For exact same dates, be more lenient with title similarity
-  const isExactSameDate = timeDiff < 60 * 60 * 1000; // Within 1 hour
-  const similarityThreshold = isExactSameDate ? 0.5 : 0.7;
-  
-  // Similar titles (Levenshtein distance)
-  const titleSimilarity = calculateStringSimilarity(event1.title, event2.title);
-  if (titleSimilarity < similarityThreshold) {
-    // Also check if they share significant keywords
-    const sharedKeywords = event1.matchedKeywords.filter(k1 => 
-      event2.matchedKeywords.some(k2 => k1.toLowerCase() === k2.toLowerCase())
-    );
-    
-    // If they share keywords and are on the same date, consider them similar
-    if (isExactSameDate && sharedKeywords.length > 0) {
-      return true;
-    }
-    
-    return false;
+
+  const timeDiffMs = Math.abs(event1.start.getTime() - event2.start.getTime());
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  const oneWeekMs = 7 * oneDayMs;
+
+  const normalizedTitle1 = normalizeTitleForComparison(event1.title);
+  const normalizedTitle2 = normalizeTitleForComparison(event2.title);
+
+  // If source text is identical, treat as duplicates regardless of detected date variance
+  if (event1.sourceText === event2.sourceText && normalizedTitle1 === normalizedTitle2) {
+    return true;
   }
-  
-  return true;
+
+  // Exact/near-exact date match (within one day): fall through to fuzzy title compare
+  if (timeDiffMs <= oneDayMs) {
+    return titlesRoughlyMatch(event1, event2, true);
+  }
+
+  // Events with matching titles that fall within the same week window are usually
+  // duplicate table entries (e.g. multiple lab sections). Collapse them.
+  if (timeDiffMs <= oneWeekMs && normalizedTitle1 === normalizedTitle2) {
+    return true;
+  }
+
+  // Otherwise only treat as same event if titles strongly match and share keywords
+  if (timeDiffMs <= oneWeekMs) {
+    return titlesRoughlyMatch(event1, event2, false);
+  }
+
+  return false;
+}
+
+function titlesRoughlyMatch(event1: EventCandidate, event2: EventCandidate, isExactDate: boolean): boolean {
+  const similarityThreshold = isExactDate ? 0.5 : 0.85;
+  const titleSimilarity = calculateStringSimilarity(event1.title, event2.title);
+
+  if (titleSimilarity >= similarityThreshold) {
+    return true;
+  }
+
+  const sharedKeywords = event1.matchedKeywords.filter(k1 =>
+    event2.matchedKeywords.some(k2 => k1.toLowerCase() === k2.toLowerCase())
+  );
+
+  return sharedKeywords.length > 0;
+}
+
+function normalizeTitleForComparison(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**
@@ -664,12 +693,11 @@ export function candidatesToDTO(
 ): EventItemDTO[] {
   return candidates.map(candidate => ({
     id: candidate.id,
-    courseId: config.courseId || 'unknown',
-    courseCode: config.courseCode,
+    courseCode: candidate.courseCode ?? config.courseCode ?? '',
     type: candidate.type,
     title: candidate.title,
-    start: candidate.start.toISOString(),
-    end: candidate.end?.toISOString(),
+    start: formatUtcDateWithoutTimezone(candidate.start),
+    end: candidate.end ? formatUtcDateWithoutTimezone(candidate.end) : undefined,
     allDay: candidate.allDay,
     location: candidate.location,
     notes: candidate.notes,

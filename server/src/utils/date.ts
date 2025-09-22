@@ -25,7 +25,13 @@ export function formatUtcDateWithoutTimezone(date: Date): string {
   const seconds = pad(date.getSeconds());
   const milliseconds = pad(date.getMilliseconds(), 3);
 
-  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${milliseconds}`;
+  const offsetMinutes = -date.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const absMinutes = Math.abs(offsetMinutes);
+  const offsetHours = pad(Math.floor(absMinutes / 60));
+  const offsetMins = pad(absMinutes % 60);
+
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${milliseconds}${sign}${offsetHours}:${offsetMins}`;
 }
 
 /**

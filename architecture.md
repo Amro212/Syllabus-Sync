@@ -41,7 +41,7 @@
 - **Thin client business logic**, thick UI; heavy/secret work (OpenAI) done server-side.
 - **Composable services** under a clear protocol boundary.
 - **Mock-first**: all services can run with local mocks for front‑end dev and previews.
-- **Budget-aware**: regex/heuristics first, AI fallback only when necessary.
+- **Budget-aware**: OpenAI-powered parsing with cost controls.
 
 ---
 
@@ -119,7 +119,7 @@ SyllabusSync/
 │  │  └─ APIClient.swift          // generic HTTP client
 │  ├─ Implementations/
 │  │  ├─ PDFKitExtractor.swift    // PDFKit + Vision OCR fallback
-│  │  ├─ HeuristicParser.swift    // regex + rules (fast, on-device)
+│  │  ├─ SyllabusParserRemote.swift // OpenAI-powered parsing (server-side)
 │  │  ├─ OpenAIParserRemote.swift // server endpoint that uses OpenAI
 │  │  ├─ EventKitCalendarService.swift
 │  │  ├─ UserNotificationService.swift
@@ -185,7 +185,7 @@ SyllabusSync/
 2. Actions (tap/drag/long-press) → ViewModel methods → update state → UI reacts.
 
 **Data flow (Post‑MVP)**  
-1. ImportViewModel uploads PDF to StorageService (server) → requests `/parse` → server runs extraction/heuristics/LLM → returns structured `[EventItem]`.  
+1. ImportViewModel uploads PDF to StorageService (server) → requests `/parse` → server runs extraction/OpenAI parsing → returns structured `[EventItem]`.  
 2. PreviewViewModel shows diff vs existing → user approves → CalendarService writes via EventKit → local cache updates.
 
 ---
@@ -203,10 +203,10 @@ SyllabusSync/
 - **Protocol:** `SyllabusParser`  
   - `func parse(text: String) async throws -> [EventItem]`
 - **Impls:**  
-  - `HeuristicParser`: regex patterns (dates, keywords: Assignment/Quiz/Exam/Midterm/Final/Due/Draft).  
+  - `SyllabusParserRemote`: OpenAI-powered parsing via server endpoint.  
   - `OpenAIParserRemote`: calls server `/parse` with raw/cleaned text → returns normalized JSON.
 
-**Budget strategy:** Heuristics first; if below confidence threshold (e.g., low parse count/ambiguous dates), call remote OpenAI parser. Log token usage per request server-side.
+**Budget strategy:** OpenAI-powered parsing with cost controls and rate limiting. Log token usage per request server-side.
 
 ### 5.3 Calendar Service
 - **Protocol:** `CalendarService`  
@@ -239,7 +239,7 @@ SyllabusSync/
 - **Endpoints**
   - `POST /parse`  
     - Body: `{ text: string, locale?: string }` **or** `{ fileUrl: string }` after upload.  
-    - Server cleans text, applies heuristics; if low confidence, calls **OpenAI** (gpt‑4o‑mini or GPT‑4.1-mini).  
+    - Server cleans text and calls **OpenAI** (gpt‑4o‑mini) for parsing.  
     - Returns: `{ events: EventItemDTO[], confidence: number, diagnostics?: {...} }`.
   - `POST /upload` (optional)  
     - Returns presigned URL. Client uploads PDF directly to storage.
@@ -357,17 +357,17 @@ On device, store as `EventItem` (Swift struct) with the same fields. Use mappers
 
 ## 10) Cost & Token Strategy
 
-- **Heuristics-first** reduce LLM calls by ~60–80% on clean syllabi.  
+- **OpenAI-powered parsing** provides high accuracy for complex syllabi.  
 - **Batching**: Combine multiple short sections into one LLM call where feasible.  
 - **Cheap models**: Use `gpt‑4o‑mini` with JSON mode.  
 - **Caching**: Hash syllabus text; cache parse results server-side for re‑imports.  
-- **Budget alerting**: Daily usage cap + alert; circuit-breaker to heuristics only if budget exceeded.
+- **Budget alerting**: Daily usage cap + alert; circuit-breaker to prevent overuse.
 
 ---
 
 ## 11) Error Handling & Resilience
 
-- **Client**: Friendly errors + retry → fall back to heuristics; show diagnostics panel in Preview when something is ambiguous.  
+- **Client**: Friendly errors + retry; show diagnostics panel in Preview when something is ambiguous.  
 - **Server**: Timeouts (15–20s), exponential backoff on OpenAI, idempotent parse requests (content hash).  
 - **Diff UX**: On re‑import, show “added/changed/removed” events with clear badges.
 
@@ -384,7 +384,7 @@ On device, store as `EventItem` (Swift struct) with the same fields. Use mappers
 
 ## 13) Testing Strategy (pragmatic)
 
-- **Unit**: Heuristic parser unit tests (server repo).  
+- **Unit**: OpenAI parser unit tests (server repo).  
 - **Snapshot**: Light/dark snapshots for key screens.  
 - **Contract**: JSON schema tests for `/parse` responses.  
 - **Manual QA**: Scripted demo: Onboarding → Auth → Dashboard → Import (mock) → Preview → Calendar → Settings.
@@ -407,8 +407,8 @@ On device, store as `EventItem` (Swift struct) with the same fields. Use mappers
 ```
 App(ImportView)  -> StorageService: upload PDF (presigned URL)
 App              -> Server /parse: { fileUrl | text }
-Server           -> Heuristics: parse()
-Heuristics       -> Server: result + confidence
+Server           -> OpenAI: parse()
+OpenAI           -> Server: result + confidence
 Server (if low)  -> OpenAI: prompt(text) -> JSON events
 OpenAI           -> Server: events JSON
 Server           -> App: events + diagnostics

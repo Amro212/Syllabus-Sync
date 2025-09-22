@@ -6,7 +6,6 @@
  */
 
 import type { EventItemDTO, EventType } from '../types/eventItem.js';
-import type { EventCandidate } from '../parsing/eventBuilder.js';
 import {
   formatUtcDateWithoutTimezone,
   parseFlexibleISODate,
@@ -163,16 +162,18 @@ function validateEventItemDTO(event: unknown): { valid: boolean; errors: string[
  * @returns Validation result with valid events and diagnostics
  */
 export function validateEvents(
-  candidates: EventCandidate[], 
+  rawEvents: unknown[], 
   config: ValidationConfig = {}
 ): ValidationResult {
+  const total = Array.isArray(rawEvents) ? rawEvents.length : 0;
+
   const result: ValidationResult = {
     valid: true,
     events: [],
     errors: [],
     warnings: [],
     stats: {
-      totalEvents: candidates.length,
+      totalEvents: total,
       validEvents: 0,
       invalidEvents: 0,
       clampedEvents: 0,
@@ -180,49 +181,41 @@ export function validateEvents(
     }
   };
 
-  if (candidates.length === 0) {
+  if (!Array.isArray(rawEvents) || rawEvents.length === 0) {
     return result;
   }
 
-  for (let i = 0; i < candidates.length; i++) {
-    const candidate = candidates[i];
-    
+  for (let i = 0; i < rawEvents.length; i++) {
+    const raw = rawEvents[i];
+
+    const validation = validateEventItemDTO(raw);
+    if (!validation.valid) {
+      result.stats.invalidEvents++;
+      result.valid = false;
+      validation.errors.forEach(err => result.errors.push(`Event ${i + 1}: ${err}`));
+      continue;
+    }
+
     try {
-      // Convert candidate to DTO format
-      let dto = candidateToDTO(candidate, config);
-      
-      // Apply defaults and processing
-      dto = applyDefaults(dto, config);
-      
-      // Always clamp dates (handles term window AND invalid end date fixing)
-      const clamped = clampDatesToTerm(dto, config);
+      const dto = { ...(raw as EventItemDTO) };
+      const defaults = applyDefaults(dto, config);
+      if (defaults.defaultsApplied) {
+        result.stats.defaultsApplied++;
+      }
+
+      const clamped = clampDatesToTerm(defaults.event, config);
       if (clamped.wasClamped) {
         result.stats.clampedEvents++;
+        const title = clamped.event.title;
         if (config.termStart || config.termEnd) {
-          result.warnings.push(`Event "${dto.title}" had dates clamped to term window`);
+          result.warnings.push(`Event "${title}" had dates clamped to term window`);
         } else {
-          result.warnings.push(`Event "${dto.title}" had invalid date range corrected`);
+          result.warnings.push(`Event "${title}" had invalid date range corrected`);
         }
       }
-      dto = clamped.event;
-      
-      // Validate against schema
-      const validation = validateEventItemDTO(dto);
-      
-      if (validation.valid) {
-        result.events.push(dto);
-        result.stats.validEvents++;
-      } else {
-        result.stats.invalidEvents++;
-        result.valid = false;
-        
-        const errorMessages = validation.errors.map(err => 
-          `Event ${i + 1}: ${err}`
-        );
-        
-        result.errors.push(...errorMessages);
-      }
-      
+
+      result.stats.validEvents++;
+      result.events.push(clamped.event);
     } catch (error) {
       result.stats.invalidEvents++;
       result.valid = false;
@@ -230,44 +223,32 @@ export function validateEvents(
     }
   }
 
-  return result;
-}
+  if (result.events.length > 0) {
+    result.events = normalizeEventData(result.events);
+  }
 
-/**
- * Converts EventCandidate to EventItemDTO format
- */
-function candidateToDTO(candidate: EventCandidate, config: ValidationConfig): EventItemDTO {
-  return {
-    id: candidate.id,
-    courseCode: candidate.courseCode ?? config.defaultCourseCode ?? '',
-    type: candidate.type,
-    title: candidate.title,
-    start: formatUtcDateWithoutTimezone(candidate.start),
-    end: candidate.end ? formatUtcDateWithoutTimezone(candidate.end) : undefined,
-    allDay: candidate.allDay,
-    location: candidate.location,
-    notes: candidate.notes,
-    recurrenceRule: candidate.recurrenceRule,
-    confidence: candidate.confidence
-  };
+  return result;
 }
 
 /**
  * Applies default values and processing rules
  */
-function applyDefaults(dto: EventItemDTO, config: ValidationConfig): EventItemDTO {
+function applyDefaults(dto: EventItemDTO, config: ValidationConfig): { event: EventItemDTO; defaultsApplied: boolean } {
   const result = { ...dto };
+  let defaultsApplied = false;
   
   // Apply allDay default if no time specified and no end date
   if (result.allDay === undefined) {
     const hasDateTime = result.start.includes('T');
-    const hasNonMidnightTime = hasDateTime && !result.start.endsWith('T00:00:00.000');
+    const hasNonMidnightTime = hasDateTime && !/T00:00:00\.000(?:[+-]\d{2}:\d{2})?$/.test(result.start);
     result.allDay = hasDateTime ? !hasNonMidnightTime : true;
+    defaultsApplied = true;
   }
   
   // Ensure title is not empty
   if (!result.title || result.title.trim().length === 0) {
     result.title = `${result.type.charAt(0) + result.type.slice(1).toLowerCase()}`;
+    defaultsApplied = true;
   }
   
   // Trim and validate string fields
@@ -278,10 +259,12 @@ function applyDefaults(dto: EventItemDTO, config: ValidationConfig): EventItemDT
   
   // Ensure confidence is within bounds
   if (result.confidence !== undefined) {
-    result.confidence = Math.max(0, Math.min(1, result.confidence));
+    const clamped = Math.max(0, Math.min(1, result.confidence));
+    if (clamped !== result.confidence) defaultsApplied = true;
+    result.confidence = clamped;
   }
   
-  return result;
+  return { event: result, defaultsApplied };
 }
 
 /**

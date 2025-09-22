@@ -122,14 +122,14 @@ final class ImportViewModel: ObservableObject {
 
     private func buildDiagnosticsString(from diagnostics: ParseDiagnostics?) -> String? {
         guard let diagnostics else { return nil }
-        let source = diagnostics.source == .heuristics ? "Heuristics" : "OpenAI"
+        let source = "OpenAI"
         var components: [String] = [source]
 
         if let formatted = NumberFormatter.percentageFormatter.string(from: NSNumber(value: diagnostics.confidence)) {
             components.append("Confidence \(formatted)")
         }
 
-        if diagnostics.source == .openai, let model = diagnostics.openAIModel {
+        if let model = diagnostics.openAIModel {
             components.append(model)
         }
 

@@ -15,12 +15,11 @@ import type { EventItemDTO } from '../src/types/eventItem.js';
 describe('EventItem Validation', () => {
   const validEventItem: EventItemDTO = {
     id: 'event-123',
-    courseCode: 'course-456',
     courseCode: 'CS101',
     type: 'ASSIGNMENT',
     title: 'Homework 1',
-    start: '2025-09-15T23:59:00.000Z',
-    end: '2025-09-15T23:59:00.000Z',
+    start: '2025-09-15T23:59:00.000-04:00',
+    end: '2025-09-15T23:59:00.000-04:00',
     allDay: false,
     location: 'Online',
     notes: 'Submit via Canvas',
@@ -36,10 +35,10 @@ describe('EventItem Validation', () => {
     it('should validate a minimal valid event item', () => {
       const minimal: EventItemDTO = {
         id: 'event-123',
-        courseCode: 'course-456',
+        courseCode: 'CS101',
         type: 'QUIZ',
         title: 'Quiz 1',
-        start: '2025-09-15T10:00:00.000Z',
+        start: '2025-09-15T10:00:00.000-04:00',
       };
       expect(isValidEventItem(minimal)).toBe(true);
     });
@@ -72,9 +71,11 @@ describe('EventItem Validation', () => {
       expect(isValidEventItem(invalid)).toBe(false);
     });
 
-    it('should reject event item with invalid course code format', () => {
-      const invalid = { ...validEventItem, courseCode: 'invalid-format' };
-      expect(isValidEventItem(invalid)).toBe(false);
+    it('should accept flexible course code formats', () => {
+      const withAsterisk = { ...validEventItem, courseCode: 'ENGG*3390' };
+      const withSpace = { ...validEventItem, courseCode: 'CS 101' };
+      expect(isValidEventItem(withAsterisk)).toBe(true);
+      expect(isValidEventItem(withSpace)).toBe(true);
     });
   });
 
@@ -130,10 +131,10 @@ describe('EventItem Validation', () => {
     it('should create valid event item with defaults', () => {
       const partial = {
         id: 'event-123',
-        courseCode: 'course-456',
+        courseCode: 'CS101',
         type: 'ASSIGNMENT' as const,
         title: 'Test Assignment',
-        start: '2025-09-15T23:59:00.000Z',
+        start: '2025-09-15T23:59:00.000-04:00',
       };
 
       const result = createEventItem(partial);
@@ -145,10 +146,10 @@ describe('EventItem Validation', () => {
     it('should override defaults when provided', () => {
       const partial = {
         id: 'event-123',
-        courseCode: 'course-456',
+        courseCode: 'CS101',
         type: 'QUIZ' as const,
         title: 'Test Quiz',
-        start: '2025-09-15T10:00:00.000Z',
+        start: '2025-09-15T10:00:00.000-04:00',
         allDay: true,
         confidence: 0.8,
       };
@@ -161,10 +162,10 @@ describe('EventItem Validation', () => {
     it('should throw error for invalid created item', () => {
       const invalid = {
         id: '', // Invalid: empty string
-        courseCode: 'course-456',
+        courseCode: 'CS101',
         type: 'ASSIGNMENT' as const,
         title: 'Test',
-        start: '2025-09-15T23:59:00.000Z',
+        start: '2025-09-15T23:59:00.000-04:00',
       };
 
       expect(() => createEventItem(invalid)).toThrow(/validation failed/);

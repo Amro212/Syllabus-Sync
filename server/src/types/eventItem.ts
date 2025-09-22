@@ -64,9 +64,20 @@ export interface ParseResponse {
   events: EventItemDTO[];
   confidence: number;
   diagnostics?: {
-    source: 'heuristics' | 'openai';
+    source: 'openai';
     processingTimeMs: number;
     textLength: number;
     warnings?: string[];
+    validation?: {
+      totalEvents: number;
+      validEvents: number;
+      invalidEvents: number;
+      clampedEvents: number;
+      defaultsApplied: number;
+    };
+    openai?: {
+      processingTimeMs?: number;
+      usedModel?: string;
+    };
   };
 }

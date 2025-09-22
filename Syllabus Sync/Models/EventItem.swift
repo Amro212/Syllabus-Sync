@@ -36,7 +36,6 @@ struct EventItem: Identifiable, Codable, Equatable {
 /// Diagnostics metadata surfaced by the parsing service.
 struct ParseDiagnostics: Equatable {
     enum Source: String, Codable {
-        case heuristics
         case openai
     }
 
@@ -44,9 +43,8 @@ struct ParseDiagnostics: Equatable {
     let confidence: Double
     let processingTimeMs: Int?
     let textLength: Int?
-    let threshold: Double?
     let warnings: [String]?
-    let parserPath: Source?
+    let validation: ParseResult.DiagnosticsPayload.Validation?
     let openAIModel: String?
     let openAIProcessingTimeMs: Int?
     let openAIDeniedReason: String?
@@ -63,28 +61,16 @@ struct ParseResult: Decodable {
         let source: ParseDiagnostics.Source
         let processingTimeMs: Int?
         let textLength: Int?
-        let threshold: Double?
         let warnings: [String]?
-        let parsing: Parsing?
         let validation: Validation?
         let openai: OpenAI?
 
-        struct Parsing: Decodable {
-            let totalLines: Int?
-            let linesWithDates: Int?
-            let linesWithTypes: Int?
-            let candidatesGenerated: Int?
-            let candidatesAfterDedup: Int?
-            let averageConfidence: Double?
-        }
-
-        struct Validation: Decodable {
+        struct Validation: Decodable, Equatable {
             let totalEvents: Int?
             let validEvents: Int?
             let invalidEvents: Int?
             let clampedEvents: Int?
             let defaultsApplied: Int?
-            let errors: [String]?
         }
 
         struct OpenAI: Decodable {

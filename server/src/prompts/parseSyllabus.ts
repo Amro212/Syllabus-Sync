@@ -1,6 +1,6 @@
 /*
  * Prompt builder for OpenAI JSON-mode parsing of syllabi → EventItemDTO[]
- * Optimized for small, JSON-capable models (e.g., gpt-5-mini / gpt-4o-mini).
+ * Optimized for small, JSON-capable models (e.g., gpt-4o-mini).
  */
 
 import eventItemSchema from '../../schemas/eventItem.schema.json';
@@ -143,7 +143,7 @@ export function buildParseSyllabusRequest(
     termStart,
     termEnd,
     timezone = 'UTC',
-    model = 'gpt-5-mini'
+    model = 'gpt-4o-mini'
   } = options;
 
   const system = SYSTEM_PROMPT({ timezone });

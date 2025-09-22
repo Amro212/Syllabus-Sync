@@ -13,7 +13,7 @@ This is a **hybrid iOS + serverless backend** project with:
 
 - **iOS App**: SwiftUI (iOS 17+) with MVVM pattern
 - **Server**: Cloudflare Workers with TypeScript  
-- **Parsing**: Heuristics-first + OpenAI fallback (server-side only)
+- **Parsing**: OpenAI-powered parsing (server-side only)
 - **Calendar**: EventKit integration for Apple Calendar sync
 
 ## 📁 Project Structure
@@ -65,7 +65,7 @@ See [tasks.md](./tasks.md) for detailed milestone tracking.
 ## 🛡️ Security & Privacy
 
 - **No API keys in client** - All sensitive operations server-side only
-- **OpenAI usage**: Server-side only as fallback after heuristics
+- **OpenAI usage**: Server-side only for parsing
 - **Budget controls**: Rate limiting and cost guardrails
 - **Data minimization**: PDFs auto-deleted, minimal PII storage
 
@@ -139,7 +139,7 @@ curl http://localhost:8787/health
 - **Language**: TypeScript with strict typing
 - **Validation**: Custom runtime validation (Workers-compatible)
 - **Testing**: Vitest with Workers pool
-- **Parsing Strategy**: Heuristics-first → OpenAI fallback
+- **Parsing Strategy**: OpenAI-powered parsing
 
 ## 📁 Structure
 

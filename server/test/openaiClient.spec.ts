@@ -38,7 +38,7 @@ describe('OpenAI client', () => {
     ;(globalThis as any).fetch = mock;
 
     const prompt = {
-      model: 'gpt-5-mini',
+      model: 'gpt-4o-mini',
       messages: [ { role: 'system', content: 'test' }, { role: 'user', content: 'parse' } ],
       response_format: { type: 'json_schema', json_schema: { name: 'event_items', schema: { type: 'array', items: {} } } }
     } as any;
@@ -60,7 +60,7 @@ describe('OpenAI client', () => {
     ;(globalThis as any).fetch = mock;
 
     const prompt = {
-      model: 'gpt-5-mini',
+      model: 'gpt-4o-mini',
       messages: [ { role: 'system', content: 'test' }, { role: 'user', content: 'parse' } ],
       response_format: { type: 'json_object' }
     } as any;
@@ -85,7 +85,7 @@ describe('OpenAI client', () => {
     ;(globalThis as any).fetch = mock;
 
     const prompt = {
-      model: 'gpt-5-mini',
+      model: 'gpt-4o-mini',
       messages: [ { role: 'user', content: 'go' } ],
     } as any;
 
@@ -115,7 +115,7 @@ describe('OpenAI client', () => {
     ;(globalThis as any).fetch = mock;
 
     const prompt = {
-      model: 'gpt-5-mini',
+      model: 'gpt-4o-mini',
       messages: [ { role: 'system', content: 'test' }, { role: 'user', content: 'parse' } ],
       response_format: { type: 'json_schema', json_schema: { name: 'event_items', schema: { type: 'array', items: {} } } }
     } as any;

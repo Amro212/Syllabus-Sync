@@ -3,12 +3,11 @@
  * 
  * Provides endpoints for:
  * - Health check
- * - Syllabus parsing with heuristics + OpenAI fallback
+ * - Syllabus parsing via OpenAI
  * - PDF upload/storage (optional)
  */
 import { logRequest, logError, nowIso } from './logging';
 import { ensureOpenAIKey } from './env';
-import { buildEvents } from './parsing/eventBuilder';
 import { validateEvents, type ValidationConfig } from './validation/eventValidation';
 import { buildParseSyllabusRequest } from './prompts/parseSyllabus';
 import { detectCourseCode } from './utils/courseCode';
@@ -77,7 +76,7 @@ function checkRateLimit(env: Env, req: Request) {
 }
 
 export default {
-	async fetch(request, env, ctx): Promise<Response> {
+	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
 		const path = url.pathname;
 		const method = request.method;
@@ -181,6 +180,7 @@ export default {
 
 			// Parse endpoint — Milestone 4.2: CORS + content validation + 4.3 rate limiting
 			if (path === '/parse' && request.method === 'POST') {
+				try {
 				const parseStarted = Date.now();
 				// Rate limit by IP
 				const rl = checkRateLimit(env, request);
@@ -290,7 +290,6 @@ export default {
 					logRequest(env, 'info', {
 						ts: nowIso(), requestId, route: path, method, status,
 						durationMs: Date.now() - startedAt,
-						parserPath: 'heuristics',
 						error: 'Course code could not be determined from syllabus text',
 					});
 					return new Response(JSON.stringify({ error: 'Unable to determine courseCode from syllabus text.' }), {
@@ -299,204 +298,165 @@ export default {
 					});
 				}
 
-				// Parse syllabus text using heuristics
+				const validationConfig: ValidationConfig = {
+					defaultCourseCode: courseCode,
+					...(body as any).termStart && { termStart: new Date((body as any).termStart) },
+					...(body as any).termEnd && { termEnd: new Date((body as any).termEnd) },
+					strict: false
+				};
+
+				resetOpenAIUsageIfNewDay();
+				const ip = getClientIp(request);
+				const perIpLimit = Number.parseInt((env as any).RATE_LIMIT_OPENAI || '10', 10) || 10;
+				const dailyBudget = Number.parseFloat((env as any).OPENAI_DAILY_BUDGET || '0');
+				const costPerCall = Number.parseFloat(((env as any).OPENAI_COST_PER_CALL as string) || '0.02');
+				const usedByIp = openaiUsage.perIpCalls.get(ip) || 0;
+
+				if (usedByIp >= perIpLimit) {
+					const status = 429;
+					logRequest(env, 'info', {
+						ts: nowIso(), requestId, route: path, method, status,
+						durationMs: Date.now() - startedAt,
+						openaiDenied: 'per_ip_cap', perIpLimit, usedByIp,
+					});
+					return new Response(JSON.stringify({ error: 'OpenAI usage limit reached. Please try again later.' }), {
+						status,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+
+				if (dailyBudget > 0 && (openaiUsage.totalCost + costPerCall) > dailyBudget) {
+					const status = 429;
+					logRequest(env, 'info', {
+						ts: nowIso(), requestId, route: path, method, status,
+						durationMs: Date.now() - startedAt,
+						openaiDenied: 'budget_exceeded', dailyBudget, spent: openaiUsage.totalCost,
+					});
+					return new Response(JSON.stringify({ error: 'OpenAI budget exceeded. Try again tomorrow.' }), {
+						status,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+
+				const tz = request.headers.get('CF-Timezone') || 'UTC';
+				const promptReq = buildParseSyllabusRequest(text, {
+					courseCode,
+					termStart: (body as any).termStart,
+					termEnd: (body as any).termEnd,
+					timezone: tz,
+					model: (env as any).OPENAI_MODEL || 'gpt-4o-mini',
+				});
+
+				let aiItems: unknown[];
+				const aiStarted = Date.now();
 				try {
-					const parseConfig = {
-						courseCode,
-						defaultYear: (body as any).defaultYear || new Date().getFullYear(),
-						minConfidence: 0.3,
-						deduplicate: true
-					};
+					aiItems = (await callOpenAIParse(env, promptReq, { requestId, route: path, method })) as unknown[];
+				} catch (e) {
+					logError(env, {
+						ts: nowIso(),
+						requestId,
+						route: path,
+						method,
+						status: 502,
+						durationMs: Date.now() - startedAt,
+						error: {
+							message: (e as any)?.message || 'OpenAI parsing failed',
+							stack: (e as any)?.stack,
+							code: (e as any)?.code || 'OPENAI_ERROR'
+						},
+					});
+					return new Response(JSON.stringify({
+						error: 'OpenAI parsing failed',
+						details: (e as any)?.message || 'Unknown error'
+					}), {
+						status: 502,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+				const aiTime = Date.now() - aiStarted;
+				openaiUsage.totalCalls += 1;
+				openaiUsage.totalCost += costPerCall;
+				openaiUsage.perIpCalls.set(ip, usedByIp + 1);
 
-					// Step 1: Build event candidates from text
-					const buildResult = buildEvents(text, parseConfig);
-					
-					// Step 2: Validate and process events
-					const validationConfig: ValidationConfig = {
-						defaultCourseCode: parseConfig.courseCode,
-						// Add term window if provided
-						...(body as any).termStart && { termStart: new Date((body as any).termStart) },
-						...(body as any).termEnd && { termEnd: new Date((body as any).termEnd) },
-						strict: false
-					};
+				const validationResult = validateEvents(aiItems, validationConfig);
+				if (validationResult.events.length === 0) {
+					const status = 422;
+					logRequest(env, 'info', {
+						ts: nowIso(), requestId, route: path, method, status,
+						durationMs: Date.now() - startedAt,
+						error: validationResult.errors.join(' | ') || 'No valid events after validation',
+					});
+					return new Response(JSON.stringify({
+						error: 'Validation failed',
+						details: validationResult.errors
+					}), {
+						status,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
 
-					const validationResult = validateEvents(buildResult.events, validationConfig);
-					
-					// Calculate overall confidence
-					const overallConfidence = validationResult.events.length > 0
-						? validationResult.events.reduce((sum, e) => sum + (e.confidence || 0), 0) / validationResult.events.length
-						: 0;
+				const avgConfidence = validationResult.events.length
+					? validationResult.events.reduce((sum, e) => sum + (e.confidence ?? 0), 0) / validationResult.events.length
+					: 0;
 
-					// Confidence router (Milestone 6.3)
-					const threshold = Math.max(0, Math.min(1, Number.parseFloat((env as any).PARSE_CONFIDENCE_THRESHOLD || '0.6')));
-					let source: 'heuristics' | 'openai' = 'heuristics';
-					let finalEvents = validationResult.events as any[];
-					let finalConfidence = overallConfidence;
-					const diags: any = {
-						source: 'heuristics' as const,
+				const warnings = [...validationResult.warnings];
+				if (!validationResult.valid) {
+					warnings.push(...validationResult.errors);
+				}
+
+				const response = {
+					events: validationResult.events,
+					source: 'openai' as const,
+					confidence: Number.isFinite(avgConfidence) ? Number(avgConfidence.toFixed(3)) : 0,
+					diagnostics: {
+						source: 'openai' as const,
 						processingTimeMs: Date.now() - parseStarted,
 						textLength: text.length,
-						threshold,
-						warnings: [
-							...buildResult.stats.warnings,
-							...validationResult.warnings
-						],
-						parsing: {
-							totalLines: buildResult.stats.totalLines,
-							linesWithDates: buildResult.stats.linesWithDates,
-							linesWithTypes: buildResult.stats.linesWithTypes,
-							candidatesGenerated: buildResult.stats.candidatesGenerated,
-							candidatesAfterDedup: buildResult.stats.candidatesAfterDedup,
-							averageConfidence: buildResult.stats.averageConfidence
-						},
-						validation: {
-							totalEvents: validationResult.stats.totalEvents,
-							validEvents: validationResult.stats.validEvents,
-							invalidEvents: validationResult.stats.invalidEvents,
-							clampedEvents: validationResult.stats.clampedEvents,
-							defaultsApplied: validationResult.stats.defaultsApplied,
-							errors: validationResult.errors
-						}
-					};
-
-				const needsOpenAI = finalEvents.length === 0 || overallConfidence < threshold;
-					
-					// Debug logging
-					logRequest(env, 'debug', {
-						ts: nowIso(), requestId, route: path, method, status: 0, durationMs: Date.now() - startedAt,
-						debug: {
-							overallConfidence,
-							threshold,
-							needsOpenAI,
-							eventsCount: finalEvents.length
-						}
-					});
-					
-					if (needsOpenAI) {
-						try {
-							// Cost guardrails (Milestone 6.4)
-							resetOpenAIUsageIfNewDay();
-							const ip = getClientIp(request);
-							const perIpLimit = Number.parseInt((env as any).RATE_LIMIT_OPENAI || '10', 10) || 10;
-							const dailyBudget = Number.parseFloat((env as any).OPENAI_DAILY_BUDGET || '0');
-							const costPerCall = Number.parseFloat(((env as any).OPENAI_COST_PER_CALL as string) || '0.02');
-							const usedByIp = openaiUsage.perIpCalls.get(ip) || 0;
-
-							if (usedByIp >= perIpLimit) {
-								// Deny due to per-IP cap
-								diags.openai = { denied: 'per_ip_cap', perIpLimit, usedByIp };
-								logRequest(env, 'info', {
-									ts: nowIso(), requestId, route: path, method, status: 200, durationMs: Date.now() - startedAt,
-									parserPath: 'heuristics', openaiDenied: 'per_ip_cap', perIpLimit, usedByIp,
-								});
-							} else if (dailyBudget > 0 && (openaiUsage.totalCost + costPerCall) > dailyBudget) {
-								// Deny due to daily budget cap
-								diags.openai = { denied: 'budget_exceeded', dailyBudget, estimatedNextCost: costPerCall, spent: openaiUsage.totalCost };
-								logRequest(env, 'info', {
-									ts: nowIso(), requestId, route: path, method, status: 200, durationMs: Date.now() - startedAt,
-									parserPath: 'heuristics', openaiDenied: 'budget_exceeded', dailyBudget, spent: openaiUsage.totalCost,
-								});
-							} else {
-								// Proceed with OpenAI
-								const tz = request.headers.get('CF-Timezone') || 'UTC';
-								const promptReq = buildParseSyllabusRequest(text, {
-									courseCode: parseConfig.courseCode,
-									termStart: (body as any).termStart,
-									termEnd: (body as any).termEnd,
-									timezone: tz,
-									model: (env as any).OPENAI_MODEL || 'gpt-4o-mini',
-								});
-								const aiStarted = Date.now();
-								const aiItems = (await callOpenAIParse(env, promptReq, { requestId, route: path, method })) as any[];
-								const aiTime = Date.now() - aiStarted;
-								source = 'openai';
-								finalEvents = aiItems;
-								const confidences = finalEvents.map((e) => typeof e.confidence === 'number' ? e.confidence : 0.7);
-								finalConfidence = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : 0.7;
-								diags.openai = { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-4o-mini' };
-								// Record usage post-call
-								openaiUsage.totalCalls += 1;
-								openaiUsage.totalCost += costPerCall;
-								openaiUsage.perIpCalls.set(ip, usedByIp + 1);
-							}
-						} catch (e) {
-							// Log the OpenAI error for debugging but don't prevent response
-							diags.openai = { 
-								error: { 
-									message: (e as any)?.message, 
-									code: (e as any)?.code 
-								}, 
-								fallback: 'heuristics' 
-							};
-							// Make sure we log the specific error for debugging
-							logError(env, {
-								ts: nowIso(),
-								requestId,
-								route: path,
-								method,
-								status: 200,
-								durationMs: Date.now() - startedAt,
-								error: {
-									message: `OpenAI fallback triggered: ${(e as any)?.message}`,
-									code: (e as any)?.code || 'OPENAI_FALLBACK'
-								}
-							});
-						}
+						warnings,
+						validation: validationResult.stats,
+					openai: { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-4o-mini' }
 					}
+				};
 
-					const response = {
-						events: finalEvents,
-						source,
-						confidence: Number.isFinite(finalConfidence) ? Number(finalConfidence.toFixed(3)) : 0,
-						diagnostics: diags,
-					};
+				const res = json(response, { status: 200 });
+				logRequest(env, 'info', {
+					ts: nowIso(),
+					requestId,
+					route: path,
+					method,
+					status: 200,
+					durationMs: Date.now() - startedAt,
+					payloadChars: typeof text === 'string' ? text.length : 0,
+					parserPath: 'openai',
+					eventsFound: validationResult.events.length,
+					averageConfidence: response.confidence,
+				});
+				return res;
 
-					const res = json(response, { status: 200 });
-					logRequest(env, 'info', {
-						ts: nowIso(),
-						requestId,
-						route: path,
-						method,
-						status: 200,
-						durationMs: Date.now() - startedAt,
-						payloadChars: typeof text === 'string' ? text.length : 0,
-						parserPath: source,
-						eventsFound: Array.isArray(finalEvents) ? finalEvents.length : 0,
-						overallConfidence: response.confidence,
-					});
-					return res;
-
-				} catch (parseError) {
-					// Fallback to empty response if parsing fails
-					const response = {
-						events: [] as any[],
-						confidence: 0,
-						diagnostics: {
-							source: 'heuristics' as const,
-							processingTimeMs: Date.now() - parseStarted,
-							textLength: text.length,
-							warnings: [`Parsing failed: ${(parseError as Error).message}`],
-						},
-					};
-					
-					const res = json(response, { status: 200 });
-					logRequest(env, 'info', {
-						ts: nowIso(),
-						requestId,
-						route: path,
-						method,
-						status: 200,
-						durationMs: Date.now() - startedAt,
-						// Redacted metrics only; never log raw text
-						payloadChars: typeof text === 'string' ? text.length : 0,
-						eventsFound: 0,
-						overallConfidence: 0,
-						parseError: (parseError as Error).message
-					});
-					return res;
+			} catch (parseError) {
+				const status = 500;
+				logError(env, {
+					ts: nowIso(),
+					requestId,
+					route: path,
+					method,
+					status,
+					durationMs: Date.now() - startedAt,
+					error: {
+						message: (parseError as Error).message,
+						stack: (parseError as Error).stack,
+						code: 'PARSE_ERROR'
+					}
+				});
+				return new Response(JSON.stringify({
+					error: 'Parsing failed',
+					details: (parseError as Error).message
+				}), {
+					status,
+					headers: { 'Content-Type': 'application/json', ...corsHeaders },
+				});
 				}
 			}
-
 			// Upload endpoint (optional, stub) — Milestone 4.1
 			if (path === '/upload' && request.method === 'POST') {
 				// In future, return a presigned URL for direct-to-storage upload
@@ -542,5 +502,5 @@ export default {
 			});
 			return json({ error: 'Internal Server Error' }, { status });
 		}
-	},
+	}
 } satisfies ExportedHandler<Env>;

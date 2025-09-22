@@ -1,7 +1,7 @@
 # Syllabus Sync — Unified MVP Tasks (iOS + Server)
 
 > Scope: End-to-end MVP covering **front-end (Swift/SwiftUI)** and **back-end (serverless API)**.  
-> Constraint: Budget-friendly, secure. **OpenAI is used server-side only** as a fallback; heuristics first.  
+> Constraint: Budget-friendly, secure. **OpenAI is used server-side only** for parsing.  
 > Test style: Each task is **tiny, testable, single-concern** with **Start / End / Done When**.  
 > Target: iOS 17+, Cloudflare Workers (or Vercel Functions) + Cloudflare R2/S3 (optional).
 
@@ -152,7 +152,7 @@
 
 ---
 
-## Milestone 5 — Server Heuristics Parser (Cheap-First)
+## Milestone 5 — Server OpenAI Parser
 
 ### 5.1 Normalization
 - **Start:** Implement text cleaning: Unicode normalize, trim whitespace, collapse multiple spaces, line merges.
@@ -194,12 +194,12 @@
 - **Done When:** Unit test hits mock server and parses JSON.
 
 ### 6.3 Confidence router
-- **Start:** In `/parse`, run heuristics; if `confidence < THRESHOLD` or `events.length === 0`, call OpenAI.
-- **End:** Merge results with source = `heuristics|openai` and overall confidence.
+- **Start:** In `/parse`, call OpenAI directly for parsing.
+- **End:** Return results with source = `openai` and overall confidence.
 - **Done When:** Endpoint returns selected path with diagnostics.
 
 ### 6.4 Cost guardrails
-- **Start:** Add daily OpenAI budget cap (env), per-IP cap, and short-circuit to heuristics when exceeded.
+- **Start:** Add daily OpenAI budget cap (env), per-IP cap, and short-circuit when exceeded.
 - **End:** Log denials with reason.
 - **Done When:** Simulated high-traffic day triggers guard.
 
@@ -358,8 +358,8 @@
 
 ### 12.3 Budget guard
 - **Start:** Implement per-day token spend cap and per-client parse cap.
-- **End:** Expose diagnostic header `x-parser-path: heuristics|openai`.
-- **Done When:** Cap triggers and falls back to heuristics.
+- **End:** Expose diagnostic header `x-parser-path: openai`.
+- **Done When:** Cap triggers and returns appropriate error.
 
 ### 12.4 Observability
 - **Start:** Add simple metrics: requests, parse path chosen, token spend, error rate.
@@ -376,7 +376,7 @@
 - **Done When:** Both samples complete successfully.
 
 ### 13.2 Demo toggle
-- **Start:** In iOS, add debug menu to switch empty vs seeded data; show diagnostics badge (heuristics/openai).
+- **Start:** In iOS, add debug menu to switch empty vs seeded data; show diagnostics badge (openai).
 - **End:** Accessible via 3-tap gesture on title.
 - **Done When:** Demo flows reproducible live.
 
@@ -405,7 +405,7 @@
 ## Acceptance Criteria Summary
 
 - iOS app demonstrates full UI/UX with **real parse** from server (text → events), and **EventKit** sync.  
-- Server provides **/parse** with heuristics-first and OpenAI fallback, protected by **rate limits, CORS, and budget caps**.  
+- Server provides **/parse** with OpenAI-powered parsing, protected by **rate limits, CORS, and budget caps**.  
 - No secrets in client; **OPENAI_API_KEY** stored server-side only.  
 - Clear logs/diagnostics to confirm parser path and confidence.  
 - Two sample syllabi run end-to-end with expected results.

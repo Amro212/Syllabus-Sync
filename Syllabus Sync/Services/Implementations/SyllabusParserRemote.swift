@@ -54,9 +54,8 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
             confidence: response.confidence,
             processingTimeMs: envelope?.processingTimeMs,
             textLength: envelope?.textLength,
-            threshold: envelope?.threshold,
             warnings: envelope?.warnings,
-            parserPath: envelope?.source,
+            validation: envelope?.validation,
             openAIModel: envelope?.openai?.usedModel,
             openAIProcessingTimeMs: envelope?.openai?.processingTimeMs,
             openAIDeniedReason: envelope?.openai?.denied

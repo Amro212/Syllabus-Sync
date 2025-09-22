@@ -131,6 +131,10 @@ function validateEventItemDTO(event: unknown): { valid: boolean; errors: string[
       errors.push('notes must not exceed 1000 characters');
     }
   }
+
+  if (e.recurrenceRule !== undefined && typeof e.recurrenceRule !== 'string') {
+    errors.push('recurrenceRule must be a string');
+  }
   
   if (e.reminderMinutes !== undefined) {
     if (typeof e.reminderMinutes !== 'number') {
@@ -243,6 +247,7 @@ function candidateToDTO(candidate: EventCandidate, config: ValidationConfig): Ev
     allDay: candidate.allDay,
     location: candidate.location,
     notes: candidate.notes,
+    recurrenceRule: candidate.recurrenceRule,
     confidence: candidate.confidence
   };
 }
@@ -442,13 +447,20 @@ export function normalizeEventData(events: EventItemDTO[]): EventItemDTO[] {
   return events.map(event => ({
     ...event,
     // Ensure consistent ISO date format
-    start: formatUtcDateWithoutTimezone(parseFlexibleISODate(event.start)),
-    end: event.end ? formatUtcDateWithoutTimezone(parseFlexibleISODate(event.end)) : undefined,
+    start: /[+-]\d{2}:\d{2}$/.test(event.start)
+      ? event.start
+      : formatUtcDateWithoutTimezone(parseFlexibleISODate(event.start)),
+    end: event.end
+      ? (/[+-]\d{2}:\d{2}$/.test(event.end)
+          ? event.end
+          : formatUtcDateWithoutTimezone(parseFlexibleISODate(event.end)))
+      : undefined,
     // Normalize string fields
     title: event.title.trim(),
     location: event.location?.trim(),
     notes: event.notes?.trim(),
     courseCode: event.courseCode?.trim(),
+    recurrenceRule: event.recurrenceRule?.trim(),
     // Ensure confidence is properly bounded
     confidence: event.confidence !== undefined 
       ? Math.max(0, Math.min(1, event.confidence)) 

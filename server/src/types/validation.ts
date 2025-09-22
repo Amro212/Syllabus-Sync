@@ -9,7 +9,7 @@ import { EventItemDTO, EventItemsResponse, EventType } from './eventItem.js';
 const validEventTypes = new Set<EventType>(['ASSIGNMENT', 'QUIZ', 'MIDTERM', 'FINAL', 'LAB', 'LECTURE', 'OTHER']);
 
 // ISO8601 date regex (simplified)
-const iso8601Regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}$/;
+const iso8601Regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:[+-]\d{2}:\d{2})?$/;
 
 // Course code regex (letters + digits, allow separators)
 const courseCodeRegex = /^[A-Z]{2,6}[A-Z0-9\s\-\*]{0,26}$/;
@@ -35,6 +35,7 @@ export function validateEventItem(data: unknown): boolean {
   if (item.allDay !== undefined && typeof item.allDay !== 'boolean') return false;
   if (item.location !== undefined && (typeof item.location !== 'string' || item.location.length > 100)) return false;
   if (item.notes !== undefined && (typeof item.notes !== 'string' || item.notes.length > 1000)) return false;
+  if (item.recurrenceRule !== undefined && typeof item.recurrenceRule !== 'string') return false;
   if (item.reminderMinutes !== undefined && (typeof item.reminderMinutes !== 'number' || item.reminderMinutes < 0 || item.reminderMinutes > 43200)) return false;
   if (item.confidence !== undefined && (typeof item.confidence !== 'number' || item.confidence < 0 || item.confidence > 1)) return false;
   

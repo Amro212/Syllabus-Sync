@@ -8,7 +8,7 @@ const goodEvent = {
   courseCode: 'CS101',
   type: 'ASSIGNMENT',
   title: 'Assignment 1',
-  start: '2025-09-12T00:00:00.000',
+  start: '2025-09-12T00:00:00.000-05:00',
 };
 
 describe('OpenAI client', () => {

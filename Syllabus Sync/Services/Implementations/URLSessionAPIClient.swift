@@ -28,24 +28,16 @@ private extension URLSessionAPIClient {
     static let localISONoMillis = try! NSRegularExpression(pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$")
     static let isoDateOnly = try! NSRegularExpression(pattern: "^\\d{4}-\\d{2}-\\d{2}$")
 
+    static let localFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .iso8601)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS"
+        return formatter
+    }()
+
     static func normalizeISOIfNeeded(_ string: String) -> String {
-        if string.hasSuffix("Z") || string.contains("+") {
-            return string
-        }
-
-        let range = NSRange(location: 0, length: string.utf16.count)
-        if localISOWithMillis.firstMatch(in: string, options: [], range: range) != nil {
-            return string + "Z"
-        }
-
-        if localISONoMillis.firstMatch(in: string, options: [], range: range) != nil {
-            return string + ".000Z"
-        }
-
-        if isoDateOnly.firstMatch(in: string, options: [], range: range) != nil {
-            return string + "T00:00:00.000Z"
-        }
-
         return string
     }
 }
@@ -112,11 +104,33 @@ final class URLSessionAPIClient: APIClient {
         self.session = urlSession
 
         let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.keyDecodingStrategy = .useDefaultKeys
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
             let string = try container.decode(String.self)
             let normalized = Self.normalizeISOIfNeeded(string)
+            let range = NSRange(location: 0, length: normalized.utf16.count)
+
+            if Self.localISOWithMillis.firstMatch(in: normalized, options: [], range: range) != nil {
+                if let date = Self.localFormatter.date(from: normalized) {
+                    return date
+                }
+            }
+
+            if Self.localISONoMillis.firstMatch(in: normalized, options: [], range: range) != nil {
+                let augmented = normalized + ".000"
+                if let date = Self.localFormatter.date(from: augmented) {
+                    return date
+                }
+            }
+
+            if Self.isoDateOnly.firstMatch(in: normalized, options: [], range: range) != nil {
+                let augmented = normalized + "T00:00:00.000"
+                if let date = Self.localFormatter.date(from: augmented) {
+                    return date
+                }
+            }
+
             if let date = Self.primaryDateFormatter.date(from: normalized) {
                 return date
             }

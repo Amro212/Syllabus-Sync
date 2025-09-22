@@ -28,6 +28,7 @@ struct EventItem: Identifiable, Codable, Equatable {
     let allDay: Bool?
     let location: String?
     let notes: String?
+    let recurrenceRule: String?
     let reminderMinutes: Int?
     let confidence: Double?
 }

@@ -210,6 +210,13 @@ private struct PreviewEventCard: View {
                             .padding(.vertical, 2)
                             .background(eventColor.opacity(0.12))
                             .cornerRadius(Layout.CornerRadius.xs)
+                        
+                        Spacer()
+                        
+                        Text(event.courseCode)
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(AppColors.accent)
                     }
 
                     Text(event.title)

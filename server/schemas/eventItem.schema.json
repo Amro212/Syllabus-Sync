@@ -53,6 +53,10 @@
       "maxLength": 1000,
       "description": "Additional notes or description for the event"
     },
+    "recurrenceRule": {
+      "type": "string",
+      "description": "Optional iCalendar RRULE string for recurring events"
+    },
     "reminderMinutes": {
       "type": "number",
       "minimum": 0,

@@ -19,6 +19,8 @@ export interface EventCandidate {
   id: string;
   /** Course code inferred for this event */
   courseCode?: string;
+  /** Recurrence rule if the event repeats */
+  recurrenceRule?: string;
   /** Event type classification */
   type: EventType;
   /** Generated title */
@@ -701,6 +703,7 @@ export function candidatesToDTO(
     allDay: candidate.allDay,
     location: candidate.location,
     notes: candidate.notes,
+    recurrenceRule: candidate.recurrenceRule,
     confidence: candidate.confidence
   }));
 }

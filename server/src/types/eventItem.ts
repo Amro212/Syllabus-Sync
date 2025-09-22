@@ -42,6 +42,9 @@ export interface EventItemDTO {
   /** Additional notes or description for the event */
   notes?: string;
   
+  /** Recurrence rule in iCalendar RRULE format */
+  recurrenceRule?: string;
+  
   /** Minutes before the event to send a reminder (max 30 days) */
   reminderMinutes?: number;
   

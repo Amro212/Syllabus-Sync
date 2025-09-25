@@ -31,7 +31,8 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
             throw SyllabusParserError.emptyPayload
         }
 
-        let payload = ParseRequestPayload(text: trimmed)
+        let timezoneIdentifier = TimeZone.current.identifier
+        let payload = ParseRequestPayload(text: trimmed, timezone: timezoneIdentifier)
         let body = try encoder.encode(payload)
         var request = APIRequest(path: "/parse", method: .post, headers: [:], body: body, timeout: 45)
         request.headers["Content-Type"] = "application/json"
@@ -117,4 +118,5 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
 
 private struct ParseRequestPayload: Encodable {
     let text: String
+    let timezone: String
 }

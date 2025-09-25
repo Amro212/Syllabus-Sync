@@ -17,6 +17,7 @@ final class ImportViewModel: ObservableObject {
     @Published var previewImage: UIImage? = nil
     @Published var extractedPlainText: String? = nil
     @Published var extractedTSV: String? = nil
+    @Published var parserInputText: String? = nil
     @Published var errorMessage: String? = nil
     @Published var rawAIResponse: String? = nil  // Raw JSON response from AI for debugging
 
@@ -50,7 +51,7 @@ final class ImportViewModel: ObservableObject {
             extractedTSV = structured.tsv
             updateProgress(to: 0.3, message: "Preparing request...")
 
-            guard let plain = extractedPlainText, !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            guard let tsv = extractedTSV, !tsv.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw SyllabusParserError.emptyPayload
             }
 
@@ -58,7 +59,8 @@ final class ImportViewModel: ObservableObject {
             updateProgress(to: 0.6, message: "Waiting for parser...")
             updateProgress(to: 0.75, message: "Waiting for parser...")
 
-            let events = try await parser.parse(text: plain)
+            parserInputText = tsv
+            let events = try await parser.parse(text: tsv)
 
             updateProgress(to: 0.9, message: "Finalizing results...")
             self.events = events
@@ -80,6 +82,7 @@ final class ImportViewModel: ObservableObject {
         diagnosticsString = nil
         extractedPlainText = nil
         extractedTSV = nil
+        parserInputText = nil
         previewImage = nil
         rawAIResponse = nil
     }

@@ -338,13 +338,13 @@ export default {
 					});
 				}
 
-				const tz = request.headers.get('CF-Timezone') || 'UTC';
+				const tz = (body as any).timezone || request.headers.get('CF-Timezone') || 'UTC';
 				const promptReq = buildParseSyllabusRequest(text, {
 					courseCode,
 					termStart: (body as any).termStart,
 					termEnd: (body as any).termEnd,
 					timezone: tz,
-					model: (env as any).OPENAI_MODEL || 'gpt-4o-mini',
+					model: (env as any).OPENAI_MODEL || 'gpt-5-mini',
 				});
 
 				let aiItems: unknown[];
@@ -414,7 +414,7 @@ export default {
 						textLength: text.length,
 						warnings,
 						validation: validationResult.stats,
-					openai: { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-4o-mini' }
+					openai: { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-5-mini' }
 					}
 				};
 

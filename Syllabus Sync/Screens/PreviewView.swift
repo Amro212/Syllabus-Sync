@@ -14,11 +14,13 @@ struct PreviewView: View {
     
     enum PreviewTab: String, CaseIterable {
         case events = "Events"
+        case ocrTSV = "OCR Data"
         case aiOutput = "AI Output"
         
         var icon: String {
             switch self {
             case .events: return "calendar"
+            case .ocrTSV: return "doc.text"
             case .aiOutput: return "brain"
             }
         }
@@ -52,6 +54,8 @@ struct PreviewView: View {
                     switch selectedTab {
                     case .events:
                         eventsTabContent
+                    case .ocrTSV:
+                        ocrTSVTabContent
                     case .aiOutput:
                         aiOutputTabContent
                     }
@@ -124,6 +128,71 @@ struct PreviewView: View {
         .padding(Layout.Spacing.lg)
     }
 
+    private var ocrTSVTabContent: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.md) {
+            if let tsvData = importViewModel.parserInputText, !tsvData.isEmpty {
+                VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
+                    HStack(spacing: Layout.Spacing.sm) {
+                        Image(systemName: "eye.trianglebadge.exclamationmark")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.blue)
+                        
+                        Text("OCR TSV Data Sent to AI")
+                            .font(.titleS)
+                            .fontWeight(.semibold)
+                            .foregroundColor(AppColors.textPrimary)
+                    }
+                    
+                    Text("This is the structured OCR data (tab-separated values) that gets sent to the AI parser.")
+                        .font(.caption)
+                        .foregroundColor(AppColors.textSecondary)
+
+                    ScrollView([.horizontal, .vertical]) {
+                        Text(tsvData)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(AppColors.textPrimary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                            .padding(Layout.Spacing.md)
+                            .background(AppColors.surface)
+                            .cornerRadius(Layout.CornerRadius.sm)
+                    }
+                    .frame(maxHeight: 400)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
+                            .stroke(AppColors.separator, lineWidth: 1)
+                    )
+                }
+            } else {
+                VStack(spacing: Layout.Spacing.md) {
+                    Image(systemName: "doc.text.viewfinder")
+                        .font(.system(size: 48, weight: .medium))
+                        .foregroundColor(AppColors.textSecondary)
+
+                    Text("No OCR data available yet")
+                        .font(.titleS)
+                        .fontWeight(.semibold)
+                        .foregroundColor(AppColors.textPrimary)
+
+                    Text("Import a PDF to see the OCR-extracted structured data here.")
+                        .font(.body)
+                        .foregroundColor(AppColors.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, Layout.Spacing.lg)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(Layout.Spacing.xl)
+                .background(AppColors.surface)
+                .cornerRadius(Layout.CornerRadius.lg)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
+                        .stroke(AppColors.separator, lineWidth: 1)
+                )
+            }
+        }
+        .padding(Layout.Spacing.lg)
+    }
+
     private var eventsSection: some View {
         VStack(alignment: .leading, spacing: Layout.Spacing.md) {
             ForEach(events) { event in
@@ -180,6 +249,58 @@ private struct PreviewEventCard: View {
         formatter.dateFormat = "MMM d"
         return formatter
     }()
+    
+    private static let timeOnlyFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter
+    }()
+    
+    private func formatEventTime(_ event: EventItem) -> String {
+        if let recurrenceRule = event.recurrenceRule {
+            // For recurring events, show pattern instead of specific date
+            let dayPattern = extractDayPattern(from: recurrenceRule)
+            let timeString = Self.timeOnlyFormatter.string(from: event.start)
+            
+            if let end = event.end {
+                let endTimeString = Self.timeOnlyFormatter.string(from: end)
+                return "\(dayPattern) \(timeString)-\(endTimeString)"
+            } else {
+                return "\(dayPattern) \(timeString)"
+            }
+        } else {
+            // For single events, show full date and time
+            return Self.dateFormatter.string(from: event.start)
+        }
+    }
+    
+    private func extractDayPattern(from rrule: String) -> String {
+        // Extract BYDAY from RRULE format like "FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=2025-12-12"
+        guard let byDayRange = rrule.range(of: "BYDAY=") else {
+            return "Weekly"
+        }
+        
+        let afterByDay = String(rrule[byDayRange.upperBound...])
+        let endIndex = afterByDay.firstIndex(of: ";") ?? afterByDay.endIndex
+        let dayString = String(afterByDay[..<endIndex])
+        
+        // Convert day codes to readable format
+        let dayMap: [String: String] = [
+            "MO": "Mon", "TU": "Tue", "WE": "Wed", "TH": "Thu", 
+            "FR": "Fri", "SA": "Sat", "SU": "Sun"
+        ]
+        
+        let days = dayString.components(separatedBy: ",")
+        let readableDays = days.compactMap { dayMap[$0.trimmingCharacters(in: .whitespaces)] }
+        
+        if readableDays.isEmpty {
+            return "Weekly"
+        } else if readableDays.count <= 2 {
+            return readableDays.joined(separator: "/")
+        } else {
+            return readableDays.joined(separator: ", ")
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
@@ -224,9 +345,17 @@ private struct PreviewEventCard: View {
                         .fontWeight(.semibold)
                         .foregroundColor(AppColors.textPrimary)
 
-                    Text(Self.dateFormatter.string(from: event.start))
-                        .font(.caption)
-                        .foregroundColor(AppColors.textSecondary)
+                    HStack(spacing: Layout.Spacing.xs) {
+                        Text(formatEventTime(event))
+                            .font(.caption)
+                            .foregroundColor(AppColors.textSecondary)
+                        
+                        if event.recurrenceRule != nil {
+                            Image(systemName: "repeat")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(AppColors.accent)
+                        }
+                    }
 
                     if let location = event.location, !location.isEmpty {
                         HStack(spacing: Layout.Spacing.xs) {

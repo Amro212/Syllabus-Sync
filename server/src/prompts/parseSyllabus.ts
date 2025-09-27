@@ -4,6 +4,7 @@
  */
 
 import eventItemSchema from '../../schemas/eventItem.schema.json';
+import { preprocessTextForAI } from '../utils/preprocessTextForAI';
 
 export type ParsePromptOptions = {
   courseCode?: string;
@@ -30,41 +31,19 @@ const SYSTEM_PROMPT = (
   opts: Required<Pick<ParsePromptOptions, 'timezone'>>
 ) => `# SYLLABUS TO CALENDAR PARSER
 
-You are a specialized AI that extracts academic events from syllabus text and converts them to structured JSON calendar events.
+You are a specialized AI that extracts academic events from preprocessed syllabus text into structured JSON.
 
 ## CORE MISSION
-Extract ONLY weighted academic events, important dates, and recurring lecture times from syllabus text.
-Return ONLY strict JSON matching the provided schema. No extra text.
-
----
-
-## EVENT EXTRACTION HIERARCHY
-
-### MUST INCLUDE (never skip)
-- **FINAL EXAMS and MIDTERMS**: Maximum accuracy required, include even if details are missing
-- **All weighted Assignments and Projects**: Including "Mini Project", "Final Project", "Term Project", "Group Project", "Research Project", "Capstone Project"
-- **All weighted Labs**: Individual lab events with specific due dates and distributed weights
-
-### SECONDARY
-- **Recurring lectures**: Class meeting times (always recurring, never individual instances)
-- **Administrative dates**: "Important Dates" section, Drop/add deadlines, withdrawal deadlines, holidays, breaks
-
-### IGNORE
-- Office hours, optional labs, seminars, workshops, tutorials
-- Discussion sections (unless they're the main lecture)
-- Generic info not tied to specific dates
-
----
+- Prioritize lines tagged with [EVENT:*] with their corresponding weight in the form "— WEIGHT".
+- Still capture critical untagged items (Final Exam, Midterm, Projects, Labs, major deadlines).
+- Return ONLY valid JSON matching schema.
 
 ## JSON OUTPUT FORMAT
-
-### Required Structure
-\`\`\`json
 {
   "events": [
     {
       "id": "string",
-      "courseCode": "string", 
+      "courseCode": "string",
       "type": "ASSIGNMENT|QUIZ|MIDTERM|FINAL|LAB|LECTURE|OTHER",
       "title": "string",
       "start": "ISO8601 datetime",
@@ -77,85 +56,95 @@ Return ONLY strict JSON matching the provided schema. No extra text.
     }
   ]
 }
-\`\`\`
 
-### Field Requirements
-- **id**: Short slug from title, lowercase, alnum+dashes only, unique
-- **courseCode**: Extract exactly as written in syllabus (e.g., "ENGG*3390", "CS 101", "MATH-151")
-- **type**: Use exact enum values: ASSIGNMENT, QUIZ, MIDTERM, FINAL, LAB, LECTURE, OTHER
-- **title**: Concise, human-friendly (e.g., "Assignment 1", "Midterm", "Mini Project")
-- **confidence**: 0-1 indicating extraction confidence
+## CRITICAL TYPE MAPPING
+- Projects (Mini Project, Final Project, Term Project, etc.) → type: "ASSIGNMENT"
+- Exams (Midterm, Final) → type: "MIDTERM" or "FINAL"
+- Assignments → type: "ASSIGNMENT"
+- Quizzes → type: "QUIZ"
+- Labs → type: "LAB"
+- Lectures → type: "LECTURE"
+- Administrative dates → type: "OTHER"
 
----
+## EVENT PRIORITY
+- Weighted Assignments, Projects, Labs (include weights in notes).
+- Final Exams & Midterms.
+- Recurring lectures with proper RRULE.
+- Important administrative dates (drop/add, withdrawal, holidays).
 
-## DATETIME HANDLING
-
-### ISO8601 Format
-- **Required format**: \`YYYY-MM-DDTHH:MM:SS.000±HH:MM\`
-- **Example**: \`"2025-09-12T23:59:00.000-05:00"\`
-- **Timezone**: Use provided timezone offset, never use trailing "Z"
-- **Default**: If timezone is "UTC" or missing, use "+00:00"
-
-### Time Extraction Rules
-- **Explicit times**: "Due: October 10, 2025 at 11:59 PM" → \`23:59:00.000\`
-- **No time given**: Use \`00:00:00.000\` and set \`allDay: true\`
-- **End time unknown**: Omit the \`end\` field entirely
-- **Relative references**: "Week 5 Friday" → calculate using termStart
-
----
-
-## WEIGHT EXTRACTION
-
-### Weight Patterns to Find
-- "worth 10%", "10 points", "10% of grade"
-- "weighted 15%", "counts for 20%", "20% of total grade"
-
-### Weight Handling
-- **Always include** weight info in notes field when available
-- **Generic weights**: Distribute total among individual events
-- **Projects**: Be especially vigilant for project weights - mark as ASSIGNMENT type
-- **Labs**: Include weight and mark as LAB type
-- **Lectures**: Do NOT include weight (not graded)
-
-### Weight Format in Notes
-- "Weight: 10%", "Worth 15 points", "7% of grade"
-- For distributed weights: "Weight: 5% (25% total for 5 labs)"
-
----
-
-## LECTURE EXTRACTION
-
-### What to Look For
-- **Sections**: "Schedule", "Class Times", "Meeting Times", "Lecture Schedule"
-- **Patterns**: "Classes meet TuTh 10:00-11:20 AM", "T/Th 1:00-2:15 PM"
-- **Day codes**: "TuTh", "TTh", "MWF", "MW", "TuesThurs", "MonWedFri"
-
-### Recurrence Rules
-- **RRULE format**: \`"FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=2025-12-12"\`
-- **Day codes**: MO,TU,WE,TH,FR,SA,SU
-- **Start/end times**: Correspond to first occurrence (based on termStart)
-- **Incomplete info**: Still output without recurrenceRule
-
-### Section Filtering
-- **ONLY report LECTURE sections**, not lab sections
-- **IGNORE**: Seminars, workshops, discussion sections
-
----
+## RECURRENCE RULES
+- Format: "FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=2025-12-12"
+- Day codes: MO,TU,WE,TH,FR,SA,SU
+- Start/end: first occurrence from termStart
+- If incomplete info: output lecture without recurrenceRule
 
 ## ADDITIONAL RULES
+- Notes: Max 200 chars, always include weight/submission if present
+- Relative dates: Convert "Week 5 Friday" using termStart
+- Ignore: Office hours, seminars, workshops, tutorials, grading policies, generic info
+- Confidence: 0–1 certainty per event
+- CRITICAL: Use ONLY these exact type values: ASSIGNMENT, QUIZ, MIDTERM, FINAL, LAB, LECTURE, OTHER
 
-### General Guidelines
-- **Notes**: Max 200 chars, include weight or submission method
-- **Relative dates**: Convert "Week 5 Friday" using termStart
-- **Ignore**: Office hours, grading policies, generic info
-- **Confidence**: 0-1 scale based on extraction certainty
+## COURSE CODE EXTRACTION
+- Accept "ENGG*3390", "CS 101", "MATH-151", "PHYSICS 201", etc.
+- Never invent or omit courseCode
 
-### Course Code Extraction
-- **Traditional**: "ENGG*3390", "CS 101", "MATH-151"
-- **Full names**: "PHYSICS 201", "MATHEMATICS 101"
-- **Department codes**: "DSB424", "ENG 3390", "CIS 200"
-- **Never invent or omit** the course code
+## EXAMPLES
+### Example 1 — Weighted Assignment
+Text: Assignment 1 due Sept 12, 2025 at 11:59 PM. Weight: 10%.
+Output:
+{
+  "events": [
+    {
+      "id": "assignment-1",
+      "courseCode": "CS101",
+      "type": "ASSIGNMENT",
+      "title": "Assignment 1",
+      "start": "2025-09-12T23:59:00.000-07:00",
+      "allDay": false,
+      "notes": "Weight: 10%",
+      "confidence": 0.95
+    }
+  ]
+}
 
+### Example 2 — Relative Week Midterm
+Text: Week 5: Midterm on Friday.
+Output:
+{
+  "events": [
+    {
+      "id": "midterm",
+      "courseCode": "HIST200",
+      "type": "MIDTERM",
+      "title": "Midterm",
+      "start": "2025-09-26T00:00:00.000-04:00",
+      "allDay": true,
+      "notes": "During lecture",
+      "confidence": 0.8
+    }
+  ]
+}
+
+### Example 3 — Recurring Lecture
+Text: TuTh 10:00-11:20 AM in Room 204 from Sept 4 to Dec 12.
+Output:
+{
+  "events": [
+    {
+      "id": "lecture-series",
+      "courseCode": "CS2750",
+      "type": "LECTURE",
+      "title": "Lecture",
+      "start": "2025-09-04T10:00:00.000-04:00",
+      "end": "2025-09-04T11:20:00.000-04:00",
+      "allDay": false,
+      "location": "Room 204",
+      "recurrenceRule": "FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=2025-12-12",
+      "confidence": 0.9
+    }
+  ]
+}
 `;
 
 // Few-shot examples to steer formatting and mapping.
@@ -501,119 +490,6 @@ const FEWSHOT = [
   {
     role: 'user' as const,
     content:
-      'Example 8 — Projects and weighted events only.\n' +
-      'Context: courseCode=ENGL102, timezone=America/New_York, termStart=2025-08-26.\n' +
-      'Text:\n' +
-      'Course Requirements: Participation (10%), Reading Responses (20% - 8 responses), Essays (40% - 3 essays), Final Project (30%).\n' +
-      'Reading Response 1 due Week 2 (Sept 5). Reading Response 2 due Week 4 (Sept 19).\n' +
-      'Essay 1 due October 3. Essay 2 due November 7. Essay 3 due December 5.\n' +
-      'Final Project proposal due November 15. Final Project due December 12.\n' +
-      'Class meets T/Th 2:00-3:15 PM. No class on Thanksgiving week (Nov 25-29).\n' +
-      'Late work policy: 10% deduction per day, no work accepted after 3 days late.'
-  },
-  {
-    role: 'assistant' as const,
-    content: JSON.stringify({
-      events: [
-        {
-          id: 'english-lecture-series',
-          courseCode: 'ENGL102',
-          type: 'LECTURE',
-          title: 'Lecture',
-          start: '2025-08-27T14:00:00.000-04:00',
-          end: '2025-08-27T15:15:00.000-04:00',
-          allDay: false,
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=2025-12-12',
-          notes: 'No class Thanksgiving week (Nov 25-29)',
-          confidence: 0.9
-        },
-        {
-          id: 'reading-response-1',
-          courseCode: 'ENGL102',
-          type: 'ASSIGNMENT',
-          title: 'Reading Response 1',
-          start: '2025-09-05T00:00:00.000-04:00',
-          allDay: true,
-          notes: 'Weight: 2.5% (20% total for 8 responses)',
-          confidence: 0.9
-        },
-        {
-          id: 'reading-response-2',
-          courseCode: 'ENGL102',
-          type: 'ASSIGNMENT',
-          title: 'Reading Response 2',
-          start: '2025-09-19T00:00:00.000-04:00',
-          allDay: true,
-          notes: 'Weight: 2.5% (20% total for 8 responses)',
-          confidence: 0.9
-        },
-        {
-          id: 'essay-1',
-          courseCode: 'ENGL102',
-          type: 'ASSIGNMENT',
-          title: 'Essay 1',
-          start: '2025-10-03T00:00:00.000-04:00',
-          allDay: true,
-          notes: 'Weight: 13.3% (40% total for 3 essays)',
-          confidence: 0.95
-        },
-        {
-          id: 'essay-2',
-          courseCode: 'ENGL102',
-          type: 'ASSIGNMENT',
-          title: 'Essay 2',
-          start: '2025-11-07T00:00:00.000-05:00',
-          allDay: true,
-          notes: 'Weight: 13.3% (40% total for 3 essays)',
-          confidence: 0.95
-        },
-        {
-          id: 'essay-3',
-          courseCode: 'ENGL102',
-          type: 'ASSIGNMENT',
-          title: 'Essay 3',
-          start: '2025-12-05T00:00:00.000-05:00',
-          allDay: true,
-          notes: 'Weight: 13.3% (40% total for 3 essays)',
-          confidence: 0.95
-        },
-        {
-          id: 'final-project-proposal',
-          courseCode: 'ENGL102',
-          type: 'ASSIGNMENT',
-          title: 'Final Project Proposal',
-          start: '2025-11-15T00:00:00.000-05:00',
-          allDay: true,
-          notes: 'Weight: 15% (30% total for final project)',
-          confidence: 0.9
-        },
-        {
-          id: 'final-project',
-          courseCode: 'ENGL102',
-          type: 'ASSIGNMENT',
-          title: 'Final Project',
-          start: '2025-12-12T00:00:00.000-05:00',
-          allDay: true,
-          notes: 'Weight: 15% (30% total for final project)',
-          confidence: 0.95
-        },
-        {
-          id: 'thanksgiving-break',
-          courseCode: 'ENGL102',
-          type: 'OTHER',
-          title: 'Thanksgiving Break',
-          start: '2025-11-25T00:00:00.000-05:00',
-          end: '2025-11-29T23:59:59.000-05:00',
-          allDay: true,
-          notes: 'No class this week',
-          confidence: 0.9
-        }
-      ]
-    })
-  },
-  {
-    role: 'user' as const,
-    content:
       'Example 9 — Ungraded labs excluded, projects included.\n' +
       'Context: courseCode=CS201, timezone=America/Los_Angeles, termStart=2025-09-03.\n' +
       'Text:\n' +
@@ -689,84 +565,6 @@ const FEWSHOT = [
           allDay: true,
           notes: 'Weight: 25%',
           confidence: 0.95
-        }
-      ]
-    })
-  },
-  {
-    role: 'user' as const,
-    content:
-      'Example 10 — Labs with explicit schedule and weights.\n' +
-      'Context: courseCode=ENGG*3390, timezone=America/Toronto, termStart=2025-09-03.\n' +
-      'Text:\n' +
-      'Marking Schemes: Labs (25%), Midterm Exam (30%), Final Exam (45%).\n' +
-      'Lab Schedule:\n' +
-      'Mon, Sep 8 - Fri, Sep 12: Safety training, group formation and lab kit assignment\n' +
-      'Mon, Sep 15 - Fri, Sep 19: Lab 1: Digital Signal Processing\n' +
-      'Mon, Sep 22 - Fri, Sep 26: Lab 1: Follow-up Hour(s)\n' +
-      'Mon, Sep 29 - Fri, Oct 3: Lab 2: Convolution\n' +
-      'Mon, Oct 6 - Fri, Oct 10: Lab 2: Follow-up Hour(s)\n' +
-      'Mon, Oct 20 - Fri, Oct 24: Lab 3: Filtering and Frequency Response\n' +
-      'Mon, Oct 27 - Fri, Oct 31: Lab 3: Follow-up Hour(s)\n' +
-      'Mon, Nov 3 - Fri, Nov 7: Lab 4: FIR and IIR Filter Design\n' +
-      'Mon, Nov 10 - Fri, Nov 14: Lab 4: Follow-up Hour(s)\n' +
-      'Mon, Nov 17 - Fri, Nov 21: Lab 5: Frequency Domain Filtering\n' +
-      'Mon, Nov 24 - Fri, Nov 28: Lab 5: Follow-up Hour(s)\n' +
-      'Lab Reports: Five labs will be held. Reports for labs 1-4 are due before the start of the following lab. The report for lab 5 is due at 5:30 pm 7 days after the lab.'
-  },
-  {
-    role: 'assistant' as const,
-    content: JSON.stringify({
-      events: [
-        {
-          id: 'lab-1-report',
-          courseCode: 'ENGG*3390',
-          type: 'LAB',
-          title: 'Lab 1 Report: Digital Signal Processing',
-          start: '2025-09-19T00:00:00.000-04:00',
-          allDay: true,
-          notes: 'Weight: 5% (25% total for 5 labs). Due before Lab 2 starts.',
-          confidence: 0.9
-        },
-        {
-          id: 'lab-2-report',
-          courseCode: 'ENGG*3390',
-          type: 'LAB',
-          title: 'Lab 2 Report: Convolution',
-          start: '2025-10-03T00:00:00.000-04:00',
-          allDay: true,
-          notes: 'Weight: 5% (25% total for 5 labs). Due before Lab 3 starts.',
-          confidence: 0.9
-        },
-        {
-          id: 'lab-3-report',
-          courseCode: 'ENGG*3390',
-          type: 'LAB',
-          title: 'Lab 3 Report: Filtering and Frequency Response',
-          start: '2025-10-31T00:00:00.000-04:00',
-          allDay: true,
-          notes: 'Weight: 5% (25% total for 5 labs). Due before Lab 4 starts.',
-          confidence: 0.9
-        },
-        {
-          id: 'lab-4-report',
-          courseCode: 'ENGG*3390',
-          type: 'LAB',
-          title: 'Lab 4 Report: FIR and IIR Filter Design',
-          start: '2025-11-14T00:00:00.000-05:00',
-          allDay: true,
-          notes: 'Weight: 5% (25% total for 5 labs). Due before Lab 5 starts.',
-          confidence: 0.9
-        },
-        {
-          id: 'lab-5-report',
-          courseCode: 'ENGG*3390',
-          type: 'LAB',
-          title: 'Lab 5 Report: Frequency Domain Filtering',
-          start: '2025-11-28T17:30:00.000-05:00',
-          allDay: false,
-          notes: 'Weight: 5% (25% total for 5 labs). Due 7 days after lab at 5:30 PM.',
-          confidence: 0.9
         }
       ]
     })
@@ -970,7 +768,9 @@ export function buildParseSyllabusRequest(
     0
   );
 
-  const userContent = `Context: ${contextBlock}\nSyllabus Text:\n${text}`;
+  const processedText = preprocessTextForAI(text);
+
+  const userContent = `Context: ${contextBlock}\nSyllabus Text:\n${processedText}`;
 
   const messages = [
     { role: 'system' as const, content: system },
@@ -980,15 +780,18 @@ export function buildParseSyllabusRequest(
 
   // OpenAI responses with JSON schema enforcement
   return {
-    model,
-    temperature: 0, // Zero temperature for maximum consistency
-    messages,
-    response_format: {
-      type: 'json_schema' as const,
-      json_schema: {
-        name: 'parse_syllabus_events',
-        schema: eventItemsObjectSchema,
-        strict: false
+    processedText,
+    request: {
+      model,
+      temperature: 0, // Zero temperature for maximum consistency
+      messages,
+      response_format: {
+        type: 'json_schema' as const,
+        json_schema: {
+          name: 'parse_syllabus_events',
+          schema: eventItemsObjectSchema,
+          strict: false
+        }
       }
     }
   };

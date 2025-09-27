@@ -14,13 +14,15 @@ struct PreviewView: View {
     
     enum PreviewTab: String, CaseIterable {
         case events = "Events"
-        case ocrTSV = "OCR Data"
+        case rawOCR = "Raw OCR"
+        case processedOCR = "Processed OCR"
         case aiOutput = "AI Output"
-        
+
         var icon: String {
             switch self {
             case .events: return "calendar"
-            case .ocrTSV: return "doc.text"
+            case .rawOCR: return "doc.plaintext"
+            case .processedOCR: return "doc.text"
             case .aiOutput: return "brain"
             }
         }
@@ -54,8 +56,10 @@ struct PreviewView: View {
                     switch selectedTab {
                     case .events:
                         eventsTabContent
-                    case .ocrTSV:
-                        ocrTSVTabContent
+                    case .rawOCR:
+                        rawOCRTabContent
+                    case .processedOCR:
+                        processedOCRTabContent
                     case .aiOutput:
                         aiOutputTabContent
                     }
@@ -128,22 +132,22 @@ struct PreviewView: View {
         .padding(Layout.Spacing.lg)
     }
 
-    private var ocrTSVTabContent: some View {
+    private var rawOCRTabContent: some View {
         VStack(alignment: .leading, spacing: Layout.Spacing.md) {
             if let tsvData = importViewModel.parserInputText, !tsvData.isEmpty {
                 VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
                     HStack(spacing: Layout.Spacing.sm) {
-                        Image(systemName: "eye.trianglebadge.exclamationmark")
+                        Image(systemName: "doc.plaintext")
                             .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.blue)
-                        
-                        Text("OCR TSV Data Sent to AI")
+                            .foregroundColor(.orange)
+
+                        Text("Raw OCR TSV")
                             .font(.titleS)
                             .fontWeight(.semibold)
                             .foregroundColor(AppColors.textPrimary)
                     }
-                    
-                    Text("This is the structured OCR data (tab-separated values) that gets sent to the AI parser.")
+
+                    Text("This is the original OCR output before any preprocessing is applied.")
                         .font(.caption)
                         .foregroundColor(AppColors.textSecondary)
 
@@ -164,33 +168,79 @@ struct PreviewView: View {
                     )
                 }
             } else {
-                VStack(spacing: Layout.Spacing.md) {
-                    Image(systemName: "doc.text.viewfinder")
-                        .font(.system(size: 48, weight: .medium))
-                        .foregroundColor(AppColors.textSecondary)
-
-                    Text("No OCR data available yet")
-                        .font(.titleS)
-                        .fontWeight(.semibold)
-                        .foregroundColor(AppColors.textPrimary)
-
-                    Text("Import a PDF to see the OCR-extracted structured data here.")
-                        .font(.body)
-                        .foregroundColor(AppColors.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, Layout.Spacing.lg)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(Layout.Spacing.xl)
-                .background(AppColors.surface)
-                .cornerRadius(Layout.CornerRadius.lg)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                        .stroke(AppColors.separator, lineWidth: 1)
-                )
+                missingOCRState
             }
         }
         .padding(Layout.Spacing.lg)
+    }
+
+    private var processedOCRTabContent: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.md) {
+            if let tsvData = importViewModel.parserInputText, !tsvData.isEmpty {
+                VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
+                    HStack(spacing: Layout.Spacing.sm) {
+                        Image(systemName: "eye.trianglebadge.exclamationmark")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.blue)
+                        
+                        Text("OCR TSV Data Sent to AI")
+                            .font(.titleS)
+                            .fontWeight(.semibold)
+                            .foregroundColor(AppColors.textPrimary)
+                    }
+                    
+                    Text("This is the preprocessed OCR data returned by the parser service with event markers ready for the AI call.")
+                        .font(.caption)
+                        .foregroundColor(AppColors.textSecondary)
+
+                    ScrollView([.horizontal, .vertical]) {
+                        Text(importViewModel.preprocessedParserInputText ?? tsvData)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(AppColors.textPrimary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                            .padding(Layout.Spacing.md)
+                            .background(AppColors.surface)
+                            .cornerRadius(Layout.CornerRadius.sm)
+                    }
+                    .frame(maxHeight: 400)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
+                            .stroke(AppColors.separator, lineWidth: 1)
+                    )
+                }
+            } else {
+                missingOCRState
+            }
+        }
+        .padding(Layout.Spacing.lg)
+    }
+
+    private var missingOCRState: some View {
+        VStack(spacing: Layout.Spacing.md) {
+            Image(systemName: "doc.text.viewfinder")
+                .font(.system(size: 48, weight: .medium))
+                .foregroundColor(AppColors.textSecondary)
+
+            Text("No OCR data available yet")
+                .font(.titleS)
+                .fontWeight(.semibold)
+                .foregroundColor(AppColors.textPrimary)
+
+            Text("Import a PDF to see the OCR-extracted structured data here.")
+                .font(.body)
+                .foregroundColor(AppColors.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, Layout.Spacing.lg)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(Layout.Spacing.xl)
+        .background(AppColors.surface)
+        .cornerRadius(Layout.CornerRadius.lg)
+        .overlay(
+            RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
+                .stroke(AppColors.separator, lineWidth: 1)
+        )
     }
 
     private var eventsSection: some View {

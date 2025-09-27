@@ -242,7 +242,7 @@
 - **Done When:** Preview screen is populated from server result.
 
 ### 8.4 Error paths
-- **Start:** Handle 4xx/5xx: show friendly retry, fallback to local heuristics (optional later), or let user continue with empty list.
+- **Start:** Handle 4xx/5xx: show friendly retry, or let user continue with empty list.
 - **End:** Log errors via lightweight logger.
 - **Done When:** Simulated failure renders UX gracefully.
 

@@ -12,9 +12,11 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
 
     @Published private(set) var diagnostics: ParseDiagnostics?
     @Published private(set) var latestRawResponse: String?
+    @Published private(set) var preprocessedText: String?
 
     var latestDiagnostics: ParseDiagnostics? { diagnostics }
     var rawResponse: String? { latestRawResponse }
+    var latestPreprocessedText: String? { preprocessedText }
 
     init(apiClient: APIClient) {
         self.apiClient = apiClient
@@ -32,18 +34,21 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
         }
 
         let timezoneIdentifier = TimeZone.current.identifier
+        preprocessedText = nil
         let payload = ParseRequestPayload(text: trimmed, timezone: timezoneIdentifier)
         let body = try encoder.encode(payload)
-        var request = APIRequest(path: "/parse", method: .post, headers: [:], body: body, timeout: 45)
+        var request = APIRequest(path: "/parse", method: .post, headers: [:], body: body, timeout: 90)
         request.headers["Content-Type"] = "application/json"
 
         do {
             let (response, rawResponse): (ParseResult, String) = try await apiClient.sendWithRawResponse(request, as: ParseResult.self)
             diagnostics = mapDiagnostics(from: response)
             latestRawResponse = rawResponse
+            preprocessedText = response.preprocessedText
             return response.events
         } catch {
             latestRawResponse = nil
+            preprocessedText = nil
             throw mapToParserError(error)
         }
     }

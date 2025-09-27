@@ -339,12 +339,12 @@ export default {
 				}
 
 				const tz = (body as any).timezone || request.headers.get('CF-Timezone') || 'UTC';
-				const promptReq = buildParseSyllabusRequest(text, {
+				const { request: promptReq, processedText } = buildParseSyllabusRequest(text, {
 					courseCode,
 					termStart: (body as any).termStart,
 					termEnd: (body as any).termEnd,
 					timezone: tz,
-					model: (env as any).OPENAI_MODEL || 'gpt-5-mini',
+					model: (env as any).OPENAI_MODEL || 'gpt-4o-mini',
 				});
 
 				let aiItems: unknown[];
@@ -408,13 +408,14 @@ export default {
 					events: validationResult.events,
 					source: 'openai' as const,
 					confidence: Number.isFinite(avgConfidence) ? Number(avgConfidence.toFixed(3)) : 0,
+					preprocessedText: processedText,
 					diagnostics: {
 						source: 'openai' as const,
 						processingTimeMs: Date.now() - parseStarted,
 						textLength: text.length,
 						warnings,
 						validation: validationResult.stats,
-					openai: { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-5-mini' }
+					openai: { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-4o-mini' }
 					}
 				};
 

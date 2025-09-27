@@ -123,8 +123,8 @@ struct AppRoot: View {
             let config = URLSessionAPIClient.Configuration(
                 baseURL: defaultAPIBaseURL,
                 defaultHeaders: ["Content-Type": "application/json"],
-                requestTimeout: 45,
-                maxRetryCount: 1
+                requestTimeout: 90,
+                maxRetryCount: 2
             )
             let client = URLSessionAPIClient(configuration: config)
             return SyllabusParserRemote(apiClient: client)

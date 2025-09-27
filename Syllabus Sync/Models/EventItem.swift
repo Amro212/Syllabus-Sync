@@ -55,6 +55,7 @@ struct ParseResult: Decodable {
     let events: [EventItem]
     let source: ParseDiagnostics.Source
     let confidence: Double
+    let preprocessedText: String?
     let diagnostics: DiagnosticsPayload?
 
     struct DiagnosticsPayload: Decodable {

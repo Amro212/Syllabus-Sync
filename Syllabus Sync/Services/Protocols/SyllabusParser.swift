@@ -14,6 +14,9 @@ protocol SyllabusParser {
     var rawResponse: String? { get }  // Raw JSON response for debugging
 
     @MainActor
+    var latestPreprocessedText: String? { get }
+
+    @MainActor
     func parse(text: String) async throws -> [EventItem]
 }
 

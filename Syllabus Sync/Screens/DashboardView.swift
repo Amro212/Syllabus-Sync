@@ -9,25 +9,36 @@ import SwiftUI
 
 struct DashboardView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
+    @EnvironmentObject var eventStore: EventStore
     @State private var isRefreshing = false
     @State private var showShimmer = false
     @State private var buttonScale: CGFloat = 1.0
     @State private var showingImportView = false
-    
+    @State private var fabPressed = false
+
     var body: some View {
         NavigationView {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    if showShimmer {
-                        DashboardShimmerView()
-                            .transition(.opacity)
-                    } else {
-                        DashboardEmptyView(showingImportView: $showingImportView)
-                            .transition(.opacity)
+            ZStack(alignment: .bottomTrailing) {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        if showShimmer {
+                            DashboardShimmerView()
+                                .transition(.opacity)
+                        } else if eventStore.events.isEmpty {
+                            DashboardEmptyView(showingImportView: $showingImportView)
+                                .transition(.opacity)
+                        } else {
+                            DashboardEventList(events: eventStore.events)
+                                .transition(.opacity)
+                        }
                     }
                 }
+                .background(AppColors.background)
+
+                fabButton
+                    .padding(.trailing, Layout.Spacing.lg)
+                    .padding(.bottom, Layout.Spacing.lg)
             }
-            .background(AppColors.background)
             .navigationTitle("Dashboard")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
@@ -59,16 +70,43 @@ struct DashboardView: View {
             showShimmer = true
             HapticFeedbackManager.shared.lightImpact()
         }
-        
-        // Simulate refresh delay
-        try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
-        
+
+        await eventStore.refresh()
+
         await MainActor.run {
             withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
                 isRefreshing = false
                 showShimmer = false
             }
         }
+    }
+}
+
+// MARK: - Floating Action Button
+
+private extension DashboardView {
+    var fabButton: some View {
+        Button(action: handleFabTap) {
+            Image(systemName: "plus")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(.white)
+                .padding(24)
+                .background(AppColors.accent)
+                .clipShape(Circle())
+                .shadow(color: AppColors.accent.opacity(0.35), radius: 12, x: 0, y: 8)
+        }
+        .scaleEffect(fabPressed ? 0.92 : 1)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: fabPressed)
+        .accessibilityLabel("Import syllabus")
+    }
+
+    func handleFabTap() {
+        HapticFeedbackManager.shared.mediumImpact()
+        fabPressed = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            fabPressed = false
+        }
+        showingImportView = true
     }
 }
 
@@ -196,6 +234,32 @@ struct DashboardEmptyView: View {
             .padding(.bottom, Layout.Spacing.xl)
         }
         .padding(.horizontal, Layout.Spacing.lg)
+    }
+}
+
+// MARK: - Event List
+
+private struct DashboardEventList: View {
+    let events: [EventItem]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.lg) {
+            VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
+                Text("Upcoming Events")
+                    .font(.titleS)
+                    .fontWeight(.semibold)
+                    .foregroundColor(AppColors.textPrimary)
+            }
+            .padding(.horizontal, Layout.Spacing.lg)
+
+            VStack(alignment: .leading, spacing: Layout.Spacing.md) {
+                ForEach(events) { event in
+                    PreviewEventCard(event: event)
+                        .padding(.horizontal, Layout.Spacing.lg)
+                }
+            }
+        }
+        .padding(.vertical, Layout.Spacing.xl)
     }
 }
 

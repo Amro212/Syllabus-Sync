@@ -3,6 +3,7 @@
 //  Syllabus Sync
 //
 
+import Combine
 import Foundation
 import SwiftUI
 import UIKit
@@ -24,14 +25,25 @@ final class ImportViewModel: ObservableObject {
 
     private let extractor: PDFTextExtractor
     private let parser: SyllabusParser
+    private let eventStore: EventStore
     private var progressTask: Task<Void, Never>?
     private var lastImportedURL: URL?
     private var currentRequestID: String?
     private var cancellationRequested = false
+    private var eventStoreCancellable: AnyCancellable?
 
-    init(extractor: PDFTextExtractor, parser: SyllabusParser) {
+    init(extractor: PDFTextExtractor, parser: SyllabusParser, eventStore: EventStore) {
         self.extractor = extractor
         self.parser = parser
+        self.eventStore = eventStore
+        eventStoreCancellable = eventStore.$events
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] items in
+                guard let self else { return }
+                if self.events.isEmpty {
+                    self.events = items
+                }
+            }
     }
 
     /// Runs the full import pipeline for the provided PDF URL.
@@ -82,6 +94,7 @@ final class ImportViewModel: ObservableObject {
 
             // Stage 5: Final merge (95-100%)
             self.events = events
+            await eventStore.autoApprove(events: events)
             preprocessedParserInputText = parser.latestPreprocessedText
             diagnosticsString = buildDiagnosticsString(from: parser.latestDiagnostics)
             rawAIResponse = parser.rawResponse

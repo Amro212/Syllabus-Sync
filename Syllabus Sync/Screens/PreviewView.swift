@@ -8,9 +8,16 @@ import UIKit
 
 struct PreviewView: View {
     @EnvironmentObject var importViewModel: ImportViewModel
+    @EnvironmentObject var eventStore: EventStore
     @State private var selectedTab: PreviewTab = .events
 
-    private var events: [EventItem] { importViewModel.events }
+    private var events: [EventItem] {
+        let parsed = importViewModel.events
+        if parsed.isEmpty {
+            return eventStore.events
+        }
+        return parsed
+    }
     
     enum PreviewTab: String, CaseIterable {
         case events = "Events"
@@ -83,6 +90,17 @@ struct PreviewView: View {
                         RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
                             .stroke(AppColors.border, lineWidth: 1)
                     )
+            }
+
+            if let message = eventStore.debugMessage {
+                Text(message)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(Color.green)
+                    .padding(.horizontal, Layout.Spacing.md)
+                    .padding(.vertical, Layout.Spacing.xs)
+                    .background(AppColors.surface)
+                    .cornerRadius(Layout.CornerRadius.sm)
             }
 
             if let diagnostics = importViewModel.diagnosticsString {
@@ -254,7 +272,7 @@ struct PreviewView: View {
 
 // MARK: - Event Card
 
-private struct PreviewEventCard: View {
+struct PreviewEventCard: View {
     let event: EventItem
 
     private var eventColor: Color {

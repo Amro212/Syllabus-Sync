@@ -117,9 +117,12 @@ class AppNavigationManager: ObservableObject {
 struct AppRoot: View {
     @StateObject private var navigationManager = AppNavigationManager()
     @StateObject private var themeManager = ThemeManager()
-    @StateObject private var importViewModel = ImportViewModel(
-        extractor: PDFKitExtractor(),
-        parser: {
+    @StateObject private var eventStore: EventStore
+    @StateObject private var importViewModel: ImportViewModel
+
+    init() {
+        let store = EventStore()
+        let parser = {
             let config = URLSessionAPIClient.Configuration(
                 baseURL: defaultAPIBaseURL,
                 defaultHeaders: ["Content-Type": "application/json"],
@@ -129,7 +132,13 @@ struct AppRoot: View {
             let client = URLSessionAPIClient(configuration: config)
             return SyllabusParserRemote(apiClient: client)
         }()
-    )
+        _eventStore = StateObject(wrappedValue: store)
+        _importViewModel = StateObject(wrappedValue: ImportViewModel(
+            extractor: PDFKitExtractor(),
+            parser: parser,
+            eventStore: store
+        ))
+    }
 
     var body: some View {
         NavigationStack(path: $navigationManager.navigationPath) {
@@ -140,6 +149,7 @@ struct AppRoot: View {
         }
         .environmentObject(navigationManager)
         .environmentObject(themeManager)
+        .environmentObject(eventStore)
         .environmentObject(importViewModel)
         .modifier(ThemeEnvironment(themeManager: themeManager))
     }
@@ -553,6 +563,7 @@ struct CourseDetailPlaceholderView: View {
 struct SettingsView: View {
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var navigationManager: AppNavigationManager
+    @EnvironmentObject var eventStore: EventStore
     
     @State private var showingResetAlert = false
     @State private var notificationsEnabled = true
@@ -710,12 +721,10 @@ struct SettingsView: View {
     
     private func resetAppData() {
         HapticFeedbackManager.shared.success()
-        
-        // Reset to launch screen, then onboarding (mock implementation)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        Task {
+            await eventStore.deleteAllEvents()
             navigationManager.currentRoute = .launch
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 navigationManager.currentRoute = .onboarding
             }
         }

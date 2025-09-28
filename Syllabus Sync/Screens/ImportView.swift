@@ -85,7 +85,6 @@ struct ImportView: View {
             guard let url = urls.first else { return }
             currentImportTask?.cancel()
             let task = Task {
-                defer { Task { await MainActor.run { currentImportTask = nil } } }
                 await MainActor.run { isShowingFilePicker = false }
                 let success = await importViewModel.importSyllabus(from: url)
                 if success && !Task.isCancelled {
@@ -94,6 +93,8 @@ struct ImportView: View {
                         navigationManager.switchTab(to: .preview)
                     }
                 }
+                // Cleanup after task completes
+                await MainActor.run { currentImportTask = nil }
             }
             currentImportTask = task
         case .failure(let error):

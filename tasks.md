@@ -248,22 +248,33 @@
 
 ---
 
-## Milestone 9 — Preview UX: Diff for Re-imports (Minimal)
 
-### 9.1 Hashing & cache
-- **Start:** Hash the normalized text client-side; store last hash per course.
-- **End:** On re-import, compute new hash to detect changes.
-- **Done When:** Hash differs → enable “Review Changes” button.
+## Milestone 9 — Full Event Editing UX
 
-### 9.2 Diff builder (client)
-- **Start:** Compare old vs new events by (courseId, title, date) keys.
-- **End:** Classify as Added/Changed/Removed.
-- **Done When:** Render badges in Preview list.
+### 9.1 Auto-approval of Imported Events
+- **Start:** Upon successful import and parsing, automatically approve all imported events for inclusion in the system.
+- **End:** Events are immediately available in the user's event list without manual review/approval.
+- **Done When:** Imported events appear in the Preview and Dashboard without requiring extra confirmation.
 
-### 9.3 Approve changes UX
-- **Start:** Checkbox per event + “Approve X changes” CTA.
-- **End:** Only approved items proceed to Calendar step.
-- **Done When:** Selection state persists.
+### 9.2 Event Card Editing Capabilities
+- **Start:** Enable editing for each event card in the Preview and Dashboard views.
+- **End:** Users can edit all event fields: title, type, date/time, recurrence, notes, location.
+- **Done When:** Tapping an event allows full field editing, with changes reflected in the UI.
+
+### 9.3 Editing UX Design & Implementation
+- **Start:** Design and implement the event editing experience, either as a detail screen or bottom sheet/modal.
+- **End:** Editing UI is accessible from event cards, with clear save/cancel actions and smooth transitions.
+- **Done When:** Editing flows feel native, intuitive, and are fully interactive in previews and on device.
+
+### 9.4 Persist Edits to Core Data/CloudKit
+- **Start:** Update Core Data and CloudKit models to persist all edits made to events.
+- **End:** Saving changes updates the local database and syncs to iCloud if enabled.
+- **Done When:** Relaunching the app or switching devices reflects the latest edits for each event.
+
+### 9.5 Edit Sync & EventKit Integration Prep
+- **Start:** Ensure all event edits are tracked and ready to sync with EventKit in later milestones.
+- **End:** Changes to events are flagged for later push to EventKit (local calendar integration).
+- **Done When:** Edited events are stored and marked for EventKit sync, with no loss of data or state.
 
 ---
 

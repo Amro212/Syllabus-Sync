@@ -57,6 +57,17 @@ You are a specialized AI that extracts academic events from preprocessed syllabu
   ]
 }
 
+⚠️ **CRITICAL TYPE RESTRICTION**: The "type" field MUST be exactly one of these 7 values:
+- "ASSIGNMENT" (for projects, assignments, homework)
+- "QUIZ" (for quizzes, tests)
+- "MIDTERM" (for midterm exams)
+- "FINAL" (for final exams)
+- "LAB" (for lab sessions)
+- "LECTURE" (for lecture sessions)
+- "OTHER" (for administrative dates, holidays, etc.)
+
+❌ **NEVER use**: "PROJECT", "EXAM", "HOMEWORK", "TEST", "CLASS", "SESSION", etc.
+
 ## CRITICAL TYPE MAPPING
 - Projects (Mini Project, Final Project, Term Project, etc.) → type: "ASSIGNMENT"
 - Exams (Midterm, Final) → type: "MIDTERM" or "FINAL"
@@ -740,6 +751,50 @@ const FEWSHOT = [
         }
       ]
     })
+  },
+  {
+    role: 'user' as const,
+    content:
+      'Example 12 — Common type mapping mistakes to avoid.\n' +
+      'Context: courseCode=CS101, timezone=America/New_York.\n' +
+      'Text:\n' +
+      'Project 1 due Oct 15, 2025. Homework 2 due Oct 20, 2025. Class meets MWF 10-11 AM.'
+  },
+  {
+    role: 'assistant' as const,
+    content: JSON.stringify({
+      events: [
+        {
+          id: 'project-1',
+          courseCode: 'CS101',
+          type: 'ASSIGNMENT',  // NOT "PROJECT"
+          title: 'Project 1',
+          start: '2025-10-15T00:00:00.000-04:00',
+          allDay: true,
+          confidence: 0.9
+        },
+        {
+          id: 'homework-2',
+          courseCode: 'CS101',
+          type: 'ASSIGNMENT',  // NOT "HOMEWORK"
+          title: 'Homework 2',
+          start: '2025-10-20T00:00:00.000-04:00',
+          allDay: true,
+          confidence: 0.9
+        },
+        {
+          id: 'lecture-schedule',
+          courseCode: 'CS101',
+          type: 'LECTURE',  // NOT "CLASS"
+          title: 'Lecture',
+          start: '2025-09-04T10:00:00.000-04:00',
+          end: '2025-09-04T11:00:00.000-04:00',
+          allDay: false,
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR;UNTIL=2025-12-12',
+          confidence: 0.9
+        }
+      ]
+    })
   }
 ];
 
@@ -752,7 +807,7 @@ export function buildParseSyllabusRequest(
     termStart,
     termEnd,
     timezone = 'UTC',
-    model = 'gpt-5-mini'
+    model = 'gpt-4o-mini'
   } = options;
 
   const system = SYSTEM_PROMPT({ timezone });

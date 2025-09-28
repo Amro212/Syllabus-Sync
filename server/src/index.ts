@@ -178,10 +178,10 @@ export default {
 				return res;
 			}
 
-			// Parse endpoint — Milestone 4.2: CORS + content validation + 4.3 rate limiting
-			if (path === '/parse' && request.method === 'POST') {
-				try {
-				const parseStarted = Date.now();
+				// Parse endpoint — Milestone 4.2: CORS + content validation + 4.3 rate limiting
+				if (path === '/parse' && request.method === 'POST') {
+					try {
+					const parseStarted = Date.now();
 				// Rate limit by IP
 				const rl = checkRateLimit(env, request);
 				if (!rl.allowed) {
@@ -193,19 +193,69 @@ export default {
 						headers: { 'Content-Type': 'application/json', 'Retry-After': String(rl.retryAfterSec), ...corsHeaders },
 					});
 				}
-				// Enforce CORS allow-list
-				if (!isOriginAllowed(originHeader)) {
-					const status = 403;
-					const durationMs = Date.now() - startedAt;
-					logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs });
-					return new Response(JSON.stringify({ error: 'Forbidden: origin not allowed' }), {
-						status,
-						headers: { 'Content-Type': 'application/json', ...corsHeaders },
-					});
-				}
+					// Enforce CORS allow-list
+					if (!isOriginAllowed(originHeader)) {
+						const status = 403;
+						const durationMs = Date.now() - startedAt;
+						logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs });
+						return new Response(JSON.stringify({ error: 'Forbidden: origin not allowed' }), {
+							status,
+							headers: { 'Content-Type': 'application/json', ...corsHeaders },
+						});
+					}
 
-				// Validate content-type
-				const contentType = request.headers.get('content-type') || '';
+					if ((env as any).DEBUG_ALLOW_TEST_FAILURES === 'true') {
+						const forcedError = request.headers.get('x-debug-force-error');
+						if (forcedError === '500') {
+							const status = 500;
+							logRequest(env, 'warn', {
+								ts: nowIso(),
+								requestId,
+								route: path,
+								method,
+								status,
+								durationMs: Date.now() - startedAt,
+								debugForced: forcedError,
+							});
+							return new Response(JSON.stringify({ error: 'Forced 500 for testing' }), {
+								status,
+								headers: { 'Content-Type': 'application/json', ...corsHeaders },
+							});
+						}
+
+						if (forcedError === 'timeout') {
+							logRequest(env, 'warn', {
+								ts: nowIso(),
+								requestId,
+								route: path,
+								method,
+								status: 0,
+								durationMs: Date.now() - startedAt,
+								debugForced: forcedError,
+							});
+							await new Promise((resolve) => setTimeout(resolve, 60_000));
+						}
+
+						const forceInvalid = request.headers.get('x-debug-force-invalid-json');
+						if (forceInvalid === '1') {
+							logRequest(env, 'warn', {
+								ts: nowIso(),
+								requestId,
+								route: path,
+								method,
+								status: 200,
+								durationMs: Date.now() - startedAt,
+								debugForced: 'invalid-json',
+							});
+							return new Response('not-json', {
+								status: 200,
+								headers: { 'Content-Type': 'application/json', ...corsHeaders },
+							});
+						}
+					}
+
+					// Validate content-type
+					const contentType = request.headers.get('content-type') || '';
 				if (!contentType.toLowerCase().startsWith('application/json')) {
 					const status = 415;
 					logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
@@ -339,13 +389,13 @@ export default {
 				}
 
 				const tz = (body as any).timezone || request.headers.get('CF-Timezone') || 'UTC';
-				const { request: promptReq, processedText } = buildParseSyllabusRequest(text, {
-					courseCode,
-					termStart: (body as any).termStart,
-					termEnd: (body as any).termEnd,
-					timezone: tz,
-					model: (env as any).OPENAI_MODEL || 'gpt-4o-mini',
-				});
+					const { request: promptReq, processedText } = buildParseSyllabusRequest(text, {
+						courseCode,
+						termStart: (body as any).termStart,
+						termEnd: (body as any).termEnd,
+						timezone: tz,
+						model: (env as any).OPENAI_MODEL || 'gpt-4o-mini',
+					});
 
 				let aiItems: unknown[];
 				const aiStarted = Date.now();
@@ -415,8 +465,8 @@ export default {
 						textLength: text.length,
 						warnings,
 						validation: validationResult.stats,
-					openai: { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-4o-mini' }
-					}
+						openai: { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-4o-mini' }
+						}
 				};
 
 				const res = json(response, { status: 200 });

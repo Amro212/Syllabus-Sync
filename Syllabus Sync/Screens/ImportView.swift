@@ -14,13 +14,14 @@ struct ImportView: View {
     @EnvironmentObject var importViewModel: ImportViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var isShowingFilePicker = false
+    @State private var currentImportTask: Task<Void, Never>? = nil
 
     var body: some View {
         NavigationView {
             ZStack {
                 AppColors.background
                     .ignoresSafeArea()
-                
+
                 if importViewModel.isProcessing {
                     ProcessingView(
                         progress: importViewModel.progress,
@@ -34,6 +35,24 @@ struct ImportView: View {
                     )
                     .transition(.opacity)
                 }
+
+                if let errorState = importViewModel.errorState {
+                    ImportErrorOverlay(
+                        errorState: errorState,
+                        onRetry: {
+                            Task {
+                                await importViewModel.retryLastImport()
+                            }
+                        },
+                        onContinue: {
+                            HapticFeedbackManager.shared.lightImpact()
+                            importViewModel.errorState = nil
+                            dismiss()
+                            navigationManager.switchTab(to: .preview)
+                        }
+                    )
+                    .transition(.opacity)
+                }
             }
             .navigationTitle("Import Syllabus")
             .navigationBarTitleDisplayMode(.inline)
@@ -41,10 +60,13 @@ struct ImportView: View {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
                         HapticFeedbackManager.shared.lightImpact()
+                        if importViewModel.isProcessing {
+                            importViewModel.cancelImport()
+                            currentImportTask?.cancel()
+                        }
                         dismiss()
                     }
                     .foregroundColor(AppColors.textSecondary)
-                    .disabled(importViewModel.isProcessing)
                 }
             }
         }
@@ -55,35 +77,142 @@ struct ImportView: View {
         ) { result in
             handleFileImport(result)
         }
-        .alert("Import Failed", isPresented: Binding<Bool>(
-            get: { importViewModel.errorMessage != nil },
-            set: { newValue in if !newValue { importViewModel.errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {
-                importViewModel.errorMessage = nil
-            }
-        } message: {
-            Text(importViewModel.errorMessage ?? "Unknown error.")
-        }
     }
 
     private func handleFileImport(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
-            Task {
+            currentImportTask?.cancel()
+            let task = Task {
+                defer { Task { await MainActor.run { currentImportTask = nil } } }
                 await MainActor.run { isShowingFilePicker = false }
                 let success = await importViewModel.importSyllabus(from: url)
-                if success {
+                if success && !Task.isCancelled {
                     await MainActor.run {
                         dismiss()
                         navigationManager.switchTab(to: .preview)
                     }
                 }
             }
+            currentImportTask = task
         case .failure(let error):
             print("File import error: \(error)")
         }
+    }
+}
+
+private struct ImportErrorOverlay: View {
+    let errorState: ImportErrorState
+    let onRetry: () -> Void
+    let onContinue: () -> Void
+
+    var body: some View {
+        VStack(spacing: Layout.Spacing.lg) {
+            VStack(spacing: Layout.Spacing.sm) {
+                Image(systemName: iconName)
+                    .font(.system(size: 40, weight: .bold))
+                    .foregroundColor(AppColors.accent)
+
+                Text(title)
+                    .font(.titleM)
+                    .fontWeight(.semibold)
+                    .foregroundColor(AppColors.textPrimary)
+
+                Text(errorState.message)
+                    .font(.body)
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(AppColors.textSecondary)
+                    .padding(.horizontal, Layout.Spacing.lg)
+            }
+
+            VStack(spacing: Layout.Spacing.sm) {
+                Button(action: onRetry) {
+                    HStack {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Retry Parse")
+                    }
+                    .font(.body.weight(.semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(AppColors.accent)
+                    .cornerRadius(Layout.CornerRadius.md)
+                }
+
+                Button(action: onContinue) {
+                    HStack {
+                        Image(systemName: "checkmark.circle")
+                        Text("Continue Without Events")
+                    }
+                    .font(.body)
+                    .foregroundColor(AppColors.textPrimary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .background(AppColors.surface)
+                    .cornerRadius(Layout.CornerRadius.md)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
+                            .stroke(AppColors.separator, lineWidth: 1)
+                    )
+                }
+            }
+
+            Text("Request ID: \(errorState.requestID)\nLogged: \(formattedTimestamp)")
+                .font(.caption)
+                .multilineTextAlignment(.center)
+                .foregroundColor(AppColors.textSecondary)
+                .padding(.horizontal, Layout.Spacing.lg)
+        }
+        .padding(Layout.Spacing.xl)
+        .frame(maxWidth: 360)
+        .background(AppColors.background)
+        .cornerRadius(Layout.CornerRadius.lg)
+        .shadow(color: Color.black.opacity(0.2), radius: 20, x: 0, y: 10)
+        .overlay(
+            RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
+                .stroke(AppColors.separator, lineWidth: 1)
+        )
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.4).ignoresSafeArea())
+    }
+
+    private var title: String {
+        switch errorState.type {
+        case .network:
+            return "Connection Issue"
+        case .server:
+            return "Parser Error"
+        case .invalidResponse:
+            return "Unexpected Response"
+        case .validation:
+            return "Content Issue"
+        case .unknown:
+            return "Something Went Wrong"
+        }
+    }
+
+    private var iconName: String {
+        switch errorState.type {
+        case .network:
+            return "wifi.exclamationmark"
+        case .server:
+            return "bolt.horizontal.icloud"
+        case .invalidResponse:
+            return "exclamationmark.triangle"
+        case .validation:
+            return "doc.text.magnifyingglass"
+        case .unknown:
+            return "questionmark.circle"
+        }
+    }
+
+    private var formattedTimestamp: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .medium
+        return formatter.string(from: errorState.timestamp)
     }
 }
 

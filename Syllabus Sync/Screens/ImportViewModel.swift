@@ -19,12 +19,15 @@ final class ImportViewModel: ObservableObject {
     @Published var extractedTSV: String? = nil
     @Published var parserInputText: String? = nil
     @Published var preprocessedParserInputText: String? = nil
-    @Published var errorMessage: String? = nil
+    @Published var errorState: ImportErrorState? = nil
     @Published var rawAIResponse: String? = nil  // Raw JSON response from AI for debugging
 
     private let extractor: PDFTextExtractor
     private let parser: SyllabusParser
     private var progressTask: Task<Void, Never>?
+    private var lastImportedURL: URL?
+    private var currentRequestID: String?
+    private var cancellationRequested = false
 
     init(extractor: PDFTextExtractor, parser: SyllabusParser) {
         self.extractor = extractor
@@ -37,6 +40,9 @@ final class ImportViewModel: ObservableObject {
     func importSyllabus(from url: URL) async -> Bool {
         guard !isProcessing else { return false }
 
+        lastImportedURL = url
+        currentRequestID = UUID().uuidString
+        cancellationRequested = false
         resetStateForNewImport()
 
         isProcessing = true
@@ -51,12 +57,14 @@ final class ImportViewModel: ObservableObject {
         do {
             // Stage 1: PDF Upload (0-20%)
             await progressToRange(0, 0.2, "Preparing document...")
+            if shouldCancelEarly() { return false }
 
             // Stage 2: OCR extraction (20-50%)
             let structured = try await extractor.extractStructured(from: url)
             extractedPlainText = structured.plain
             extractedTSV = structured.tsv
             await progressToRange(0.2, 0.5, "Processing document...")
+            if shouldCancelEarly() { return false }
 
             guard let tsv = extractedTSV, !tsv.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw SyllabusParserError.emptyPayload
@@ -64,11 +72,13 @@ final class ImportViewModel: ObservableObject {
 
             // Stage 3: Preprocessing (50-70%)
             await progressToRange(0.5, 0.7, "Analyzing content...")
+            if shouldCancelEarly() { return false }
 
             // Stage 4: AI parsing (70-95%)
             parserInputText = tsv
             preprocessedParserInputText = nil
             let events = try await parser.parse(text: tsv)
+            if shouldCancelEarly() { return false }
 
             // Stage 5: Final merge (95-100%)
             self.events = events
@@ -79,11 +89,29 @@ final class ImportViewModel: ObservableObject {
             // Complete the progress bar
             await completeProgress("Import complete!")
             HapticFeedbackManager.shared.success()
+            isProcessing = false
+            progressTask = nil
+            cancellationRequested = false
+            currentRequestID = nil
             return true
+        } catch is CancellationError {
+            handleImportCancellation()
+            return false
         } catch {
             handleImportError(error)
             return false
         }
+    }
+
+    func retryLastImport() async {
+        guard !isProcessing else { return }
+        guard let url = lastImportedURL else { return }
+
+        await MainActor.run {
+            errorState = nil
+        }
+
+        _ = await importSyllabus(from: url)
     }
 
     func clearResults() {
@@ -98,7 +126,7 @@ final class ImportViewModel: ObservableObject {
     }
 
     private func resetStateForNewImport() {
-        errorMessage = nil
+        errorState = nil
         clearResults()
         progress = 0
         statusMessage = "Ready"
@@ -177,19 +205,19 @@ final class ImportViewModel: ObservableObject {
     }
 
     private func handleImportError(_ error: Error) {
-        let message: String
+        let requestID = currentRequestID ?? UUID().uuidString
+        let resolved = resolveError(from: error)
 
-        if let parserError = error as? SyllabusParserError {
-            message = parserError.errorDescription ?? "Failed to parse syllabus."
-        } else if let apiError = error as? APIClientError {
-            message = apiError.errorDescription ?? "Server error encountered."
-        } else if let urlError = error as? URLError {
-            message = urlError.localizedDescription
-        } else {
-            message = error.localizedDescription
-        }
+        let state = ImportErrorState(
+            requestID: requestID,
+            type: resolved.type,
+            message: resolved.message,
+            timestamp: Date()
+        )
+        errorState = state
 
-        errorMessage = message
+        logImportError(state: state, underlying: error)
+
         isProcessing = false
         progressTask?.cancel()
         progressTask = nil
@@ -198,6 +226,84 @@ final class ImportViewModel: ObservableObject {
             progress = 0
             statusMessage = "Failed"
         }
+        currentRequestID = nil
+    }
+
+    func cancelImport() {
+        guard isProcessing else { return }
+        cancellationRequested = true
+        progressTask?.cancel()
+    }
+
+    private func handleImportCancellation() {
+        cancellationRequested = false
+        isProcessing = false
+        progressTask?.cancel()
+        progressTask = nil
+        errorState = nil
+        HapticFeedbackManager.shared.lightImpact()
+        withAnimation(.easeInOut(duration: 0.3)) {
+            statusMessage = "Cancelled"
+            progress = 0
+        }
+        currentRequestID = nil
+    }
+
+    private func shouldCancelEarly() -> Bool {
+        if cancellationRequested || Task.isCancelled {
+            handleImportCancellation()
+            return true
+        }
+        return false
+    }
+
+    private func resolveError(from error: Error) -> (message: String, type: ImportErrorType) {
+        if let parserError = error as? SyllabusParserError {
+            switch parserError {
+            case .emptyPayload:
+                return (parserError.errorDescription ?? "The extracted syllabus text was empty.", .validation)
+            case .network(let description):
+                return (description, .network)
+            case .server(let description):
+                return (description, .server)
+            case .decoding:
+                return (parserError.errorDescription ?? "Received invalid data from the parser.", .invalidResponse)
+            case .unauthorized:
+                return (parserError.errorDescription ?? "We couldn't authenticate with the parser service.", .server)
+            case .rateLimited(let retryAfter):
+                if let retryAfter {
+                    return ("We're hitting parsing limits. Try again in \(retryAfter) seconds.", .server)
+                }
+                return (parserError.errorDescription ?? "We're hitting parsing limits. Please try again shortly.", .server)
+            }
+        }
+
+        if let apiError = error as? APIClientError {
+            switch apiError {
+            case .invalidURL:
+                return ("The parser endpoint is misconfigured.", .server)
+            case .requestFailed(let underlying):
+                return (underlying.localizedDescription, .network)
+            case .timeout:
+                return ("The parser took too long to respond. Please try again.", .network)
+            case .decoding:
+                return ("We received an unexpected response from the parser service.", .invalidResponse)
+            case .server(_, let message, _):
+                return (message ?? "The parser service returned an error.", .server)
+            }
+        }
+
+        if let urlError = error as? URLError {
+            return (urlError.localizedDescription, .network)
+        }
+
+        return (error.localizedDescription, .unknown)
+    }
+
+    private func logImportError(state: ImportErrorState, underlying: Error) {
+        let formatter = ISO8601DateFormatter()
+        let timestamp = formatter.string(from: state.timestamp)
+        print("[ImportError][\(state.requestID)] [\(timestamp)] type=\(state.type.rawValue) message=\(state.message) underlying=\(underlying.localizedDescription)")
     }
 
     private func buildDiagnosticsString(from diagnostics: ParseDiagnostics?) -> String? {
@@ -219,6 +325,22 @@ final class ImportViewModel: ObservableObject {
 
         return components.joined(separator: " • ")
     }
+}
+
+struct ImportErrorState: Identifiable {
+    let id = UUID()
+    let requestID: String
+    let type: ImportErrorType
+    let message: String
+    let timestamp: Date
+}
+
+enum ImportErrorType: String {
+    case network
+    case server
+    case invalidResponse
+    case validation
+    case unknown
 }
 
 private extension NumberFormatter {

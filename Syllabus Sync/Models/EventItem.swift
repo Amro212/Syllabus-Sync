@@ -33,6 +33,8 @@ struct EventItem: Identifiable, Codable, Equatable {
     let confidence: Double?
 }
 
+extension EventItem.EventType: CaseIterable {}
+
 /// Diagnostics metadata surfaced by the parsing service.
 struct ParseDiagnostics: Equatable {
     enum Source: String, Codable {

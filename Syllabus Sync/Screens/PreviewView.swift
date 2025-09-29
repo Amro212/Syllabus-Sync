@@ -10,6 +10,7 @@ struct PreviewView: View {
     @EnvironmentObject var importViewModel: ImportViewModel
     @EnvironmentObject var eventStore: EventStore
     @State private var selectedTab: PreviewTab = .events
+    @State private var editingEvent: EventItem?
 
     private var events: [EventItem] {
         let parsed = importViewModel.events
@@ -77,6 +78,14 @@ struct PreviewView: View {
             .navigationBarTitleDisplayMode(.large)
         }
         .navigationViewStyle(StackNavigationViewStyle())
+        .sheet(item: $editingEvent) { event in
+            EventEditView(event: event) { updated in
+                Task { await importViewModel.applyEditedEvent(updated) }
+                editingEvent = nil
+            } onCancel: {
+                editingEvent = nil
+            }
+        }
     }
 
     private var headerSection: some View {
@@ -265,6 +274,7 @@ struct PreviewView: View {
         VStack(alignment: .leading, spacing: Layout.Spacing.md) {
             ForEach(events) { event in
                 PreviewEventCard(event: event)
+                    .onTapGesture { editingEvent = event }
             }
         }
     }

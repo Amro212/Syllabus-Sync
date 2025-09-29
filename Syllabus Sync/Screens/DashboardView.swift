@@ -10,11 +10,13 @@ import SwiftUI
 struct DashboardView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
     @EnvironmentObject var eventStore: EventStore
+    @EnvironmentObject var importViewModel: ImportViewModel
     @State private var isRefreshing = false
     @State private var showShimmer = false
     @State private var buttonScale: CGFloat = 1.0
     @State private var showingImportView = false
     @State private var fabPressed = false
+    @State private var editingEvent: EventItem?
 
     var body: some View {
         NavigationView {
@@ -28,16 +30,20 @@ struct DashboardView: View {
                             DashboardEmptyView(showingImportView: $showingImportView)
                                 .transition(.opacity)
                         } else {
-                            DashboardEventList(events: eventStore.events)
+                            DashboardEventList(events: eventStore.events, onEventTapped: { event in
+                                editingEvent = event
+                            })
                                 .transition(.opacity)
                         }
                     }
                 }
                 .background(AppColors.background)
 
-                fabButton
-                    .padding(.trailing, Layout.Spacing.lg)
-                    .padding(.bottom, Layout.Spacing.lg)
+                if !eventStore.events.isEmpty {
+                    fabButton
+                        .padding(.trailing, Layout.Spacing.lg)
+                        .padding(.bottom, Layout.Spacing.lg)
+                }
             }
             .navigationTitle("Dashboard")
             .navigationBarTitleDisplayMode(.large)
@@ -61,6 +67,14 @@ struct DashboardView: View {
         .sheet(isPresented: $showingImportView) {
             ImportView()
                 .environmentObject(navigationManager)
+        }
+        .sheet(item: $editingEvent) { event in
+            EventEditView(event: event) { updated in
+                Task { await importViewModel.applyEditedEvent(updated) }
+                editingEvent = nil
+            } onCancel: {
+                editingEvent = nil
+            }
         }
     }
     
@@ -241,6 +255,7 @@ struct DashboardEmptyView: View {
 
 private struct DashboardEventList: View {
     let events: [EventItem]
+    let onEventTapped: (EventItem) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Layout.Spacing.lg) {
@@ -249,6 +264,9 @@ private struct DashboardEventList: View {
                     .font(.titleS)
                     .fontWeight(.semibold)
                     .foregroundColor(AppColors.textPrimary)
+                Text("Tap to edit event details.")
+                    .font(.caption)
+                    .foregroundColor(AppColors.textSecondary)
             }
             .padding(.horizontal, Layout.Spacing.lg)
 
@@ -256,6 +274,7 @@ private struct DashboardEventList: View {
                 ForEach(events) { event in
                     PreviewEventCard(event: event)
                         .padding(.horizontal, Layout.Spacing.lg)
+                        .onTapGesture { onEventTapped(event) }
                 }
             }
         }

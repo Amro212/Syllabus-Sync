@@ -107,4 +107,52 @@ final class EventStore: ObservableObject {
             print("[EventStore] deleteAllEvents failed: \(error)")
         }
     }
+
+    func update(event: EventItem) async {
+        let container = stack.container
+        let background = container.newBackgroundContext()
+        background.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+
+        do {
+            try await background.perform {
+                let fetch: NSFetchRequest<EventEntity> = EventEntity.fetchRequest()
+                fetch.predicate = NSPredicate(format: "id == %@", event.id)
+                fetch.fetchLimit = 1
+
+                let entity: EventEntity
+                if let existing = try background.fetch(fetch).first {
+                    entity = existing
+                } else {
+                    entity = EventEntity(context: background)
+                    entity.createdAt = Date()
+                    entity.approvedAt = Date()
+                }
+
+                entity.id = event.id
+                entity.courseCode = event.courseCode
+                entity.typeRaw = event.type.rawValue
+                entity.title = event.title
+                entity.start = event.start
+                entity.end = event.end
+                entity.allDay = event.allDay.map { NSNumber(value: $0) }
+                entity.location = event.location
+                entity.notes = event.notes
+                entity.recurrenceRule = event.recurrenceRule
+                entity.reminderMinutes = event.reminderMinutes.map { NSNumber(value: $0) }
+                entity.confidence = event.confidence.map { NSNumber(value: $0) }
+                if entity.approvedAt == nil {
+                    entity.approvedAt = Date()
+                }
+                entity.courseId = entity.courseId ?? event.courseCode
+
+                if background.hasChanges {
+                    try background.save()
+                }
+            }
+
+            await refresh()
+        } catch {
+            print("[EventStore] update failed: \(error)")
+        }
+    }
 }

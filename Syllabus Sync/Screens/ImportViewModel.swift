@@ -57,7 +57,9 @@ final class ImportViewModel: ObservableObject {
         cancellationRequested = false
         resetStateForNewImport()
 
-        isProcessing = true
+        withAnimation(.easeInOut(duration: 0.3)) {
+            isProcessing = true
+        }
         HapticFeedbackManager.shared.mediumImpact()
 
         // Start the dynamic progress bar
@@ -102,7 +104,9 @@ final class ImportViewModel: ObservableObject {
             // Complete the progress bar
             await completeProgress("Import complete!")
             HapticFeedbackManager.shared.success()
-            isProcessing = false
+            withAnimation(.easeInOut(duration: 0.3)) {
+                isProcessing = false
+            }
             progressTask = nil
             cancellationRequested = false
             currentRequestID = nil
@@ -231,7 +235,9 @@ final class ImportViewModel: ObservableObject {
 
         logImportError(state: state, underlying: error)
 
-        isProcessing = false
+        withAnimation(.easeInOut(duration: 0.3)) {
+            isProcessing = false
+        }
         progressTask?.cancel()
         progressTask = nil
         HapticFeedbackManager.shared.warning()
@@ -250,7 +256,9 @@ final class ImportViewModel: ObservableObject {
 
     private func handleImportCancellation() {
         cancellationRequested = false
-        isProcessing = false
+        withAnimation(.easeInOut(duration: 0.3)) {
+            isProcessing = false
+        }
         progressTask?.cancel()
         progressTask = nil
         errorState = nil
@@ -268,6 +276,13 @@ final class ImportViewModel: ObservableObject {
             return true
         }
         return false
+    }
+
+    func applyEditedEvent(_ updated: EventItem) async {
+        if let index = events.firstIndex(where: { $0.id == updated.id }) {
+            events[index] = updated
+        }
+        await eventStore.update(event: updated)
     }
 
     private func resolveError(from error: Error) -> (message: String, type: ImportErrorType) {

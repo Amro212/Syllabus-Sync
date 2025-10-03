@@ -21,16 +21,16 @@ struct EventItem: Identifiable, Codable, Equatable {
 
     let id: String
     let courseCode: String
-    let type: EventType
-    let title: String
-    let start: Date
-    let end: Date?
-    let allDay: Bool?
-    let location: String?
-    let notes: String?
-    let recurrenceRule: String?
-    let reminderMinutes: Int?
-    let confidence: Double?
+    var type: EventType
+    var title: String
+    var start: Date
+    var end: Date?
+    var allDay: Bool?
+    var location: String?
+    var notes: String?
+    var recurrenceRule: String?
+    var reminderMinutes: Int?
+    var confidence: Double?
 }
 
 extension EventItem.EventType: CaseIterable {}

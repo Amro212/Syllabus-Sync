@@ -10,10 +10,9 @@ import SwiftUI
 struct CalendarView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
     @EnvironmentObject var themeManager: ThemeManager
+    @EnvironmentObject var eventStore: EventStore
     
-    @State private var selectedDate = Date()
-    @State private var showingEventDetail: MockEvent?
-    @State private var events = MockEvent.allSampleEvents
+    @State private var showingEventDetail: CalendarEvent?
     @State private var selectedFilter: EventFilter = .all
     
     enum EventFilter: String, CaseIterable {
@@ -32,7 +31,11 @@ struct CalendarView: View {
         }
     }
     
-    var filteredEvents: [MockEvent] {
+    private var events: [CalendarEvent] {
+        CalendarEvent.make(from: eventStore.events)
+    }
+    
+    var filteredEvents: [CalendarEvent] {
         let now = Date()
         
         switch selectedFilter {
@@ -146,7 +149,7 @@ struct FilterPill: View {
 // MARK: - Timeline Event Card
 
 struct TimelineEventCard: View {
-    let event: MockEvent
+    let event: CalendarEvent
     let onTap: () -> Void
     
     @State private var isPressed = false
@@ -197,7 +200,7 @@ struct TimelineEventCard: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(event.type.color)
                         
-                        Text(event.type.rawValue)
+                        Text(event.type.displayName)
                             .font(.caption)
                             .fontWeight(.medium)
                             .foregroundColor(AppColors.textSecondary)
@@ -275,7 +278,7 @@ struct TimelineEventCard: View {
 // MARK: - Context Menu
 
 struct EventContextMenu: View {
-    let event: MockEvent
+    let event: CalendarEvent
     
     var body: some View {
         Button {
@@ -381,9 +384,9 @@ struct EmptyStateView: View {
 // MARK: - Event Detail Sheet
 
 struct EventDetailSheet: View {
-    let event: MockEvent
+    let event: CalendarEvent
     @Environment(\.dismiss) private var dismiss
-    
+
     var body: some View {
         NavigationView {
             ScrollView {
@@ -396,7 +399,7 @@ struct EventDetailSheet: View {
                                     .font(.system(size: 16, weight: .medium))
                                     .foregroundColor(event.type.color)
                                 
-                                Text(event.type.rawValue)
+                                Text(event.type.displayName)
                                     .font(.body)
                                     .fontWeight(.medium)
                                     .foregroundColor(AppColors.textSecondary)
@@ -440,7 +443,7 @@ struct EventDetailSheet: View {
                             )
                         }
                         
-                        if let description = event.description {
+                        if let notes = event.notes, !notes.isEmpty {
                             VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
                                 HStack(spacing: Layout.Spacing.sm) {
                                     Image(systemName: "doc.text")
@@ -454,7 +457,7 @@ struct EventDetailSheet: View {
                                         .foregroundColor(AppColors.textPrimary)
                                 }
                                 
-                                Text(description)
+                                Text(notes)
                                     .font(.body)
                                     .foregroundColor(AppColors.textSecondary)
                                     .lineSpacing(4)
@@ -488,6 +491,141 @@ struct EventDetailSheet: View {
             }
         }
     }
+}
+
+// MARK: - Calendar Event Model
+
+struct CalendarEvent: Identifiable, Hashable {
+    let id: String
+    let title: String
+    let type: EventType
+    let start: Date
+    let end: Date?
+    let location: String?
+    let notes: String?
+    let courseCode: String
+    let isCompleted: Bool
+    let isAllDay: Bool
+
+    var date: Date { start }
+
+    var time: String? {
+        guard !isAllDay else { return nil }
+        return CalendarEvent.timeFormatter.string(from: start)
+    }
+
+    enum EventType: String, Hashable {
+        case assignment
+        case quiz
+        case midterm
+        case final
+        case lab
+        case lecture
+        case other
+
+        init(from domain: EventItem.EventType) {
+            switch domain {
+            case .assignment: self = .assignment
+            case .quiz: self = .quiz
+            case .midterm: self = .midterm
+            case .final: self = .final
+            case .lab: self = .lab
+            case .lecture: self = .lecture
+            case .other: self = .other
+            }
+        }
+
+        var displayName: String {
+            switch self {
+            case .assignment: return "Assignment"
+            case .quiz: return "Quiz"
+            case .midterm: return "Midterm"
+            case .final: return "Final"
+            case .lab: return "Lab"
+            case .lecture: return "Lecture"
+            case .other: return "Other"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .assignment: return .orange
+            case .quiz: return .yellow
+            case .midterm: return .pink
+            case .final: return .red
+            case .lab: return .green
+            case .lecture: return .blue
+            case .other: return AppColors.textSecondary
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .assignment: return "doc.text"
+            case .quiz: return "questionmark.circle"
+            case .midterm: return "timer"
+            case .final: return "graduationcap"
+            case .lab: return "flask"
+            case .lecture: return "person.fill"
+            case .other: return "calendar"
+            }
+        }
+    }
+
+    init(item: EventItem) {
+        id = item.id
+        title = item.title
+        type = EventType(from: item.type)
+        start = item.start
+        end = item.end
+        location = item.location
+        notes = item.notes
+        courseCode = item.courseCode
+        isCompleted = false
+        isAllDay = item.allDay ?? false
+    }
+
+    static func make(from items: [EventItem]) -> [CalendarEvent] {
+        items.map(CalendarEvent.init)
+    }
+
+    static let previewItems: [EventItem] = [
+        EventItem(
+            id: "cal-1",
+            courseCode: "CS101",
+            type: .lecture,
+            title: "Lecture: Algorithms",
+            start: Date(),
+            end: nil,
+            allDay: false,
+            location: "Hall A",
+            notes: "Week 2 lecture",
+            recurrenceRule: nil,
+            reminderMinutes: 30,
+            confidence: nil
+        ),
+        EventItem(
+            id: "cal-2",
+            courseCode: "MATH152",
+            type: .assignment,
+            title: "Homework 3",
+            start: Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date(),
+            end: nil,
+            allDay: false,
+            location: nil,
+            notes: "Integration practice",
+            recurrenceRule: nil,
+            reminderMinutes: 60,
+            confidence: nil
+        )
+    ]
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter
+    }()
 }
 
 struct DetailRow: View {
@@ -535,6 +673,7 @@ struct CalendarView_Previews: PreviewProvider {
         CalendarView()
             .environmentObject(AppNavigationManager())
             .environmentObject(ThemeManager())
+            .environmentObject(EventStore(initialEvents: CalendarEvent.previewItems))
     }
 }
 #endif

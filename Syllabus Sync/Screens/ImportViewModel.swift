@@ -179,12 +179,12 @@ final class ImportViewModel: ObservableObject {
 
             if step == steps {
                 // Final step - use the provided message
-                await updateProgress(to: progress, message: finalMessage)
+                updateProgress(to: progress, message: finalMessage)
             } else {
                 // Intermediate steps - use generic messages
                 let messages = ["Processing...", "Analyzing...", "Working..."]
                 let message = messages[step % messages.count]
-                await updateProgress(to: progress, message: message)
+                updateProgress(to: progress, message: message)
             }
 
             // Random delay between steps (0.1-0.3 seconds)
@@ -198,7 +198,7 @@ final class ImportViewModel: ObservableObject {
 
         // If progress is already at 100%, just update the message
         if progress >= 1.0 {
-            await updateProgress(to: 1.0, message: message)
+            updateProgress(to: 1.0, message: message)
             return
         }
 
@@ -212,9 +212,9 @@ final class ImportViewModel: ObservableObject {
             let progress = min(1.0, self.progress + (stepSize * Double(step)))
 
             if step == steps {
-                await updateProgress(to: 1.0, message: message)
+                updateProgress(to: 1.0, message: message)
             } else {
-                await updateProgress(to: progress, message: message)
+                updateProgress(to: progress, message: message)
             }
 
             try? await Task.sleep(nanoseconds: 50_000_000) // 0.05s for smooth finish

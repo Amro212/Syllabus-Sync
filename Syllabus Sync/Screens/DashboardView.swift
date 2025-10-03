@@ -68,7 +68,7 @@ struct DashboardView: View {
             ImportView()
                 .environmentObject(navigationManager)
         }
-        .sheet(item: $editingEvent) { event in
+        .fullScreenCover(item: $editingEvent) { event in
             EventEditView(event: event) { updated in
                 Task { await importViewModel.applyEditedEvent(updated) }
                 editingEvent = nil

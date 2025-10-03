@@ -78,7 +78,7 @@ struct PreviewView: View {
             .navigationBarTitleDisplayMode(.large)
         }
         .navigationViewStyle(StackNavigationViewStyle())
-        .sheet(item: $editingEvent) { event in
+        .fullScreenCover(item: $editingEvent) { event in
             EventEditView(event: event) { updated in
                 Task { await importViewModel.applyEditedEvent(updated) }
                 editingEvent = nil

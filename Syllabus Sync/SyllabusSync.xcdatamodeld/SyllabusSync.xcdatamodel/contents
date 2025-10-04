@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="22758" systemVersion="23A339" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="CourseEntity" representedClassName="CourseEntity" syncable="YES">
+        <attribute name="code" attributeType="String" defaultValueString=""/>
+        <attribute name="colorHex" optional="YES" attributeType="String"/>
+        <attribute name="id" attributeType="String" defaultValueString=""/>
+        <attribute name="instructor" optional="YES" attributeType="String"/>
+        <attribute name="title" optional="YES" attributeType="String"/>
+    </entity>
+    <entity name="EventEntity" representedClassName="EventEntity" syncable="YES">
+        <attribute name="allDay" optional="YES" attributeType="Boolean" usesScalarValueType="NO"/>
+        <attribute name="approvedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="confidence" optional="YES" attributeType="Double" usesScalarValueType="NO"/>
+        <attribute name="courseCode" attributeType="String" defaultValueString=""/>
+        <attribute name="courseId" optional="YES" attributeType="String"/>
+        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="end" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" attributeType="String" defaultValueString=""/>
+        <attribute name="location" optional="YES" attributeType="String"/>
+        <attribute name="notes" optional="YES" attributeType="String"/>
+        <attribute name="recurrenceRule" optional="YES" attributeType="String"/>
+        <attribute name="reminderMinutes" optional="YES" attributeType="Integer 32" usesScalarValueType="NO"/>
+        <attribute name="start" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="title" attributeType="String" defaultValueString=""/>
+        <attribute name="typeRaw" attributeType="String" defaultValueString=""/>
+    </entity>
+    <entity name="UserPrefsEntity" representedClassName="UserPrefsEntity" syncable="YES">
+        <attribute name="hapticsOn" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
+        <attribute name="id" attributeType="String" defaultValueString="singleton"/>
+        <attribute name="lastCalendarId" optional="YES" attributeType="String"/>
+        <attribute name="lastImportHashByCourse" optional="YES" attributeType="String"/>
+        <attribute name="theme" attributeType="String" defaultValueString="system"/>
+    </entity>
+</model>
+

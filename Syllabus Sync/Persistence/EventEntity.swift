@@ -11,7 +11,7 @@ final class EventEntity: NSManagedObject {
     @NSManaged var courseCode: String
     @NSManaged var typeRaw: String
     @NSManaged var title: String
-    @NSManaged var start: Date
+    @NSManaged var start: Date?
     @NSManaged var end: Date?
     @NSManaged var allDay: NSNumber?
     @NSManaged var location: String?
@@ -20,18 +20,19 @@ final class EventEntity: NSManagedObject {
     @NSManaged var reminderMinutes: NSNumber?
     @NSManaged var confidence: NSNumber?
     @NSManaged var approvedAt: Date?
-    @NSManaged var createdAt: Date
+    @NSManaged var createdAt: Date?
 }
 
 extension EventEntity {
     func toDomain() -> EventItem? {
-        guard let type = EventItem.EventType(rawValue: typeRaw) else { return nil }
+        guard let type = EventItem.EventType(rawValue: typeRaw),
+              let startDate = start else { return nil }
         return EventItem(
             id: id,
             courseCode: courseCode,
             type: type,
             title: title,
-            start: start,
+            start: startDate,
             end: end,
             allDay: allDay?.boolValue,
             location: location,
@@ -56,7 +57,7 @@ extension EventEntity {
         reminderMinutes = item.reminderMinutes as NSNumber?
         confidence = item.confidence as NSNumber?
         approvedAt = date
-        if createdAt.timeIntervalSinceReferenceDate <= 0 {
+        if createdAt == nil || createdAt!.timeIntervalSinceReferenceDate <= 0 {
             createdAt = date
         }
     }

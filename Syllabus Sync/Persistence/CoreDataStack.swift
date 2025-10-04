@@ -1,17 +1,57 @@
 import CoreData
 
 final class CoreDataStack {
+    enum StoreType {
+        case persistent
+        case inMemory
+    }
+
+    struct Configuration {
+        let storeType: StoreType
+        let cloudKitContainerIdentifier: String?
+
+        static let `default` = Configuration(storeType: .persistent, cloudKitContainerIdentifier: nil)
+        static let inMemory = Configuration(storeType: .inMemory, cloudKitContainerIdentifier: nil)
+    }
+
     static let shared = CoreDataStack()
 
     let container: NSPersistentContainer
+    let storeType: StoreType
 
-    private init() {
+    init(configuration: Configuration = .default) {
         let model = Self.makeModel()
-        container = NSPersistentContainer(name: "SyllabusSync", managedObjectModel: model)
+        storeType = configuration.storeType
 
-        let description = container.persistentStoreDescriptions.first
-        description?.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
-        description?.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+        if configuration.storeType == .persistent,
+           let identifier = configuration.cloudKitContainerIdentifier,
+           !identifier.isEmpty {
+            let cloudContainer = NSPersistentCloudKitContainer(name: "SyllabusSync", managedObjectModel: model)
+            let description = cloudContainer.persistentStoreDescriptions.first ?? NSPersistentStoreDescription()
+            description.type = NSSQLiteStoreType
+            description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+            description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+            description.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(containerIdentifier: identifier)
+            cloudContainer.persistentStoreDescriptions = [description]
+            container = cloudContainer
+        } else {
+            container = NSPersistentContainer(name: "SyllabusSync", managedObjectModel: model)
+        }
+
+        let description = container.persistentStoreDescriptions.first ?? NSPersistentStoreDescription()
+
+        switch configuration.storeType {
+        case .persistent:
+            description.type = NSSQLiteStoreType
+        case .inMemory:
+            description.type = NSInMemoryStoreType
+            description.url = URL(fileURLWithPath: "/dev/null")
+        }
+
+        description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+        description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+
+        container.persistentStoreDescriptions = [description]
 
         container.loadPersistentStores { _, error in
             if let error = error {
@@ -21,6 +61,7 @@ final class CoreDataStack {
 
         container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
         container.viewContext.automaticallyMergesChangesFromParent = true
+        container.viewContext.undoManager = nil
     }
 
     private static func makeModel() -> NSManagedObjectModel {

@@ -670,10 +670,13 @@ extension DateFormatter {
 #if DEBUG
 struct CalendarView_Previews: PreviewProvider {
     static var previews: some View {
-        CalendarView()
+        let previewStore = EventStore(stack: CoreDataStack(configuration: .inMemory))
+        _ = Task { await previewStore.autoApprove(events: CalendarEvent.previewItems) }
+
+        return CalendarView()
             .environmentObject(AppNavigationManager())
             .environmentObject(ThemeManager())
-            .environmentObject(EventStore(initialEvents: CalendarEvent.previewItems))
+            .environmentObject(previewStore)
     }
 }
 #endif

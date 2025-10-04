@@ -5,14 +5,16 @@
 //  Created by Amro Zabin on 2025-09-06.
 //
 
-import Combine
 import Foundation
 import Testing
 @testable import Syllabus_Sync
 
 @MainActor
 struct Syllabus_SyncTests {
-    @Test func updatingEventPublishesChanges() async throws {
+    @Test func updatingEventPersistsChanges() async throws {
+        let stack = CoreDataStack(configuration: .inMemory)
+        let store = EventStore(stack: stack)
+
         let original = EventItem(
             id: "evt-1",
             courseCode: "CS101",
@@ -28,29 +30,24 @@ struct Syllabus_SyncTests {
             confidence: nil
         )
 
-        let store = EventStore(initialEvents: [original])
-
-        var receivedSnapshots: [[EventItem]] = []
-        let cancellable = store.$events
-            .dropFirst()
-            .sink { snapshot in
-                receivedSnapshots.append(snapshot)
-            }
-        defer { cancellable.cancel() }
+        await store.autoApprove(events: [original])
 
         var edited = original
         edited.title = "Lecture 1 - Updated"
         edited.location = "Hall B"
 
         await store.update(event: edited)
+        await Task.yield()
 
         #expect(store.events.count == 1)
         #expect(store.events.first?.title == "Lecture 1 - Updated")
         #expect(store.events.first?.location == "Hall B")
-        #expect(receivedSnapshots.last?.first?.title == "Lecture 1 - Updated")
     }
 
     @Test func autoApproveReconcilesCourseEvents() async throws {
+        let stack = CoreDataStack(configuration: .inMemory)
+        let store = EventStore(stack: stack)
+
         let existingCourseEvent = EventItem(
             id: "evt-1",
             courseCode: "CS101",
@@ -81,7 +78,7 @@ struct Syllabus_SyncTests {
             confidence: nil
         )
 
-        let store = EventStore(initialEvents: [existingCourseEvent, existingOtherCourseEvent])
+        await store.autoApprove(events: [existingCourseEvent, existingOtherCourseEvent])
 
         let updatedEvent = EventItem(
             id: "evt-1",

@@ -388,12 +388,7 @@ struct CourseEventCard: View {
             .padding(Layout.Spacing.lg)
             .background(AppColors.surface)
             .cornerRadius(Layout.CornerRadius.lg)
-            .shadow(
-                color: AppColors.shadow.opacity(0.1),
-                radius: Layout.Shadow.medium.radius,
-                x: Layout.Shadow.medium.x,
-                y: Layout.Shadow.medium.y
-            )
+            .cardShadowLight()
             .scaleEffect(isPressed ? 0.98 : 1.0)
             .animation(.easeInOut(duration: 0.1), value: isPressed)
         }

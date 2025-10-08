@@ -47,18 +47,6 @@ struct DashboardView: View {
             }
             .navigationTitle("Dashboard")
             .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        HapticFeedbackManager.shared.lightImpact()
-                        navigationManager.switchTab(to: .settings)
-                    } label: {
-                        Image(systemName: "gear")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(AppColors.textSecondary)
-                    }
-                }
-            }
             .refreshable {
                 await performRefreshAsync()
             }
@@ -105,12 +93,21 @@ private extension DashboardView {
                 .font(.system(size: 24, weight: .bold))
                 .foregroundColor(.white)
                 .padding(24)
-                .background(AppColors.accent)
+                .background(
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color(red: 0.886, green: 0.714, blue: 0.275), // #E2B646
+                            Color(red: 0.816, green: 0.612, blue: 0.118)  // #D09C1E
+                        ]),
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
                 .clipShape(Circle())
-                .shadow(color: AppColors.accent.opacity(0.35), radius: 12, x: 0, y: 8)
+                .elevatedShadowLight()
         }
-        .scaleEffect(fabPressed ? 0.92 : 1)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: fabPressed)
+        .scaleEffect(fabPressed ? 0.90 : 1)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: fabPressed)
         .accessibilityLabel("Import syllabus")
     }
 
@@ -357,6 +354,7 @@ struct ShimmerCard: View {
             RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
                 .stroke(AppColors.border, lineWidth: 1)
         )
+        .cardShadowLight()
     }
 }
 

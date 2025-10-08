@@ -239,14 +239,6 @@ struct TabNavigationView: View {
                     }
                     .tag(AppRoute.preview) // Using preview route for now
             
-            // Reminders tab
-            RemindersPlaceholderView()
-                .tabItem {
-                    Image(systemName: "bell")
-                    Text("Reminders")
-                }
-                .tag(AppRoute.courseDetail(course: MockCourse.sampleCourses[0])) // Temporary
-            
             // Settings tab
             SettingsView()
                 .tabItem {
@@ -256,11 +248,21 @@ struct TabNavigationView: View {
                 .tag(AppRoute.settings)
         }
         .onAppear {
-            // Configure tab bar appearance
+            // Configure tab bar appearance with charcoal theme
             let appearance = UITabBarAppearance()
             appearance.configureWithOpaqueBackground()
-            appearance.backgroundColor = UIColor(AppColors.surface)
-            appearance.shadowColor = UIColor(AppColors.border.withOpacity(0.3))
+            appearance.backgroundColor = UIColor(Color(red: 0.180, green: 0.180, blue: 0.180)) // Charcoal surface
+            appearance.shadowColor = UIColor(Color(red: 0.0, green: 0.0, blue: 0.0).opacity(0.3))
+            
+            // Configure tab bar item colors
+            appearance.stackedLayoutAppearance.normal.iconColor = UIColor(AppColors.textSecondary)
+            appearance.stackedLayoutAppearance.normal.titleTextAttributes = [
+                .foregroundColor: UIColor(AppColors.textSecondary)
+            ]
+            appearance.stackedLayoutAppearance.selected.iconColor = UIColor(AppColors.accent)
+            appearance.stackedLayoutAppearance.selected.titleTextAttributes = [
+                .foregroundColor: UIColor(AppColors.accent)
+            ]
             
             UITabBar.appearance().standardAppearance = appearance
             UITabBar.appearance().scrollEdgeAppearance = appearance

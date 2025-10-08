@@ -208,7 +208,7 @@ extension View {
 
 // MARK: - Enhanced Button Components with Haptics
 
-/// Primary CTA Button with integrated haptic feedback
+/// Primary CTA Button with integrated haptic feedback and gradient
 struct HapticPrimaryCTAButton: View {
     let title: String
     let action: () -> Void
@@ -216,6 +216,8 @@ struct HapticPrimaryCTAButton: View {
     let isDisabled: Bool
     let icon: String?
     let hapticType: HapticFeedbackManager.FeedbackType
+    
+    @State private var isPressed = false
     
     init(
         _ title: String,
@@ -252,16 +254,40 @@ struct HapticPrimaryCTAButton: View {
                     .font(.buttonPrimary)
             }
             .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
             .padding(.horizontal, Layout.Spacing.lg)
             .padding(.vertical, Layout.Spacing.md)
             .background(
-                RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
-                    .fill(isDisabled ? AppColors.textTertiary : AppColors.accent)
+                Group {
+                    if isDisabled {
+                        RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
+                            .fill(AppColors.textTertiary)
+                    } else {
+                        RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color(red: 0.886, green: 0.714, blue: 0.275), // #E2B646
+                                        Color(red: 0.816, green: 0.612, blue: 0.118)  // #D09C1E
+                                    ]),
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    }
+                }
             )
+            .shadow(color: isDisabled ? .clear : AppColors.accent.opacity(0.3), radius: 8, x: 0, y: 4)
         }
         .disabled(isDisabled || isLoading)
-        .scaleEffect(isDisabled ? 0.95 : 1.0)
-        .animation(.easeInOut(duration: 0.2), value: isDisabled)
+        .scaleEffect(isPressed ? 0.96 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isDisabled)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in isPressed = false }
+        )
     }
 }
 

@@ -167,28 +167,22 @@ private struct ThemeButton: View {
     
     var body: some View {
         Button(action: {
+            HapticFeedbackManager.shared.lightImpact()
             action()
         }) {
-            VStack(spacing: Layout.Spacing.xs) {
-                Image(systemName: theme.icon)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(isSelected ? .white : AppColors.textSecondary)
-                
-                Text(theme.displayName)
-                    .font(.captionS)
-                    .foregroundColor(isSelected ? .white : AppColors.textSecondary)
-            }
-            .padding(Layout.Spacing.sm)
-            .background(
-                RoundedRectangle(cornerRadius: Layout.CornerRadius.sm)
-                    .fill(isSelected ? AppColors.accent : Color.clear)
-                    .scaleEffect(isPressed ? 0.95 : 1.0)
-            )
+            Image(systemName: theme.icon)
+                .font(.system(size: 20, weight: .medium))
+                .foregroundColor(isSelected ? .white : AppColors.textSecondary)
+                .frame(width: 44, height: 44)
+                .background(
+                    RoundedRectangle(cornerRadius: Layout.CornerRadius.sm)
+                        .fill(isSelected ? AppColors.accent : Color.clear)
+                )
         }
         .buttonStyle(PlainButtonStyle())
-        .scaleEffect(isPressed ? 0.95 : 1.0)
+        .scaleEffect(isPressed ? 0.96 : 1.0)
         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isSelected)
-        .animation(.easeInOut(duration: 0.1), value: isPressed)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
         .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity, pressing: { pressing in
             isPressed = pressing
         }, perform: {})

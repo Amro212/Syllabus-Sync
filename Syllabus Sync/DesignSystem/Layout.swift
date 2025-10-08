@@ -291,6 +291,52 @@ extension View {
             y: shadow.y
         )
     }
+    
+    // MARK: - Light Mode Only Shadows
+    
+    /// Applies subtle card shadow (light mode only)
+    /// Provides depth and layering for cards in light theme
+    func cardShadowLight() -> some View {
+        self.modifier(LightModeShadowModifier(
+            color: Color.black.opacity(0.12),
+            radius: 10,
+            x: 0,
+            y: 6
+        ))
+    }
+    
+    /// Applies elevated shadow (light mode only)
+    /// For buttons and elevated elements in light theme
+    func elevatedShadowLight() -> some View {
+        self.modifier(LightModeShadowModifier(
+            color: Color.black.opacity(0.10),
+            radius: 8,
+            x: 0,
+            y: 3
+        ))
+    }
+}
+
+// MARK: - Light Mode Shadow Modifier
+
+/// View modifier that only applies shadows in light mode
+private struct LightModeShadowModifier: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    
+    let color: Color
+    let radius: CGFloat
+    let x: CGFloat
+    let y: CGFloat
+    
+    func body(content: Content) -> some View {
+        content
+            .shadow(
+                color: colorScheme == .light ? color : .clear,
+                radius: radius,
+                x: x,
+                y: y
+            )
+    }
 }
 
 // MARK: - Preview Components

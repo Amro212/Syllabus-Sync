@@ -461,6 +461,7 @@ struct PreviewEventCard: View {
                 RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
                     .stroke(AppColors.separator, lineWidth: 1)
             )
+            .cardShadowLight()
         }
     }
 }

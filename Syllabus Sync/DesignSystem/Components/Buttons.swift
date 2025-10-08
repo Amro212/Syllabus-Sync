@@ -9,13 +9,15 @@ import SwiftUI
 
 // MARK: - Button Styles
 
-/// Primary CTA Button - main action button with accent color
+/// Primary CTA Button - main action button with accent color and gradient
 struct PrimaryCTAButton: View {
     let title: String
     let action: () -> Void
     let isLoading: Bool
     let isDisabled: Bool
     let icon: String?
+    
+    @State private var isPressed = false
     
     init(
         _ title: String,
@@ -32,7 +34,10 @@ struct PrimaryCTAButton: View {
     }
     
     var body: some View {
-        Button(action: action) {
+        Button(action: {
+            HapticFeedbackManager.shared.lightImpact()
+            action()
+        }) {
             HStack(spacing: Layout.Spacing.sm) {
                 if isLoading {
                     ProgressView()
@@ -47,16 +52,40 @@ struct PrimaryCTAButton: View {
                     .font(.buttonPrimary)
             }
             .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
             .padding(.horizontal, Layout.Spacing.lg)
             .padding(.vertical, Layout.Spacing.md)
             .background(
-                RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
-                    .fill(isDisabled ? AppColors.textTertiary : AppColors.accent)
+                Group {
+                    if isDisabled {
+                        RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
+                            .fill(AppColors.textTertiary)
+                    } else {
+                        RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color(red: 0.886, green: 0.714, blue: 0.275), // #E2B646
+                                        Color(red: 0.816, green: 0.612, blue: 0.118)  // #D09C1E
+                                    ]),
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    }
+                }
             )
+            .shadow(color: isDisabled ? .clear : AppColors.accent.opacity(0.3), radius: 8, x: 0, y: 4)
         }
         .disabled(isDisabled || isLoading)
-        .scaleEffect(isDisabled ? 0.95 : 1.0)
-        .animation(.easeInOut(duration: 0.2), value: isDisabled)
+        .scaleEffect(isPressed ? 0.96 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isDisabled)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in isPressed = false }
+        )
     }
 }
 
@@ -306,14 +335,7 @@ struct CardView<Content: View>: View {
                 RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
                     .stroke(AppColors.border, lineWidth: style.border ? 1 : 0)
             )
-            .conditionalModifier(style.shadow) { view in
-                view.shadow(
-                    color: AppColors.shadow.opacity(0.1),
-                    radius: Layout.Shadow.medium.radius,
-                    x: Layout.Shadow.medium.x,
-                    y: Layout.Shadow.medium.y
-                )
-            }
+            .cardShadowLight()
         
         if let onTap = onTap {
             Button(action: onTap) {

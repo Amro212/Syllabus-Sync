@@ -120,7 +120,7 @@ struct OnboardingView: View {
                             PrimaryCTAButton("Get Started") {
                                 HapticFeedbackManager.shared.success()
                                 withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                                    navigationManager.setRoot(to: .auth)
+                                    navigationManager.setRoot(to: .dashboard)
                                 }
                             }
                         }

@@ -23,6 +23,23 @@ struct DashboardView: View {
             ZStack(alignment: .bottomTrailing) {
                 ScrollView {
                     LazyVStack(spacing: 0) {
+                        // Custom header with consistent padding
+                        VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
+                            Text("Dashboard")
+                                .font(.largeTitle)
+                                .fontWeight(.bold)
+                                .foregroundColor(AppColors.textPrimary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            
+                            Text("Welcome aboard! Let's get your semester organized.")
+                                .font(.body)
+                                .foregroundColor(AppColors.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.horizontal, Layout.Spacing.md)
+                        .padding(.top, Layout.Spacing.lg)
+                        .padding(.bottom, Layout.Spacing.md)
+                        
                         if showShimmer {
                             DashboardShimmerView()
                                 .transition(.opacity)
@@ -41,12 +58,11 @@ struct DashboardView: View {
 
                 if !eventStore.events.isEmpty {
                     fabButton
-                        .padding(.trailing, Layout.Spacing.lg)
-                        .padding(.bottom, Layout.Spacing.lg)
+                        .padding(.trailing, Layout.Spacing.xl)
+                        .padding(.bottom, Layout.Spacing.xl)
                 }
             }
-            .navigationTitle("Dashboard")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarHidden(true)
             .refreshable {
                 await performRefreshAsync()
             }
@@ -147,14 +163,15 @@ struct DashboardEmptyView: View {
                 
                 // Concise Copy
                 VStack(spacing: Layout.Spacing.md) {
-                    Text("Import your syllabi and we'll handle the dates, assignments, and reminders for you.")
+                    Text("Nothing here yet! Upload a syllabus to get started.")
                         .font(.body)
                         .foregroundColor(AppColors.textSecondary)
                         .multilineTextAlignment(.center)
                         .lineSpacing(4)
-                        .padding(.horizontal, Layout.Spacing.lg)
+                        .padding(.horizontal, Layout.Spacing.xl)
                 }
             }
+            .padding(.horizontal, Layout.Spacing.md)
             
             Spacer()
             
@@ -182,13 +199,13 @@ struct DashboardEmptyView: View {
                             .fontWeight(.semibold)
                     }
                     .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
+                    .frame(maxWidth: 280) // Decreased width
+                    .frame(height: 65)     // Increased height
                     .background(
                         LinearGradient(
                             gradient: Gradient(colors: [
-                                Color.purple,
-                                Color.blue
+                                Color(red: 0.886, green: 0.714, blue: 0.275), // Medium gold
+                                Color(red: 0.722, green: 0.565, blue: 0.110)  // Darker gold
                             ]),
                             startPoint: .leading,
                             endPoint: .trailing
@@ -198,53 +215,9 @@ struct DashboardEmptyView: View {
                     .shadow(color: AppColors.accent.opacity(0.3), radius: 12, x: 0, y: 6)
                 }
                 .scaleEffect(buttonScale)
-                
-                // Secondary CTA - Preview Sample card
-                Button {
-                    HapticFeedbackManager.shared.lightImpact()
-                    navigationManager.switchTab(to: .preview) // Switch to Calendar tab
-                } label: {
-                    HStack(spacing: Layout.Spacing.md) {
-                        Image(systemName: "calendar")
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(AppColors.accent)
-                            .frame(width: 40, height: 40)
-                            .background(AppColors.accent.opacity(0.1))
-                            .clipShape(Circle())
-                        
-                        VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
-                            Text("Preview Sample")
-                                .font(.body)
-                                .fontWeight(.semibold)
-                                .foregroundColor(AppColors.textPrimary)
-                            
-                            Text("See how it works with sample data")
-                                .font(.caption)
-                                .foregroundColor(AppColors.textSecondary)
-                        }
-                        
-                        Spacer()
-                        
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(AppColors.textTertiary)
-                    }
-                    .padding(Layout.Spacing.md)
-                    .frame(maxWidth: .infinity)
-                    .background(AppColors.surface)
-                    .cornerRadius(Layout.CornerRadius.md)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
-                            .stroke(AppColors.border, lineWidth: 1)
-                    )
-                    .shadow(color: AppColors.textPrimary.opacity(0.05), radius: 8, x: 0, y: 2)
-                }
-                .buttonStyle(PlainButtonStyle())
             }
-            .padding(.horizontal, Layout.Spacing.lg)
             .padding(.bottom, Layout.Spacing.xl)
         }
-        .padding(.horizontal, Layout.Spacing.lg)
     }
 }
 
@@ -265,16 +238,15 @@ private struct DashboardEventList: View {
                     .font(.caption)
                     .foregroundColor(AppColors.textSecondary)
             }
-            .padding(.horizontal, Layout.Spacing.lg)
 
             VStack(alignment: .leading, spacing: Layout.Spacing.md) {
                 ForEach(events) { event in
                     PreviewEventCard(event: event)
-                        .padding(.horizontal, Layout.Spacing.lg)
                         .onTapGesture { onEventTapped(event) }
                 }
             }
         }
+        .padding(.horizontal, Layout.Spacing.md)
         .padding(.vertical, Layout.Spacing.xl)
     }
 }
@@ -306,7 +278,6 @@ struct DashboardShimmerView: View {
                     .fill(AppColors.separator)
                     .frame(height: 1)
             }
-            .padding(.horizontal, Layout.Spacing.lg)
             .padding(.top, Layout.Spacing.lg)
             
             // Content Shimmer
@@ -315,10 +286,10 @@ struct DashboardShimmerView: View {
                     ShimmerCard()
                 }
             }
-            .padding(.horizontal, Layout.Spacing.lg)
             
             Spacer()
         }
+        .padding(.horizontal, Layout.Spacing.md)
     }
 }
 
@@ -398,4 +369,16 @@ struct ShimmerRectangle: View {
     DashboardView()
         .environmentObject(AppNavigationManager())
         .environmentObject(ThemeManager())
+        .environmentObject(EventStore())
+        .environmentObject(ImportViewModel(
+            extractor: PDFKitExtractor(),
+            parser: SyllabusParserRemote(apiClient: URLSessionAPIClient(
+                configuration: URLSessionAPIClient.Configuration(
+                    baseURL: URL(string: "https://api.example.com")!,
+                    requestTimeout: 30,
+                    maxRetryCount: 1
+                )
+            )),
+            eventStore: EventStore()
+        ))
 }

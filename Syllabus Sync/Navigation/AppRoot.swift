@@ -1098,10 +1098,10 @@ struct LaunchScreenView: View {
             // Trigger haptic feedback
             HapticFeedbackManager.shared.mediumImpact()
             
-            // Navigate to onboarding after delay
+            // Navigate to auth after delay
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 withAnimation(.spring(response: 0.7, dampingFraction: 0.8)) {
-                    navigationManager.setRoot(to: .onboarding)
+                    navigationManager.setRoot(to: .auth)
                 }
             }
         }

@@ -288,8 +288,8 @@ struct ImportContentView: View {
                     .background(
                         LinearGradient(
                             gradient: Gradient(colors: [
-                                Color.purple,
-                                Color.blue
+                                Color(red: 0.886, green: 0.714, blue: 0.275), // Medium gold
+                                Color(red: 0.722, green: 0.565, blue: 0.110)  // Darker gold
                             ]),
                             startPoint: .leading,
                             endPoint: .trailing

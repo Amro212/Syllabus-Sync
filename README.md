@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Syllabus Sync
 
 [![CI](https://github.com/USERNAME/syllabus-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/syllabus-sync/actions/workflows/ci.yml)
@@ -14,6 +13,7 @@ This is a **hybrid iOS + serverless backend** project with:
 - **iOS App**: SwiftUI (iOS 17+) with MVVM pattern
 - **Server**: Cloudflare Workers with TypeScript  
 - **Parsing**: OpenAI-powered parsing (server-side only)
+- **Persistence**: Core Data + CloudKit for iCloud sync
 - **Calendar**: EventKit integration for Apple Calendar sync
 
 ## 📁 Project Structure
@@ -49,18 +49,71 @@ npm test        # Run validation tests
 
 ## 🧪 Development Status
 
-- ✅ **Task 0.2**: iOS project init  
-- ✅ **Task 0.3**: Server project init (Cloudflare Workers + TypeScript)
-- ✅ **Task 0.4**: Shared DTO + JSON Schema with validation tests
-- 🚧 **Task 0.5**: CI basics (GitHub Actions)
-- ⏳ **Task 0.6**: Secrets & env files
+- ✅ **Milestone 0**: Project setup & configuration
+- ✅ **Milestone 1-3**: iOS Design System & Screens (mock-first)
+- ✅ **Milestone 4-5**: Server scaffold & OpenAI parser
+- ✅ **Milestone 8**: Real Import Flow (Client ↔ Server)
+- ✅ **Milestone 9**: Full Event Editing UX
+- ✅ **Milestone 9.5**: Core Data + CloudKit Backup/Sync
+- ⏳ **Milestone 10**: Calendar & Notifications
 
 See [tasks.md](./tasks.md) for detailed milestone tracking.
 
 ## 📊 Current Endpoints
 
 ### Server API
-- `GET /health` - Health check (returns `{"ok": true}`)
+- `GET /health` - Health check
+- `POST /parse` - Parse syllabus text → structured events (OpenAI-powered)
+
+## ☁️ Cloud Backup & Sync
+
+### Core Data + CloudKit Integration
+
+**Syllabus Sync** uses **Core Data** backed by **CloudKit** to automatically backup and sync your data across devices.
+
+#### What's Stored in iCloud?
+
+Your app data is stored in **iCloud Private Database** (only you can access it):
+
+- **Courses**: Course codes, titles, instructors, colors
+- **Events**: All imported/edited events with dates, titles, types, locations, notes
+- **Preferences**: App settings and import history
+
+#### Important Notes
+
+- **PDFs are NOT stored** - Only extracted metadata
+- **iCloud account required** - Sign in on your device to enable sync
+- **Paid Apple Developer Account** - CloudKit requires a paid membership ($99/year)
+- **Simulator mode** - Uses local-only Core Data (no CloudKit sync)
+
+#### How to Delete Your Cloud Data
+
+If you need to wipe all your data:
+
+1. Open **Settings** in the app
+2. Scroll to **Data Management**
+3. Tap **Delete Cloud Backup**
+4. Confirm deletion
+
+This will:
+- ✅ Delete all Core Data records (Courses, Events, Preferences)
+- ✅ Remove data from iCloud (if CloudKit is enabled)
+- ✅ Cannot be undone - make sure you want to proceed!
+
+#### Developer Setup
+
+For CloudKit to work, you need:
+
+1. **Paid Apple Developer Account** ($99/year)
+2. **iCloud Capability enabled** in Xcode:
+   - Signing & Capabilities → iCloud → CloudKit
+   - Container: `iCloud.SylSyn.Syllabus-Sync`
+3. **Signed into iCloud** on your test device
+
+**Without paid account:**
+- ✅ App works perfectly with local Core Data only
+- ❌ CloudKit sync disabled (data doesn't sync between devices)
+- ✅ Data persists locally and survives app relaunches
 
 ## 🛡️ Security & Privacy
 
@@ -68,6 +121,7 @@ See [tasks.md](./tasks.md) for detailed milestone tracking.
 - **OpenAI usage**: Server-side only for parsing
 - **Budget controls**: Rate limiting and cost guardrails
 - **Data minimization**: PDFs auto-deleted, minimal PII storage
+- **Private database**: CloudKit uses your iCloud Private DB (not shared)
 
 ### Secrets Management
 
@@ -88,6 +142,7 @@ cd server && wrangler secret put OPENAI_API_KEY
 - ✅ `.dev.vars` is git-ignored (local development only) 
 - ✅ Rate limiting prevents abuse
 - ✅ Budget caps prevent runaway costs
+- ✅ CloudKit Private DB - only you can access your data
 
 ## 📄 License
 
@@ -95,174 +150,4 @@ MIT License - see LICENSE file for details.
 
 ---
 
-**Status**: Early MVP development - not ready for production use.
-=======
-# Syllabus Sync Server
-
-[![CI](https://github.com/USERNAME/syllabus-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/syllabus-sync/actions/workflows/ci.yml)
-
-> **Note**: Replace `USERNAME` with your actual GitHub username.
-
-Cloudflare Workers API for Syllabus Sync - handles PDF parsing, event extraction, and provides secure access to OpenAI services.
-
-## 🚀 Quick Start
-
-```bash
-# Install dependencies
-npm install
-
-# Start development server
-npm run start
-
-# Run tests
-npm test
-
-# Deploy to Cloudflare
-npm run deploy
-```
-
-## 📊 API Endpoints
-
-### Health Check
-```bash
-curl http://localhost:8787/health
-# Returns: {"ok": true, "timestamp": "2025-09-06T..."}
-```
-
-### Coming Soon
-- `POST /parse` - Parse syllabus text → structured events
-- `POST /upload` - Upload PDFs (optional)
-
-## 🏗️ Architecture
-
-- **Runtime**: Cloudflare Workers (V8 isolates)
-- **Language**: TypeScript with strict typing
-- **Validation**: Custom runtime validation (Workers-compatible)
-- **Testing**: Vitest with Workers pool
-- **Parsing Strategy**: OpenAI-powered parsing
-
-## 📁 Structure
-
-```
-server/
-├── src/
-│   ├── index.ts              # Main Worker entry point
-│   └── types/
-│       ├── eventItem.ts      # TypeScript DTOs
-│       └── validation.ts     # Runtime validation
-├── schemas/
-│   └── eventItem.schema.json # JSON Schema definition
-├── test/
-│   ├── index.spec.ts         # Worker integration tests
-│   └── validation.spec.ts    # Validation unit tests
-├── wrangler.jsonc            # Cloudflare Workers config
-└── package.json
-```
-
-## 🧪 Testing
-
-The server includes comprehensive test coverage:
-
-```bash
-npm test              # Run all tests
-npm test -- --watch   # Watch mode for development
-```
-
-**Test Coverage**:
-- ✅ Health endpoint integration
-- ✅ EventItem validation (19 test cases)
-- ✅ JSON schema compliance
-- ✅ Error handling and edge cases
-
-## 🔧 Configuration
-
-### Environment Variables Setup
-
-1. **Copy example environment file:**
-   ```bash
-   cp .dev.vars.example .dev.vars
-   ```
-
-2. **Fill in your secrets in `.dev.vars`:**
-   ```bash
-   # Required for OpenAI parsing
-   OPENAI_API_KEY=sk-your-actual-openai-api-key
-   
-   # Optional: customize rate limits
-   RATE_LIMIT_REQUESTS=100
-   RATE_LIMIT_OPENAI=10
-   OPENAI_DAILY_BUDGET=10.00
-   ```
-
-3. **For production deployment, use Wrangler secrets:**
-   ```bash
-   # Set production secrets (never commit these!)
-   wrangler secret put OPENAI_API_KEY
-   wrangler secret put RATE_LIMIT_REQUESTS
-   wrangler secret put RATE_LIMIT_OPENAI
-   ```
-
-### Security Notes
-- ⚠️ **Never commit `.dev.vars`** - it contains your API keys
-- ✅ The `.dev.vars.example` file is safe to commit (no real secrets)  
-- ✅ Use `wrangler secret put` for production secrets
-- ✅ All secrets are server-side only (never exposed to client)
-
-### Wrangler Configuration
-See `wrangler.jsonc` for Workers-specific settings:
-- Compatibility date
-- Environment variables
-- Custom domains (when deployed)
-
-## 🛡️ Security Features
-
-- **CORS**: Configured for iOS app origin
-- **Rate Limiting**: IP-based request throttling  
-- **Input Validation**: Strict runtime type checking
-- **Error Handling**: Structured error responses
-- **Budget Controls**: OpenAI usage limits
-
-## 📋 Development Workflow
-
-1. **Local Development**:
-   ```bash
-   npm run start
-   curl http://localhost:8787/health
-   ```
-
-2. **Testing**:
-   ```bash
-   npm test
-   ```
-
-3. **Type Checking**:
-   ```bash
-   npx tsc --noEmit
-   ```
-
-4. **Deploy**:
-   ```bash
-   npm run deploy
-   ```
-
-## 🚦 CI/CD
-
-GitHub Actions automatically:
-- ✅ Type checking with TypeScript
-- ✅ Run full test suite  
-- ✅ Validate Wrangler configuration
-- ✅ Dry-run deployment
-
-## 📈 Performance
-
-- **Cold Start**: ~10ms (V8 isolates)
-- **Memory**: <128MB typical usage
-- **Latency**: <50ms response time (health check)
-- **Throughput**: 1000+ req/sec supported
-
-## 🔗 Related
-
-- [Main Project README](../README.md)
-- [Architecture Overview](../architecture.md)  
-- [Development Tasks](../tasks.md)
->>>>>>> 9702465 (Milestone 4 and 5 Complete with tests passing)
+**Status**: MVP development in progress - functional but not production-ready.

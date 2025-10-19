@@ -5,6 +5,7 @@
 //  Created by Amro Zabin on 2025-09-06.
 //
 
+import CoreData
 import Foundation
 import SwiftUI
 
@@ -568,6 +569,7 @@ struct SettingsView: View {
     @EnvironmentObject var eventStore: EventStore
     
     @State private var showingResetAlert = false
+    @State private var showingDeleteCloudDataAlert = false
     @State private var notificationsEnabled = true
     @State private var hapticEnabled = true
     
@@ -653,6 +655,20 @@ struct SettingsView: View {
                         }
                     }
                     
+                    // Data Management Section
+                    SettingsSection(title: "Data Management", icon: "icloud") {
+                        VStack(spacing: Layout.Spacing.lg) {
+                            SettingsActionRow(
+                                title: "Delete Cloud Backup",
+                                subtitle: "Delete all data from Core Data and iCloud",
+                                icon: "icloud.slash",
+                                isDestructive: true
+                            ) {
+                                showingDeleteCloudDataAlert = true
+                            }
+                        }
+                    }
+                    
                     // About Section
                     SettingsSection(title: "About", icon: "info.circle") {
                         VStack(spacing: Layout.Spacing.lg) {
@@ -700,6 +716,14 @@ struct SettingsView: View {
         } message: {
             Text("This will delete all your courses and events, and return the app to its initial state. This action cannot be undone.")
         }
+        .alert("Delete Cloud Backup", isPresented: $showingDeleteCloudDataAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                deleteCloudData()
+            }
+        } message: {
+            Text("This will permanently delete all your courses, events, and preferences from Core Data and iCloud. This action cannot be undone.")
+        }
     }
     
     private func testHapticFeedback() {
@@ -728,6 +752,74 @@ struct SettingsView: View {
             navigationManager.currentRoute = .launch
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 navigationManager.currentRoute = .onboarding
+            }
+        }
+    }
+    
+    private func deleteCloudData() {
+        HapticFeedbackManager.shared.warning()
+        Task {
+            // Delete all Core Data objects (which will also mirror to CloudKit if enabled)
+            let context = CoreDataStack.shared.container.viewContext
+            let backgroundContext = CoreDataStack.shared.container.newBackgroundContext()
+            
+            do {
+                try await backgroundContext.perform {
+                    // Delete all EventEntity records
+                    let eventFetch = NSFetchRequest<NSFetchRequestResult>(entityName: "EventEntity")
+                    let eventDeleteRequest = NSBatchDeleteRequest(fetchRequest: eventFetch)
+                    eventDeleteRequest.resultType = .resultTypeObjectIDs
+                    if let result = try backgroundContext.execute(eventDeleteRequest) as? NSBatchDeleteResult,
+                       let deletedObjectIDs = result.result as? [NSManagedObjectID] {
+                        NSManagedObjectContext.mergeChanges(
+                            fromRemoteContextSave: [NSDeletedObjectsKey: deletedObjectIDs],
+                            into: [context]
+                        )
+                    }
+                    
+                    // Delete all CourseEntity records
+                    let courseFetch = NSFetchRequest<NSFetchRequestResult>(entityName: "CourseEntity")
+                    let courseDeleteRequest = NSBatchDeleteRequest(fetchRequest: courseFetch)
+                    courseDeleteRequest.resultType = .resultTypeObjectIDs
+                    if let result = try backgroundContext.execute(courseDeleteRequest) as? NSBatchDeleteResult,
+                       let deletedObjectIDs = result.result as? [NSManagedObjectID] {
+                        NSManagedObjectContext.mergeChanges(
+                            fromRemoteContextSave: [NSDeletedObjectsKey: deletedObjectIDs],
+                            into: [context]
+                        )
+                    }
+                    
+                    // Delete all UserPrefsEntity records
+                    let prefsFetch = NSFetchRequest<NSFetchRequestResult>(entityName: "UserPrefsEntity")
+                    let prefsDeleteRequest = NSBatchDeleteRequest(fetchRequest: prefsFetch)
+                    prefsDeleteRequest.resultType = .resultTypeObjectIDs
+                    if let result = try backgroundContext.execute(prefsDeleteRequest) as? NSBatchDeleteResult,
+                       let deletedObjectIDs = result.result as? [NSManagedObjectID] {
+                        NSManagedObjectContext.mergeChanges(
+                            fromRemoteContextSave: [NSDeletedObjectsKey: deletedObjectIDs],
+                            into: [context]
+                        )
+                    }
+                    
+                    if backgroundContext.hasChanges {
+                        try backgroundContext.save()
+                    }
+                }
+                
+                // Refresh the event store
+                await eventStore.refresh()
+                
+                // Show success feedback
+                await MainActor.run {
+                    HapticFeedbackManager.shared.success()
+                }
+                
+                print("✅ All Core Data (and CloudKit) data deleted successfully")
+            } catch {
+                print("⚠️ Failed to delete cloud data: \(error)")
+                await MainActor.run {
+                    HapticFeedbackManager.shared.error()
+                }
             }
         }
     }

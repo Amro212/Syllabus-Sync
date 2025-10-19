@@ -20,52 +20,74 @@ struct DashboardView: View {
 
     var body: some View {
         NavigationView {
-            ZStack(alignment: .bottomTrailing) {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        // Custom header with consistent padding
-                        VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
-                            Text("Dashboard")
-                                .font(.largeTitle)
-                                .fontWeight(.bold)
-                                .foregroundColor(AppColors.textPrimary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+            GeometryReader { geo in
+                let headerHeight = geo.safeAreaInsets.top + 4
+
+                ZStack(alignment: .top) {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            // Custom header with consistent padding
+                            VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
+                                Text("Dashboard")
+                                    .font(.largeTitle)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(AppColors.textPrimary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                
+                                if eventStore.events.isEmpty {
+                                    Text("Welcome aboard! Let's get your semester organized.")
+                                        .font(.body)
+                                        .foregroundColor(AppColors.textSecondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+                            .padding(.horizontal, Layout.Spacing.md)
+                            .padding(.top, Layout.Spacing.sm)
+                            .padding(.bottom, Layout.Spacing.sm)
                             
-                            Text("Welcome aboard! Let's get your semester organized.")
-                                .font(.body)
-                                .foregroundColor(AppColors.textSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            if showShimmer {
+                                DashboardShimmerView()
+                                    .transition(.opacity)
+                            } else if eventStore.events.isEmpty {
+                                DashboardEmptyView(showingImportView: $showingImportView)
+                                    .transition(.opacity)
+                            } else {
+                                DashboardEventList(events: eventStore.events, onEventTapped: { event in
+                                    editingEvent = event
+                                })
+                                    .transition(.opacity)
+                            }
                         }
-                        .padding(.horizontal, Layout.Spacing.md)
-                        .padding(.top, Layout.Spacing.lg)
-                        .padding(.bottom, Layout.Spacing.md)
-                        
-                        if showShimmer {
-                            DashboardShimmerView()
-                                .transition(.opacity)
-                        } else if eventStore.events.isEmpty {
-                            DashboardEmptyView(showingImportView: $showingImportView)
-                                .transition(.opacity)
-                        } else {
-                            DashboardEventList(events: eventStore.events, onEventTapped: { event in
-                                editingEvent = event
-                            })
-                                .transition(.opacity)
-                        }
+                        .padding(.top, 40)
+                    }
+                    .background(AppColors.background)
+                    .refreshable {
+                        await performRefreshAsync()
+                    }
+
+                    VStack(spacing: 0) {
+                        Rectangle()
+                            .fill(.ultraThinMaterial)
+                            .frame(height: headerHeight)
+                            .overlay(alignment: .bottom) {
+                                Color.primary.opacity(0.12)
+                                    .frame(height: 1)
+                                    .allowsHitTesting(false)
+                            }
+                            .ignoresSafeArea(edges: .top)
+                        Spacer()
                     }
                 }
                 .background(AppColors.background)
-
-                if !eventStore.events.isEmpty {
-                    fabButton
-                        .padding(.trailing, Layout.Spacing.xl)
-                        .padding(.bottom, Layout.Spacing.xl)
+                .overlay(alignment: .bottomTrailing) {
+                    if !eventStore.events.isEmpty {
+                        fabButton
+                            .padding(.trailing, Layout.Spacing.xl)
+                            .padding(.bottom, Layout.Spacing.xl)
+                    }
                 }
             }
             .navigationBarHidden(true)
-            .refreshable {
-                await performRefreshAsync()
-            }
         }
         .navigationViewStyle(StackNavigationViewStyle())
         .sheet(isPresented: $showingImportView) {
@@ -147,19 +169,28 @@ struct DashboardEmptyView: View {
     
     var body: some View {
         VStack(spacing: Layout.Spacing.xxl) {
-            Spacer()
-            
             // Illustration from dashboard-image.png
             VStack(spacing: Layout.Spacing.xl) {
-                Image("DashboardEmpty")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: 280, maxHeight: 240)
-                    .scaleEffect(showGlow ? 1.05 : 1.0)
-                    .animation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true), value: showGlow)
-                    .onAppear {
-                        showGlow = true
-                    }
+                ZStack {
+                    Image("DashboardEmpty")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: 280, maxHeight: 240)
+                        .scaleEffect(showGlow ? 1.04 : 0.95)
+                        .opacity(showGlow ? 1.0 : 0.85)
+                        .animation(
+                            Animation.easeInOut(duration: 2.8)
+                                .repeatForever(autoreverses: true),
+                            value: showGlow
+                        )
+                        .onAppear { 
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                showGlow = true 
+                            }
+                        }
+                }
+                .frame(width: 280, height: 240)
+                .clipped()
                 
                 // Concise Copy
                 VStack(spacing: Layout.Spacing.md) {
@@ -173,10 +204,9 @@ struct DashboardEmptyView: View {
             }
             .padding(.horizontal, Layout.Spacing.md)
             
-            Spacer()
-            
             // Action Section
             VStack(spacing: Layout.Spacing.lg) {
+                Spacer(minLength: 40) // Adds vertical empty space above the button (tweak value if needed)
                 // Primary CTA - Large gradient button
                 Button {
                     HapticFeedbackManager.shared.mediumImpact()
@@ -199,8 +229,8 @@ struct DashboardEmptyView: View {
                             .fontWeight(.semibold)
                     }
                     .foregroundColor(.white)
-                    .frame(maxWidth: 280) // Decreased width
-                    .frame(height: 65)     // Increased height
+                    .frame(height: 55)     // Increased height
+                    .frame(maxWidth: 320) // Decreased width
                     .background(
                         LinearGradient(
                             gradient: Gradient(colors: [

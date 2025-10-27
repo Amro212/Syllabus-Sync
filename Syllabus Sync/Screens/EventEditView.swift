@@ -8,6 +8,7 @@ struct EventEditView: View {
     let onCancel: () -> Void
 
     @State private var title: String
+    @State private var courseCode: String
     @State private var type: EventItem.EventType
     @State private var startDate: Date
     @State private var includeEndDate: Bool
@@ -18,11 +19,13 @@ struct EventEditView: View {
     @State private var lastNonNoneRecurrence: RecurrenceFrequency
     @State private var location: String
     @State private var notes: String
+    @State private var reminderMinutes: Int
 
     @FocusState private var focusedField: Field?
 
     private enum Field: Hashable {
         case title
+        case courseCode
         case location
         case notes
     }
@@ -72,6 +75,7 @@ struct EventEditView: View {
         self.onCancel = onCancel
 
         _title = State(initialValue: event.title)
+        _courseCode = State(initialValue: event.courseCode)
         _type = State(initialValue: event.type)
         _startDate = State(initialValue: event.start)
         let defaultEnd = event.end ?? event.start.addingTimeInterval(60 * 60)
@@ -85,6 +89,7 @@ struct EventEditView: View {
         _lastNonNoneRecurrence = State(initialValue: initialLast)
         _location = State(initialValue: event.location ?? "")
         _notes = State(initialValue: event.notes ?? "")
+        _reminderMinutes = State(initialValue: event.reminderMinutes ?? 1440)
     }
 
     var body: some View {
@@ -94,6 +99,7 @@ struct EventEditView: View {
                     titleSection
                     timingSection
                     recurrenceSection
+                    reminderSection
                     locationSection
                     notesSection
                 }
@@ -110,7 +116,8 @@ struct EventEditView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { saveEdit() }
-                        .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || 
+                                  courseCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
@@ -138,6 +145,24 @@ struct EventEditView: View {
                         .textInputAutocapitalization(.sentences)
                         .disableAutocorrection(true)
                         .focused($focusedField, equals: .title)
+                        .padding()
+                        .background(AppColors.surface)
+                        .cornerRadius(Layout.CornerRadius.md)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
+                                .stroke(AppColors.border, lineWidth: 1)
+                        )
+                }
+
+                VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
+                    Text("Course Code")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(AppColors.textSecondary)
+
+                    TextField("e.g., CS101", text: $courseCode)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled(true)
+                        .focused($focusedField, equals: .courseCode)
                         .padding()
                         .background(AppColors.surface)
                         .cornerRadius(Layout.CornerRadius.md)
@@ -304,6 +329,52 @@ struct EventEditView: View {
         }
     }
 
+    private var reminderSection: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
+            Text("Reminder")
+                .font(.headline)
+                .foregroundColor(AppColors.textPrimary)
+
+            Menu {
+                Picker(selection: $reminderMinutes) {
+                    Text("At time of event").tag(0)
+                    Text("5 minutes before").tag(5)
+                    Text("15 minutes before").tag(15)
+                    Text("30 minutes before").tag(30)
+                    Text("1 hour before").tag(60)
+                    Text("1 day before").tag(1440)
+                } label: {
+                    EmptyView()
+                }
+            } label: {
+                HStack(spacing: Layout.Spacing.xs) {
+                    Text(reminderLabel(for: reminderMinutes))
+                        .font(.body)
+                        .foregroundColor(AppColors.textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Image(systemName: "chevron.down")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundColor(AppColors.accent)
+                }
+                .padding(.horizontal, Layout.Spacing.md)
+                .padding(.vertical, Layout.Spacing.md)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: Layout.CornerRadius.md, style: .continuous)
+                        .fill(AppColors.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Layout.CornerRadius.md, style: .continuous)
+                        .stroke(AppColors.border, lineWidth: 1)
+                )
+            }
+            .menuIndicator(.hidden)
+            .menuStyle(.automatic)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
     private var notesSection: some View {
         VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
             Text("Notes")
@@ -343,7 +414,8 @@ struct EventEditView: View {
 
     private func saveEdit() {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTitle.isEmpty else { return }
+        let trimmedCourseCode = courseCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !trimmedTitle.isEmpty && !trimmedCourseCode.isEmpty else { return }
 
         let normalizedLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -351,7 +423,7 @@ struct EventEditView: View {
 
         let updated = EventItem(
             id: event.id,
-            courseCode: event.courseCode,
+            courseCode: trimmedCourseCode,
             type: type,
             title: trimmedTitle,
             start: startDate,
@@ -360,7 +432,7 @@ struct EventEditView: View {
             location: normalizedLocation.isEmpty ? nil : normalizedLocation,
             notes: normalizedNotes.isEmpty ? nil : normalizedNotes,
             recurrenceRule: recurrenceValue,
-            reminderMinutes: event.reminderMinutes,
+            reminderMinutes: reminderMinutes,
             confidence: event.confidence
         )
 
@@ -386,4 +458,16 @@ struct EventEditView: View {
         case .other: return "Other"
         }
     }
+
+    private func reminderLabel(for minutes: Int) -> String {
+        switch minutes {
+        case 0: return "At time of event"
+        case 5: return "5 minutes before"
+        case 15: return "15 minutes before"
+        case 30: return "30 minutes before"
+        case 60: return "1 hour before"
+        case 1440: return "1 day before"
+        default: return "\(minutes) minutes before"
+        }
     }
+}

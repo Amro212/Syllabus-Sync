@@ -24,6 +24,7 @@ enum AppRoute: Hashable, CaseIterable {
     case onboarding
     case auth
     case dashboard
+    case reminders
     case importSyllabus
     case preview
     case courseDetail(course: MockCourse)
@@ -32,7 +33,7 @@ enum AppRoute: Hashable, CaseIterable {
     
     // Static cases for easier iteration (excluding parameterized routes)
     static var allCases: [AppRoute] {
-        return [.launch, .onboarding, .auth, .dashboard, .importSyllabus, .preview, .settings]
+        return [.launch, .onboarding, .auth, .dashboard, .reminders, .importSyllabus, .preview, .settings]
     }
     
     var title: String {
@@ -41,6 +42,7 @@ enum AppRoute: Hashable, CaseIterable {
         case .onboarding: return "Welcome"
         case .auth: return "Sign In"
         case .dashboard: return "Dashboard"
+        case .reminders: return "Reminders"
         case .importSyllabus: return "Import Syllabus"
         case .preview: return "Preview"
         case .courseDetail: return "Course Details"
@@ -55,6 +57,7 @@ enum AppRoute: Hashable, CaseIterable {
         case .onboarding: return "hand.wave"
         case .auth: return "person.circle"
         case .dashboard: return "house"
+        case .reminders: return "bell"
         case .importSyllabus: return "plus.circle"
         case .preview: return "eye"
         case .courseDetail: return "book"
@@ -72,6 +75,7 @@ class AppNavigationManager: ObservableObject {
     @Published var currentRoute: AppRoute = .launch
     @Published var selectedTabRoute: AppRoute = .dashboard
     @Published var isTabBarVisible: Bool = false
+    @Published var scrollToEventId: String?
     
     /// Navigate to a specific route
     func navigate(to route: AppRoute) {
@@ -100,7 +104,7 @@ class AppNavigationManager: ObservableObject {
         navigationPath = NavigationPath()
         
         // Show tab bar for main app sections
-        isTabBarVisible = [.dashboard, .importSyllabus, .settings].contains(route)
+        isTabBarVisible = [.dashboard, .reminders, .importSyllabus, .settings].contains(route)
         
         HapticFeedbackManager.shared.mediumImpact()
     }
@@ -168,7 +172,7 @@ struct AppRoot: View {
             case .auth:
                 AuthView()
                     .transition(.dissolve)
-            case .dashboard, .importSyllabus, .settings:
+            case .dashboard, .reminders, .importSyllabus, .settings:
                 TabNavigationView()
                     .transition(.slide)
             default:
@@ -191,6 +195,8 @@ struct AppRoot: View {
             AuthView()
         case .dashboard:
             DashboardView()
+        case .reminders:
+            RemindersView()
         case .importSyllabus:
             ImportView()
         case .preview:
@@ -231,6 +237,14 @@ struct TabNavigationView: View {
                     Text("Dashboard")
                 }
                 .tag(AppRoute.dashboard)
+            
+            // Reminders tab
+            RemindersView()
+                .tabItem {
+                    Image(systemName: "bell.fill")
+                    Text("Reminders")
+                }
+                .tag(AppRoute.reminders)
             
             // Calendar tab
                 PreviewView()

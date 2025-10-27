@@ -1,0 +1,361 @@
+//
+//  RemindersView.swift
+//  Syllabus Sync
+//
+//  Created by Assistant on 2024-01-01.
+//
+
+import SwiftUI
+
+struct RemindersView: View {
+    @EnvironmentObject var navigationManager: AppNavigationManager
+    @EnvironmentObject var eventStore: EventStore
+    @EnvironmentObject var importViewModel: ImportViewModel
+    @State private var isRefreshing = false
+    @State private var showShimmer = false
+    @State private var buttonScale: CGFloat = 1.0
+    @State private var showingImportView = false
+    @State private var fabPressed = false
+    @State private var editingEvent: EventItem?
+    @State private var scrollProxy: ScrollViewProxy?
+
+    var body: some View {
+        NavigationView {
+            GeometryReader { geo in
+                let headerHeight = geo.safeAreaInsets.top + 4
+
+                ZStack(alignment: .top) {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
+                                // Custom header with consistent padding
+                                VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
+                                    Text("Reminders")
+                                        .font(.largeTitle)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(AppColors.textPrimary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    
+                                    if eventStore.events.isEmpty {
+                                        Text("Set up reminders to stay on top of your academic schedule.")
+                                            .font(.body)
+                                            .foregroundColor(AppColors.textSecondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                                .padding(.horizontal, Layout.Spacing.md)
+                                .padding(.top, Layout.Spacing.sm)
+                                .padding(.bottom, Layout.Spacing.sm)
+                                
+                                if showShimmer {
+                                    RemindersShimmerView()
+                                        .transition(.opacity)
+                                } else if eventStore.events.isEmpty {
+                                    RemindersEmptyView(showingImportView: $showingImportView)
+                                        .transition(.opacity)
+                                } else {
+                                    RemindersEventList(events: eventStore.events, onEventTapped: { event in
+                                        editingEvent = event
+                                    })
+                                        .transition(.opacity)
+                                }
+                            }
+                            .padding(.top, 40)
+                        }
+                        .background(AppColors.background)
+                        .refreshable {
+                            await performRefreshAsync()
+                        }
+                        .onAppear {
+                            scrollProxy = proxy
+                        }
+                        .onChange(of: navigationManager.scrollToEventId) { eventId in
+                            if let eventId = eventId {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    withAnimation {
+                                        proxy.scrollTo(eventId, anchor: .center)
+                                    }
+                                    navigationManager.scrollToEventId = nil
+                                }
+                            }
+                        }
+                    }
+
+                    VStack(spacing: 0) {
+                        Rectangle()
+                            .fill(.ultraThinMaterial)
+                            .frame(height: headerHeight)
+                            .overlay(alignment: .bottom) {
+                                Color.primary.opacity(0.12)
+                                    .frame(height: 1)
+                                    .allowsHitTesting(false)
+                            }
+                            .ignoresSafeArea(edges: .top)
+                        Spacer()
+                    }
+                }
+                .background(AppColors.background)
+                .overlay(alignment: .bottomTrailing) {
+                    if !eventStore.events.isEmpty {
+                        fabButton
+                            .padding(.trailing, Layout.Spacing.xl)
+                            .padding(.bottom, Layout.Spacing.xl)
+                    }
+                }
+            }
+            .navigationBarHidden(true)
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
+        .sheet(isPresented: $showingImportView) {
+            ImportView()
+                .environmentObject(navigationManager)
+        }
+        .fullScreenCover(item: $editingEvent) { event in
+            EventEditView(event: event) { updated in
+                Task { await importViewModel.applyEditedEvent(updated) }
+                editingEvent = nil
+            } onCancel: {
+                editingEvent = nil
+            }
+        }
+    }
+    
+    private func performRefreshAsync() async {
+        await MainActor.run {
+            isRefreshing = true
+            showShimmer = true
+            HapticFeedbackManager.shared.lightImpact()
+        }
+
+        await eventStore.refresh()
+
+        await MainActor.run {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                isRefreshing = false
+                showShimmer = false
+            }
+        }
+    }
+}
+
+// MARK: - Floating Action Button
+
+private extension RemindersView {
+    var fabButton: some View {
+        Button(action: handleFabTap) {
+            Image(systemName: "plus")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(.white)
+                .padding(24)
+                .background(
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color(red: 0.886, green: 0.714, blue: 0.275), // #E2B646
+                            Color(red: 0.816, green: 0.612, blue: 0.118)  // #D09C1E
+                        ]),
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .clipShape(Circle())
+                .elevatedShadowLight()
+        }
+        .scaleEffect(fabPressed ? 0.90 : 1)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: fabPressed)
+        .accessibilityLabel("Import syllabus")
+    }
+
+    func handleFabTap() {
+        HapticFeedbackManager.shared.mediumImpact()
+        fabPressed = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            fabPressed = false
+        }
+        showingImportView = true
+    }
+}
+
+// MARK: - Reminders Empty State
+
+struct RemindersEmptyView: View {
+    @EnvironmentObject var navigationManager: AppNavigationManager
+    @State private var buttonScale: CGFloat = 1.0
+    @State private var showGlow: Bool = false
+    @Binding var showingImportView: Bool
+    
+    var body: some View {
+        VStack(spacing: Layout.Spacing.xxl) {
+            // Illustration from reminders-icon.png
+            VStack(spacing: Layout.Spacing.xl) {
+                ZStack {
+                    Image("RemindersIcon")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: 280, maxHeight: 240)
+                        .scaleEffect(showGlow ? 1.04 : 0.95)
+                        .opacity(showGlow ? 1.0 : 0.85)
+                        .animation(
+                            Animation.easeInOut(duration: 2.8)
+                                .repeatForever(autoreverses: true),
+                            value: showGlow
+                        )
+                        .onAppear { 
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                showGlow = true 
+                            }
+                        }
+                }
+                .frame(width: 280, height: 240)
+                .clipped()
+                
+                // Concise Copy
+                VStack(spacing: Layout.Spacing.md) {
+                    Text("No reminders set up yet! Import a syllabus to create reminders.")
+                        .font(.body)
+                        .foregroundColor(AppColors.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
+                        .padding(.horizontal, Layout.Spacing.xl)
+                }
+            }
+            .padding(.horizontal, Layout.Spacing.md)
+            
+            // Action Section
+            VStack(spacing: Layout.Spacing.lg) {
+                Spacer(minLength: 40) // Adds vertical empty space above the button (tweak value if needed)
+                // Primary CTA - Large gradient button
+                Button {
+                    HapticFeedbackManager.shared.mediumImpact()
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                        buttonScale = 0.95
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                            buttonScale = 1.0
+                        }
+                    }
+                    showingImportView = true
+                } label: {
+                    HStack(spacing: Layout.Spacing.sm) {
+                        Image(systemName: "doc.badge.plus")
+                            .font(.system(size: 18, weight: .semibold))
+                        
+                        Text("Import Syllabus PDFs")
+                            .font(.body)
+                            .fontWeight(.semibold)
+                    }
+                    .foregroundColor(.white)
+                    .frame(height: 55)     // Increased height
+                    .frame(maxWidth: 320) // Decreased width
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color(red: 0.886, green: 0.714, blue: 0.275), // Medium gold
+                                Color(red: 0.722, green: 0.565, blue: 0.110)  // Darker gold
+                            ]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .cornerRadius(Layout.CornerRadius.lg)
+                    .shadow(color: AppColors.accent.opacity(0.3), radius: 12, x: 0, y: 6)
+                }
+                .scaleEffect(buttonScale)
+            }
+            .padding(.bottom, Layout.Spacing.xl)
+        }
+    }
+}
+
+// MARK: - Event List
+
+private struct RemindersEventList: View {
+    let events: [EventItem]
+    let onEventTapped: (EventItem) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.lg) {
+            VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
+                Text("Upcoming Reminders")
+                    .font(.titleS)
+                    .fontWeight(.semibold)
+                    .foregroundColor(AppColors.textPrimary)
+                Text("Tap to edit reminder details.")
+                    .font(.caption)
+                    .foregroundColor(AppColors.textSecondary)
+            }
+
+            VStack(alignment: .leading, spacing: Layout.Spacing.md) {
+                ForEach(events) { event in
+                    PreviewEventCard(event: event)
+                        .id(event.id)
+                        .onTapGesture { onEventTapped(event) }
+                }
+            }
+        }
+        .padding(.horizontal, Layout.Spacing.md)
+        .padding(.vertical, Layout.Spacing.xl)
+    }
+}
+
+
+// MARK: - Reminders Shimmer
+
+struct RemindersShimmerView: View {
+    @State private var animateShimmer = false
+    
+    var body: some View {
+        VStack(spacing: Layout.Spacing.xl) {
+            // Header Section
+            VStack(spacing: Layout.Spacing.lg) {
+                HStack {
+                    Text("Refreshing...")
+                        .font(.titleM)
+                        .fontWeight(.semibold)
+                        .foregroundColor(AppColors.textSecondary)
+                    
+                    Spacer()
+                    
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: AppColors.accent))
+                        .scaleEffect(0.8)
+                }
+                
+                Rectangle()
+                    .fill(AppColors.separator)
+                    .frame(height: 1)
+            }
+            .padding(.top, Layout.Spacing.lg)
+            
+            // Content Shimmer
+            VStack(spacing: Layout.Spacing.lg) {
+                ForEach(0..<3, id: \.self) { _ in
+                    ShimmerCard()
+                }
+            }
+            
+            Spacer()
+        }
+        .padding(.horizontal, Layout.Spacing.md)
+    }
+}
+
+// MARK: - Preview
+
+#Preview {
+    RemindersView()
+        .environmentObject(AppNavigationManager())
+        .environmentObject(ThemeManager())
+        .environmentObject(EventStore())
+        .environmentObject(ImportViewModel(
+            extractor: PDFKitExtractor(),
+            parser: SyllabusParserRemote(apiClient: URLSessionAPIClient(
+                configuration: URLSessionAPIClient.Configuration(
+                    baseURL: URL(string: "https://api.example.com")!,
+                    requestTimeout: 30,
+                    maxRetryCount: 1
+                )
+            )),
+            eventStore: EventStore()
+        ))
+}

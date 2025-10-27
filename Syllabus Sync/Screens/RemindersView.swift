@@ -16,7 +16,9 @@ struct RemindersView: View {
     @State private var buttonScale: CGFloat = 1.0
     @State private var showingImportView = false
     @State private var fabPressed = false
+    @State private var fabExpanded = false
     @State private var editingEvent: EventItem?
+    @State private var isCreatingNewEvent = false
     @State private var scrollProxy: ScrollViewProxy?
 
     var body: some View {
@@ -96,11 +98,9 @@ struct RemindersView: View {
                 }
                 .background(AppColors.background)
                 .overlay(alignment: .bottomTrailing) {
-                    if !eventStore.events.isEmpty {
-                        fabButton
-                            .padding(.trailing, Layout.Spacing.xl)
-                            .padding(.bottom, Layout.Spacing.xl)
-                    }
+                    fabButton
+                        .padding(.trailing, Layout.Spacing.xl)
+                        .padding(.bottom, Layout.Spacing.xl)
                 }
             }
             .navigationBarHidden(true)
@@ -112,11 +112,22 @@ struct RemindersView: View {
         }
         .fullScreenCover(item: $editingEvent) { event in
             EventEditView(event: event) { updated in
-                Task { await importViewModel.applyEditedEvent(updated) }
+                if isCreatingNewEvent {
+                    Task { 
+                        await eventStore.update(event: updated)
+                        isCreatingNewEvent = false
+                    }
+                } else {
+                    Task { await importViewModel.applyEditedEvent(updated) }
+                }
                 editingEvent = nil
             } onCancel: {
+                isCreatingNewEvent = false
                 editingEvent = nil
             }
+        }
+        .onChange(of: showingImportView) { newValue in
+            if !newValue { fabExpanded = false }
         }
     }
     
@@ -142,27 +153,82 @@ struct RemindersView: View {
 
 private extension RemindersView {
     var fabButton: some View {
-        Button(action: handleFabTap) {
-            Image(systemName: "plus")
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(.white)
-                .padding(24)
-                .background(
-                    LinearGradient(
-                        gradient: Gradient(colors: [
-                            Color(red: 0.886, green: 0.714, blue: 0.275), // #E2B646
-                            Color(red: 0.816, green: 0.612, blue: 0.118)  // #D09C1E
-                        ]),
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .clipShape(Circle())
-                .elevatedShadowLight()
+        ZStack(alignment: .bottomTrailing) {
+            // Backdrop dimming
+            if fabExpanded {
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            fabExpanded = false
+                        }
+                    }
+                    .transition(.opacity)
+            }
+            
+            VStack(alignment: .trailing, spacing: Layout.Spacing.md) {
+                // Expanded options
+                if fabExpanded {
+                    VStack(spacing: Layout.Spacing.sm) {
+                        // Add Reminder option
+                        FABOption(
+                            icon: "plus.circle.fill",
+                            label: "Add Reminder",
+                            color: Color.blue,
+                            action: {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    fabExpanded = false
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    createNewEvent()
+                                }
+                            }
+                        )
+                        
+                        // Upload Syllabus option
+                        FABOption(
+                            icon: "doc.badge.plus",
+                            label: "Upload Syllabus",
+                            color: AppColors.accent,
+                            action: {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    fabExpanded = false
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    showingImportView = true
+                                }
+                            }
+                        )
+                    }
+                    .transition(.scale.combined(with: .opacity))
+                }
+                
+                // Main FAB button
+                Button(action: handleFabTap) {
+                    Image(systemName: fabExpanded ? "xmark" : "plus")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(24)
+                        .background(
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    Color(red: 0.886, green: 0.714, blue: 0.275), // #E2B646
+                                    Color(red: 0.816, green: 0.612, blue: 0.118)  // #D09C1E
+                                ]),
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .clipShape(Circle())
+                        .elevatedShadowLight()
+                        .rotationEffect(.degrees(fabExpanded ? 135 : 0))
+                }
+                .scaleEffect(fabPressed ? 0.90 : 1)
+                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: fabPressed)
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: fabExpanded)
+                .accessibilityLabel(fabExpanded ? "Close menu" : "Open quick actions")
+            }
         }
-        .scaleEffect(fabPressed ? 0.90 : 1)
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: fabPressed)
-        .accessibilityLabel("Import syllabus")
     }
 
     func handleFabTap() {
@@ -171,7 +237,76 @@ private extension RemindersView {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             fabPressed = false
         }
-        showingImportView = true
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            fabExpanded.toggle()
+        }
+    }
+
+    func createNewEvent() {
+        let now = Date()
+        let newEvent = EventItem(
+            id: UUID().uuidString,
+            courseCode: "", // Empty courseCode to avoid deletion conflicts
+            type: .assignment,
+            title: "",
+            start: now,
+            end: nil,
+            allDay: false,
+            location: nil,
+            notes: nil,
+            recurrenceRule: nil,
+            reminderMinutes: 1440,
+            confidence: 1.0
+        )
+        isCreatingNewEvent = true
+        editingEvent = newEvent
+    }
+}
+
+// MARK: - FAB Option
+
+private struct FABOption: View {
+    let icon: String
+    let label: String
+    let color: Color
+    let action: () -> Void
+    
+    @State private var isPressed = false
+    
+    var body: some View {
+        Button(action: {
+            isPressed = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isPressed = false
+            }
+            action()
+        }) {
+            HStack(spacing: Layout.Spacing.sm) {
+                Text(label)
+                    .font(.body)
+                    .fontWeight(.semibold)
+                    .foregroundColor(AppColors.textPrimary)
+                
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 50, height: 50)
+                    .background(
+                        Circle()
+                            .fill(color)
+                            .shadow(color: color.opacity(0.3), radius: 8, x: 0, y: 4)
+                    )
+            }
+            .padding(.horizontal, Layout.Spacing.md)
+            .padding(.vertical, Layout.Spacing.sm)
+            .background(
+                Capsule()
+                    .fill(AppColors.surface)
+                    .shadow(color: AppColors.shadow.opacity(0.15), radius: 8, x: 0, y: 4)
+            )
+        }
+        .scaleEffect(isPressed ? 0.95 : 1.0)
+        .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isPressed)
     }
 }
 

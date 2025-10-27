@@ -58,7 +58,13 @@ struct DashboardView: View {
                                 VStack(spacing: Layout.Spacing.xl) {
                                     DashboardHeaderSummaryView(events: eventStore.events)
                                     DashboardWeekCarouselView(events: eventStore.events, onDayTapped: { date in
-                                        // Navigate to reminders tab filtered by date
+                                        // Find the first event on this date and scroll to it
+                                        let calendar = Calendar.current
+                                        if let firstEvent = eventStore.events.first(where: { event in
+                                            calendar.isDate(event.start, inSameDayAs: date)
+                                        }) {
+                                            navigationManager.scrollToEventId = firstEvent.id
+                                        }
                                         navigationManager.selectedTabRoute = .reminders
                                     })
                                     DashboardHighlightsView(events: eventStore.events, onEventTapped: { event in
@@ -112,7 +118,7 @@ struct DashboardView: View {
             EventEditView(event: event) { updated in
                 if isCreatingNewEvent {
                     Task { 
-                        await eventStore.autoApprove(events: [updated])
+                        await eventStore.update(event: updated)
                         isCreatingNewEvent = false
                     }
                 } else {
@@ -246,7 +252,7 @@ private extension DashboardView {
         let now = Date()
         let newEvent = EventItem(
             id: UUID().uuidString,
-            courseCode: "NEW",
+            courseCode: "", // Empty courseCode to avoid deletion conflicts
             type: .assignment,
             title: "",
             start: now,
@@ -830,12 +836,15 @@ private struct HighlightCard: View {
 private struct DashboardInsightsView: View {
     let events: [EventItem]
     
-    private var completionPercentage: Int {
-        // Placeholder logic: events in the past are "completed"
+    private var thisWeekEvents: [EventItem] {
+        let calendar = Calendar.current
         let now = Date()
-        let pastEvents = events.filter { $0.start < now }.count
-        let totalEvents = max(events.count, 1)
-        return Int((Double(pastEvents) / Double(totalEvents)) * 100)
+        let startOfWeek = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? now
+        let endOfWeek = calendar.date(byAdding: .day, value: 7, to: startOfWeek) ?? now
+        
+        return events.filter { event in
+            event.start >= startOfWeek && event.start < endOfWeek
+        }
     }
     
     private var todayEvents: [EventItem] {
@@ -850,12 +859,13 @@ private struct DashboardInsightsView: View {
                 .foregroundColor(AppColors.textPrimary)
             
             VStack(spacing: Layout.Spacing.sm) {
-                // Completion insight
-                if !events.isEmpty {
+                // Week overview insight - only show if there are events this week
+                if !thisWeekEvents.isEmpty {
+                    let count = thisWeekEvents.count
                     InsightCard(
-                        icon: "chart.bar.fill",
-                        text: "You've completed \(completionPercentage)% of your tasks this week!",
-                        accentColor: Color.green
+                        icon: "calendar.badge.clock",
+                        text: "You have \(count) event\(count == 1 ? "" : "s") scheduled this week",
+                        accentColor: Color.purple
                     )
                 }
                 

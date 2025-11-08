@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Supabase
 
 @main
 struct Syllabus_SyncApp: App {
@@ -33,6 +34,10 @@ struct Syllabus_SyncApp: App {
         WindowGroup {
             AppRoot()
                 .environment(\.managedObjectContext, coreDataStack.container.viewContext)
+                .onOpenURL { url in
+                    // Handle OAuth callback from Supabase
+                    SupabaseAuthService.shared.supabase.auth.handle(url)
+                }
         }
     }
 }

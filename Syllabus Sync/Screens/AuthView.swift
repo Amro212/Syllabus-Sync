@@ -11,6 +11,10 @@ struct AuthView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
     @State private var isLoading = false
     @State private var contentAppeared = false
+    @State private var errorMessage: String?
+    @State private var showError = false
+    
+    private let authService = SupabaseAuthService.shared
     
     var body: some View {
         GeometryReader { proxy in
@@ -92,6 +96,11 @@ struct AuthView: View {
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .navigationBarHidden(true)
+        .alert("Authentication Error", isPresented: $showError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage ?? "An unknown error occurred")
+        }
         .onAppear {
             withAnimation(.spring(response: 0.8, dampingFraction: 0.85)) {
                 contentAppeared = true
@@ -117,12 +126,39 @@ struct AuthView: View {
     
     private func handleEmailTap() {
         HapticFeedbackManager.shared.lightImpact()
-        // TODO: Hook up email authentication flow
+        // TODO: Navigate to email/password form
+        // For now, navigate to onboarding
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) {
+            navigationManager.setRoot(to: .onboarding)
+        }
     }
     
     private func handleGoogleTap() {
+        guard !isLoading else { return }
+        
+        isLoading = true
         HapticFeedbackManager.shared.lightImpact()
-        // TODO: Hook up Google authentication flow
+        
+        Task {
+            let result = await authService.signInWithGoogle()
+            
+            await MainActor.run {
+                isLoading = false
+                
+                switch result {
+                case .success:
+                    HapticFeedbackManager.shared.success()
+                    withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) {
+                        navigationManager.setRoot(to: .dashboard)
+                    }
+                    
+                case .failure(let error):
+                    HapticFeedbackManager.shared.error()
+                    errorMessage = error.localizedDescription
+                    showError = true
+                }
+            }
+        }
     }
 }
 

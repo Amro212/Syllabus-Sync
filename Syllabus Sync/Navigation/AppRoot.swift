@@ -5,7 +5,6 @@
 //  Created by Amro Zabin on 2025-09-06.
 //
 
-import CoreData
 import Foundation
 import SwiftUI
 
@@ -157,6 +156,12 @@ struct AppRoot: View {
         .environmentObject(eventStore)
         .environmentObject(importViewModel)
         .modifier(ThemeEnvironment(themeManager: themeManager))
+        .task {
+            // Load user data when app launches and user is authenticated
+            if SupabaseAuthService.shared.isAuthenticated {
+                await eventStore.fetchEvents()
+            }
+        }
     }
     
     @ViewBuilder
@@ -584,6 +589,7 @@ struct SettingsView: View {
     
     @State private var showingResetAlert = false
     @State private var showingDeleteCloudDataAlert = false
+    @State private var showingSignOutAlert = false
     @State private var notificationsEnabled = true
     @State private var hapticEnabled = true
     
@@ -683,6 +689,20 @@ struct SettingsView: View {
                         }
                     }
                     
+                    // Account Section
+                    SettingsSection(title: "Account", icon: "person.circle") {
+                        VStack(spacing: Layout.Spacing.lg) {
+                            SettingsActionRow(
+                                title: "Sign Out",
+                                subtitle: "Sign out of your account",
+                                icon: "arrow.right.square",
+                                isDestructive: true
+                            ) {
+                                showingSignOutAlert = true
+                            }
+                        }
+                    }
+                    
                     // About Section
                     SettingsSection(title: "About", icon: "info.circle") {
                         VStack(spacing: Layout.Spacing.lg) {
@@ -736,7 +756,17 @@ struct SettingsView: View {
                 deleteCloudData()
             }
         } message: {
-            Text("This will permanently delete all your courses, events, and preferences from Core Data and iCloud. This action cannot be undone.")
+            Text("This will permanently delete all your courses, events, and preferences from Supabase. This action cannot be undone.")
+        }
+        .alert("Sign Out", isPresented: $showingSignOutAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Sign Out", role: .destructive) {
+                Task {
+                    await signOut()
+                }
+            }
+        } message: {
+            Text("Are you sure you want to sign out? Your data will remain saved in the cloud.")
         }
     }
     
@@ -773,53 +803,11 @@ struct SettingsView: View {
     private func deleteCloudData() {
         HapticFeedbackManager.shared.warning()
         Task {
-            // Delete all Core Data objects (which will also mirror to CloudKit if enabled)
-            let context = CoreDataStack.shared.container.viewContext
-            let backgroundContext = CoreDataStack.shared.container.newBackgroundContext()
+            // Delete all data from Supabase
+            let result = await SupabaseDataService.shared.deleteAllData()
             
-            do {
-                try await backgroundContext.perform {
-                    // Delete all EventEntity records
-                    let eventFetch = NSFetchRequest<NSFetchRequestResult>(entityName: "EventEntity")
-                    let eventDeleteRequest = NSBatchDeleteRequest(fetchRequest: eventFetch)
-                    eventDeleteRequest.resultType = .resultTypeObjectIDs
-                    if let result = try backgroundContext.execute(eventDeleteRequest) as? NSBatchDeleteResult,
-                       let deletedObjectIDs = result.result as? [NSManagedObjectID] {
-                        NSManagedObjectContext.mergeChanges(
-                            fromRemoteContextSave: [NSDeletedObjectsKey: deletedObjectIDs],
-                            into: [context]
-                        )
-                    }
-                    
-                    // Delete all CourseEntity records
-                    let courseFetch = NSFetchRequest<NSFetchRequestResult>(entityName: "CourseEntity")
-                    let courseDeleteRequest = NSBatchDeleteRequest(fetchRequest: courseFetch)
-                    courseDeleteRequest.resultType = .resultTypeObjectIDs
-                    if let result = try backgroundContext.execute(courseDeleteRequest) as? NSBatchDeleteResult,
-                       let deletedObjectIDs = result.result as? [NSManagedObjectID] {
-                        NSManagedObjectContext.mergeChanges(
-                            fromRemoteContextSave: [NSDeletedObjectsKey: deletedObjectIDs],
-                            into: [context]
-                        )
-                    }
-                    
-                    // Delete all UserPrefsEntity records
-                    let prefsFetch = NSFetchRequest<NSFetchRequestResult>(entityName: "UserPrefsEntity")
-                    let prefsDeleteRequest = NSBatchDeleteRequest(fetchRequest: prefsFetch)
-                    prefsDeleteRequest.resultType = .resultTypeObjectIDs
-                    if let result = try backgroundContext.execute(prefsDeleteRequest) as? NSBatchDeleteResult,
-                       let deletedObjectIDs = result.result as? [NSManagedObjectID] {
-                        NSManagedObjectContext.mergeChanges(
-                            fromRemoteContextSave: [NSDeletedObjectsKey: deletedObjectIDs],
-                            into: [context]
-                        )
-                    }
-                    
-                    if backgroundContext.hasChanges {
-                        try backgroundContext.save()
-                    }
-                }
-                
+            switch result {
+            case .success:
                 // Refresh the event store
                 await eventStore.refresh()
                 
@@ -828,13 +816,28 @@ struct SettingsView: View {
                     HapticFeedbackManager.shared.success()
                 }
                 
-                print("✅ All Core Data (and CloudKit) data deleted successfully")
-            } catch {
+                print("✅ All Supabase data deleted successfully")
+            case .failure(let error):
                 print("⚠️ Failed to delete cloud data: \(error)")
                 await MainActor.run {
                     HapticFeedbackManager.shared.error()
                 }
             }
+        }
+    }
+    
+    private func signOut() async {
+        // Clear local event store
+        await MainActor.run {
+            eventStore.clearEvents()
+        }
+        
+        // Sign out from Supabase
+        try? await SupabaseAuthService.shared.signOut()
+        
+        // Navigate to auth screen
+        await MainActor.run {
+            navigationManager.setRoot(to: .auth)
         }
     }
 }

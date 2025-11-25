@@ -17,7 +17,7 @@ class SupabaseAuthService: NSObject, AuthService {
     
     let supabase: SupabaseClient
     
-    private(set) var currentUser: AuthUser?
+    var currentUser: AuthUser?
     
     var isAuthenticated: Bool {
         return currentUser != nil

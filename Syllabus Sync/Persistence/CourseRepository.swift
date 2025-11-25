@@ -1,58 +1,49 @@
-import CoreData
 import Foundation
 
-/// Repository for managing Course entities in Core Data
+/// Repository for managing Course entities with Supabase
 @MainActor
 final class CourseRepository: ObservableObject {
     @Published private(set) var courses: [Course] = []
     
-    private let stack: CoreDataStack
-    private let viewContext: NSManagedObjectContext
+    private let dataService = SupabaseDataService.shared
     
-    init(stack: CoreDataStack = .shared) {
-        self.stack = stack
-        self.viewContext = stack.container.viewContext
-        Task { await refresh() }
+    init() {
+        // Courses will be loaded when needed
     }
     
     // MARK: - Fetch
     
     func refresh() async {
-        let request: NSFetchRequest<CourseEntity> = CourseEntity.fetchRequest()
-        request.sortDescriptors = [NSSortDescriptor(key: #keyPath(CourseEntity.code), ascending: true)]
-        
-        do {
-            let fetched = try viewContext.fetch(request)
-            courses = fetched.map { $0.toDomain() }
-        } catch {
-            print("[CourseRepository] Fetch failed: \(error)")
+        _ = await fetchCourses()
+    }
+    
+    func fetchCourses() async -> [Course] {
+        let result = await dataService.fetchCourses()
+        switch result {
+        case .success(let fetchedCourses):
+            await MainActor.run {
+                self.courses = fetchedCourses
+            }
+            return fetchedCourses
+        case .failure(let error):
+            print("Failed to fetch courses: \(error)")
+            return []
         }
     }
     
     func fetchCourse(byId id: String) async -> Course? {
-        let request: NSFetchRequest<CourseEntity> = CourseEntity.fetchRequest()
-        request.predicate = NSPredicate(format: "id == %@", id)
-        request.fetchLimit = 1
-        
-        do {
-            let fetched = try viewContext.fetch(request)
-            return fetched.first?.toDomain()
-        } catch {
-            print("[CourseRepository] Fetch by ID failed: \(error)")
-            return nil
-        }
+        // SupabaseDataService doesn't have fetchCourse(byId), so we'll fetch all and filter
+        let allCourses = await fetchCourses()
+        return allCourses.first { $0.id == id }
     }
     
     func fetchCourse(byCode code: String) async -> Course? {
-        let request: NSFetchRequest<CourseEntity> = CourseEntity.fetchRequest()
-        request.predicate = NSPredicate(format: "code == %@", code)
-        request.fetchLimit = 1
-        
-        do {
-            let fetched = try viewContext.fetch(request)
-            return fetched.first?.toDomain()
-        } catch {
-            print("[CourseRepository] Fetch by code failed: \(error)")
+        let result = await dataService.fetchCourse(byCode: code)
+        switch result {
+        case .success(let course):
+            return course
+        case .failure(let error):
+            print("Failed to fetch course by code: \(error)")
             return nil
         }
     }
@@ -60,120 +51,60 @@ final class CourseRepository: ObservableObject {
     // MARK: - Create/Update
     
     func save(course: Course) async {
-        let container = stack.container
-        let background = container.newBackgroundContext()
-        background.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-        
-        do {
-            try await background.perform {
-                let fetch: NSFetchRequest<CourseEntity> = CourseEntity.fetchRequest()
-                fetch.predicate = NSPredicate(format: "id == %@", course.id)
-                fetch.fetchLimit = 1
-                
-                let entity: CourseEntity
-                if let existing = try background.fetch(fetch).first {
-                    entity = existing
-                } else {
-                    entity = CourseEntity(context: background)
-                }
-                
-                entity.apply(from: course)
-                
-                if background.hasChanges {
-                    try background.save()
-                }
-            }
-            
+        _ = await saveCourse(course)
+    }
+    
+    func saveCourse(_ course: Course) async -> Course? {
+        let result = await dataService.saveCourse(course)
+        switch result {
+        case .success(let savedCourse):
             await refresh()
-        } catch {
-            print("[CourseRepository] Save failed: \(error)")
+            return savedCourse
+        case .failure(let error):
+            print("Failed to save course: \(error)")
+            return nil
         }
     }
     
     func saveBatch(courses: [Course]) async {
-        let container = stack.container
-        let background = container.newBackgroundContext()
-        background.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-        
-        do {
-            try await background.perform {
-                for course in courses {
-                    let fetch: NSFetchRequest<CourseEntity> = CourseEntity.fetchRequest()
-                    fetch.predicate = NSPredicate(format: "id == %@", course.id)
-                    fetch.fetchLimit = 1
-                    
-                    let entity: CourseEntity
-                    if let existing = try background.fetch(fetch).first {
-                        entity = existing
-                    } else {
-                        entity = CourseEntity(context: background)
-                    }
-                    
-                    entity.apply(from: course)
-                }
-                
-                if background.hasChanges {
-                    try background.save()
-                }
-            }
-            
+        _ = await saveCourses(courses)
+    }
+    
+    func saveCourses(_ courses: [Course]) async -> [Course] {
+        let result = await dataService.saveCourses(courses)
+        switch result {
+        case .success(let savedCourses):
             await refresh()
-        } catch {
-            print("[CourseRepository] Batch save failed: \(error)")
+            return savedCourses
+        case .failure(let error):
+            print("Failed to save courses: \(error)")
+            return []
         }
     }
     
     // MARK: - Delete
     
     func delete(courseId: String) async {
-        let container = stack.container
-        let background = container.newBackgroundContext()
-        background.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-        
-        do {
-            try await background.perform {
-                let fetch: NSFetchRequest<CourseEntity> = CourseEntity.fetchRequest()
-                fetch.predicate = NSPredicate(format: "id == %@", courseId)
-                
-                let entities = try background.fetch(fetch)
-                for entity in entities {
-                    background.delete(entity)
-                }
-                
-                if background.hasChanges {
-                    try background.save()
-                }
-            }
-            
+        _ = await deleteCourse(id: courseId)
+    }
+    
+    func deleteCourse(id: String) async -> Bool {
+        let result = await dataService.deleteCourse(id: id)
+        switch result {
+        case .success:
             await refresh()
-        } catch {
-            print("[CourseRepository] Delete failed: \(error)")
+            return true
+        case .failure(let error):
+            print("Failed to delete course: \(error)")
+            return false
         }
     }
     
     func deleteAll() async {
-        let container = stack.container
-        let background = container.newBackgroundContext()
-        background.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-        
-        do {
-            try await background.perform {
-                let fetch = NSFetchRequest<NSFetchRequestResult>(entityName: "CourseEntity")
-                let deleteRequest = NSBatchDeleteRequest(fetchRequest: fetch)
-                deleteRequest.resultType = .resultTypeObjectIDs
-                
-                if let result = try background.execute(deleteRequest) as? NSBatchDeleteResult,
-                   let deletedObjectIDs = result.result as? [NSManagedObjectID] {
-                    NSManagedObjectContext.mergeChanges(
-                        fromRemoteContextSave: [NSDeletedObjectsKey: deletedObjectIDs],
-                        into: [container.viewContext]
-                    )
-                }
-            }
-            
-            await refresh()
-        } catch {
-            print("[CourseRepository] Delete all failed: \(error)")
+        // Delete all courses one by one
+        let coursesToDelete = courses
+        for course in coursesToDelete {
+            await delete(courseId: course.id)
         }
     }
 }

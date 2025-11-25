@@ -1,4 +1,3 @@
-import CoreData
 import Foundation
 
 @MainActor
@@ -6,200 +5,135 @@ final class EventStore: ObservableObject {
     @Published private(set) var events: [EventItem] = []
     @Published private(set) var debugMessage: String?
 
-    private let stack: CoreDataStack
-    private let viewContext: NSManagedObjectContext
-    private let usesInMemoryStore: Bool
+    private let dataService = SupabaseDataService.shared
 
-    init(stack: CoreDataStack = .shared) {
-        self.stack = stack
-        self.viewContext = stack.container.viewContext
-        self.usesInMemoryStore = stack.storeType == .inMemory
-        if usesInMemoryStore {
-            events = []
-        } else {
-            Task { await refresh() }
-        }
+    init() {
+        // Events will be loaded when authenticated
     }
 
     func refresh() async {
-        if usesInMemoryStore {
-            events = EventStore.sorted(events)
-            return
-        }
-
-        let request: NSFetchRequest<EventEntity> = EventEntity.fetchRequest()
-        request.sortDescriptors = [NSSortDescriptor(key: #keyPath(EventEntity.start), ascending: true)]
-
-        do {
-            let fetched = try viewContext.fetch(request)
-            events = fetched.compactMap { $0.toDomain() }
-        } catch {
-            print("[EventStore] Fetch failed: \(error)")
+        await fetchEvents()
+    }
+    
+    func fetchEvents() async {
+        let result = await dataService.fetchEvents()
+        switch result {
+        case .success(let fetchedEvents):
+            await MainActor.run {
+                self.events = EventStore.sorted(fetchedEvents)
+            }
+        case .failure(let error):
+            print("Failed to fetch events: \(error)")
         }
     }
 
     func autoApprove(events newEvents: [EventItem]) async {
         guard !newEvents.isEmpty else { return }
-        if usesInMemoryStore {
-            var snapshot = events
-            let courseCodes = Set(newEvents.map { $0.courseCode })
-            let ids = Set(newEvents.map { $0.id })
-
-            snapshot.removeAll { event in
-                courseCodes.contains(event.courseCode) && !ids.contains(event.id)
-            }
-
-            for event in newEvents {
-                if let index = snapshot.firstIndex(where: { $0.id == event.id }) {
-                    snapshot[index] = event
-                } else {
-                    snapshot.append(event)
-                }
-            }
-
-            events = EventStore.sorted(snapshot)
-            debugMessage = EventStore.makeDebugMessage(importedCount: newEvents.count, timestamp: Date())
-            return
-        }
-        let now = Date()
-        let container = stack.container
-        let background = container.newBackgroundContext()
-        background.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-
-        let eventIds = newEvents.map { $0.id }
+        
+        // Delete existing events for the same course codes
         let courseCodes = Set(newEvents.map { $0.courseCode })
-
-        do {
-            try await background.perform {
-                if !courseCodes.isEmpty {
-                    let deleteFetch = NSFetchRequest<NSFetchRequestResult>(entityName: "EventEntity")
-                    deleteFetch.predicate = NSPredicate(
-                        format: "courseCode IN %@ AND NOT (id IN %@)",
-                        Array(courseCodes),
-                        eventIds
-                    )
-                    let deleteRequest = NSBatchDeleteRequest(fetchRequest: deleteFetch)
-                    deleteRequest.resultType = .resultTypeObjectIDs
-                    if let result = try background.execute(deleteRequest) as? NSBatchDeleteResult,
-                       let deletedObjectIDs = result.result as? [NSManagedObjectID] {
-                        NSManagedObjectContext.mergeChanges(fromRemoteContextSave: [NSDeletedObjectsKey: deletedObjectIDs], into: [container.viewContext])
-                    }
-                }
-
-                for item in newEvents {
-                    let fetch: NSFetchRequest<EventEntity> = EventEntity.fetchRequest()
-                    fetch.predicate = NSPredicate(format: "id == %@", item.id)
-                    fetch.fetchLimit = 1
-                    let entity: EventEntity
-                    if let existing = try background.fetch(fetch).first {
-                        entity = existing
-                    } else {
-                        entity = EventEntity(context: background)
-                        entity.createdAt = Date(timeIntervalSinceReferenceDate: 0)
-                    }
-                    entity.apply(from: item, approvedAt: now)
-                    entity.courseId = item.courseCode
-                }
-
-                if background.hasChanges {
-                    try background.save()
+        for courseCode in courseCodes {
+            let existingEvents = events.filter { $0.courseCode == courseCode }
+            let newEventIds = Set(newEvents.filter { $0.courseCode == courseCode }.map { $0.id })
+            
+            // Delete events that are not in the new set
+            for event in existingEvents {
+                if !newEventIds.contains(event.id) {
+                    await deleteEvent(event)
                 }
             }
-
-            await refresh()
-            debugMessage = EventStore.makeDebugMessage(importedCount: newEvents.count, timestamp: now)
-        } catch {
-            print("[EventStore] autoApprove failed: \(error)")
+        }
+        
+        // Save new events
+        await addEvents(newEvents)
+        
+        let now = Date()
+        debugMessage = EventStore.makeDebugMessage(importedCount: newEvents.count, timestamp: now)
+    }
+    
+    func addEvent(_ event: EventItem) async {
+        let result = await dataService.saveEvent(event)
+        switch result {
+        case .success(let savedEvent):
+            await MainActor.run {
+                self.events.append(savedEvent)
+                self.events = EventStore.sorted(self.events)
+            }
+        case .failure(let error):
+            print("Failed to save event: \(error)")
+        }
+    }
+    
+    func addEvents(_ newEvents: [EventItem]) async {
+        let result = await dataService.saveEvents(newEvents)
+        switch result {
+        case .success(let savedEvents):
+            await MainActor.run {
+                // Remove duplicates and merge
+                var updatedEvents = self.events
+                for savedEvent in savedEvents {
+                    if let index = updatedEvents.firstIndex(where: { $0.id == savedEvent.id }) {
+                        updatedEvents[index] = savedEvent
+                    } else {
+                        updatedEvents.append(savedEvent)
+                    }
+                }
+                self.events = EventStore.sorted(updatedEvents)
+            }
+        case .failure(let error):
+            print("Failed to save events: \(error)")
         }
     }
 
     func deleteAllEvents() async {
-        if usesInMemoryStore {
-            events.removeAll()
-            debugMessage = nil
-            return
-        }
-        let container = stack.container
-        let background = container.newBackgroundContext()
-        background.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-
-        do {
-            try await background.perform {
-                let fetch = NSFetchRequest<NSFetchRequestResult>(entityName: "EventEntity")
-                let deleteRequest = NSBatchDeleteRequest(fetchRequest: fetch)
-                deleteRequest.resultType = .resultTypeObjectIDs
-                if let result = try background.execute(deleteRequest) as? NSBatchDeleteResult,
-                   let deletedObjectIDs = result.result as? [NSManagedObjectID] {
-                    NSManagedObjectContext.mergeChanges(fromRemoteContextSave: [NSDeletedObjectsKey: deletedObjectIDs], into: [container.viewContext])
-                }
+        let result = await dataService.deleteAllData()
+        switch result {
+        case .success:
+            await MainActor.run {
+                self.events = []
+                self.debugMessage = nil
             }
-
-            await refresh()
-        } catch {
-            print("[EventStore] deleteAllEvents failed: \(error)")
+        case .failure(let error):
+            print("Failed to delete all events: \(error)")
+        }
+    }
+    
+    func deleteEvent(_ event: EventItem) async {
+        let result = await dataService.deleteEvent(id: event.id)
+        switch result {
+        case .success:
+            await MainActor.run {
+                self.events.removeAll { $0.id == event.id }
+            }
+        case .failure(let error):
+            print("Failed to delete event: \(error)")
         }
     }
 
     func update(event: EventItem) async {
-        if usesInMemoryStore {
-            var snapshot = events
-            if let index = snapshot.firstIndex(where: { $0.id == event.id }) {
-                snapshot[index] = event
-            } else {
-                snapshot.append(event)
-            }
-            events = EventStore.sorted(snapshot)
-            return
-        }
-        let container = stack.container
-        let background = container.newBackgroundContext()
-        background.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-
-        do {
-            try await background.perform {
-                let fetch: NSFetchRequest<EventEntity> = EventEntity.fetchRequest()
-                fetch.predicate = NSPredicate(format: "id == %@", event.id)
-                fetch.fetchLimit = 1
-
-                let entity: EventEntity
-                if let existing = try background.fetch(fetch).first {
-                    entity = existing
+        await updateEvent(event)
+    }
+    
+    func updateEvent(_ event: EventItem) async {
+        let result = await dataService.saveEvent(event)
+        switch result {
+        case .success(let updatedEvent):
+            await MainActor.run {
+                if let index = events.firstIndex(where: { $0.id == event.id }) {
+                    events[index] = updatedEvent
                 } else {
-                    entity = EventEntity(context: background)
-                    entity.createdAt = Date()
-                    entity.approvedAt = Date()
+                    events.append(updatedEvent)
                 }
-
-                entity.id = event.id
-                entity.courseCode = event.courseCode
-                entity.typeRaw = event.type.rawValue
-                entity.title = event.title
-                entity.start = event.start
-                entity.end = event.end
-                if let allDay = event.allDay {
-                    entity.allDay = NSNumber(value: allDay)
-                } else {
-                    entity.allDay = nil
-                }
-                entity.location = event.location
-                entity.notes = event.notes
-                entity.recurrenceRule = event.recurrenceRule
-                entity.reminderMinutes = event.reminderMinutes.map { NSNumber(value: $0) }
-                entity.confidence = event.confidence.map { NSNumber(value: $0) }
-                if entity.approvedAt == nil {
-                    entity.approvedAt = Date()
-                }
-                entity.courseId = entity.courseId ?? event.courseCode
-
-                if background.hasChanges {
-                    try background.save()
-                }
+                self.events = EventStore.sorted(self.events)
             }
-
-            await refresh()
-        } catch {
-            print("[EventStore] update failed: \(error)")
+        case .failure(let error):
+            print("Failed to update event: \(error)")
         }
+    }
+    
+    func clearEvents() {
+        events = []
+        debugMessage = nil
     }
 }
 

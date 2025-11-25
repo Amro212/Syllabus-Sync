@@ -11,6 +11,7 @@ struct DashboardView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
     @EnvironmentObject var eventStore: EventStore
     @EnvironmentObject var importViewModel: ImportViewModel
+    @StateObject private var errorHandler = ErrorHandler()
     @State private var isRefreshing = false
     @State private var showShimmer = false
     @State private var buttonScale: CGFloat = 1.0
@@ -110,6 +111,15 @@ struct DashboardView: View {
             .navigationBarHidden(true)
         }
         .navigationViewStyle(StackNavigationViewStyle())
+        .task {
+            // Load events from Supabase when dashboard appears
+            await eventStore.fetchEvents()
+        }
+        .alert("Error", isPresented: $errorHandler.showError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorHandler.errorMessage)
+        }
         .sheet(isPresented: $showingImportView) {
             ImportView()
                 .environmentObject(navigationManager)

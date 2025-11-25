@@ -665,7 +665,7 @@ extension DateFormatter {
 #if DEBUG
 struct CalendarView_Previews: PreviewProvider {
     static var previews: some View {
-        let previewStore = EventStore(stack: CoreDataStack(configuration: .inMemory))
+        let previewStore = EventStore()
         _ = Task { await previewStore.autoApprove(events: CalendarEvent.previewItems) }
 
         return CalendarView()

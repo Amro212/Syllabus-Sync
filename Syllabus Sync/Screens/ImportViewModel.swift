@@ -26,7 +26,7 @@ final class ImportViewModel: ObservableObject {
     private let extractor: PDFTextExtractor
     private let parser: SyllabusParser
     private let eventStore: EventStore
-    private lazy var courseRepository = CourseRepository(stack: CoreDataStack.shared)
+    private let courseRepository = CourseRepository()
     private var progressTask: Task<Void, Never>?
     private var lastImportedURL: URL?
     private var currentRequestID: String?
@@ -98,15 +98,18 @@ final class ImportViewModel: ObservableObject {
             // Stage 5: Final merge & persist (95-100%)
             self.events = events
             
-            // Save events to Core Data
+            // Save events to Supabase
             await eventStore.autoApprove(events: events)
             
             // Extract and save courses from events
-            let uniqueCourses = extractCoursesFromEvents(events)
-            await courseRepository.saveBatch(courses: uniqueCourses)
-            
-            // Update UserPrefs with import hash
-            await updateUserPrefsForImport(events: events)
+            let uniqueCourseCodes = Set(events.map { $0.courseCode })
+            for courseCode in uniqueCourseCodes {
+                // Check if course already exists
+                if await courseRepository.fetchCourse(byCode: courseCode) == nil {
+                    let course = Course(id: UUID().uuidString, code: courseCode)
+                    _ = await courseRepository.saveCourse(course)
+                }
+            }
             
             preprocessedParserInputText = parser.latestPreprocessedText
             diagnosticsString = buildDiagnosticsString(from: parser.latestDiagnostics)
@@ -375,45 +378,7 @@ final class ImportViewModel: ObservableObject {
         }
     }
     
-    /// Update UserPrefs with import hash for the imported courses
-    private func updateUserPrefsForImport(events: [EventItem]) async {
-        guard !events.isEmpty else { return }
-        
-        let context = CoreDataStack.shared.container.viewContext
-        let prefs = UserPrefsEntity.fetchOrCreate(in: context)
-        
-        // Create a hash of the imported events for change detection
-        let courseCodes = Set(events.map { $0.courseCode })
-        let eventIdsHash = events.map { $0.id }.sorted().joined(separator: ",")
-        let hash = String(eventIdsHash.hashValue)
-        
-        // Update the lastImportHashByCourse JSON
-        var hashDict: [String: String] = [:]
-        if let existingJSON = prefs.lastImportHashByCourse,
-           let data = existingJSON.data(using: .utf8),
-           let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
-            hashDict = decoded
-        }
-        
-        for courseCode in courseCodes {
-            hashDict[courseCode] = hash
-        }
-        
-        if let encoded = try? JSONEncoder().encode(hashDict),
-           let jsonString = String(data: encoded, encoding: .utf8) {
-            prefs.lastImportHashByCourse = jsonString
-        }
-        
-        // Save the context
-        if context.hasChanges {
-            do {
-                try context.save()
-                print("✅ UserPrefs updated with import hash")
-            } catch {
-                print("⚠️ Failed to save UserPrefs: \(error)")
-            }
-        }
-    }
+    // UserPrefs functionality removed - no longer needed with Supabase
 }
 
 struct ImportErrorState: Identifiable {

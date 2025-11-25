@@ -30,8 +30,8 @@
 +-------------------------+           +---------------------------+
 | Features (SwiftUI Views)|           |  /parse (OpenAI)          |
 | ViewModels (Observable) | <-------> |  /upload (PDF storage)    |
-| Services (facades)      |    HTTPS  |  /auth (JWT mgmt)         |
-| Local Store (Core Data) |           |  /webhooks (optional)     |
+| Services (facades)      |    HTTPS  |  /auth (Supabase)         |
+| Supabase Database       |           |  /webhooks (optional)     |
 | Keychain (tokens)       |           +---------------------------+
 | EventKit / Notifications|
 +-------------------------+
@@ -132,10 +132,9 @@ SyllabusSync/
 │     └─ CalendarServiceMock.swift
 │
 ├─ Persistence/
-│  ├─ CoreDataStack.swift         // Optional for cache
-│  ├─ Repositories/
-│  │  ├─ CourseRepository.swift
-│  │  └─ EventRepository.swift
+│  ├─ SupabaseDataService.swift    // Cloud data persistence
+│  ├─ EventStore.swift              // Event management (uses Supabase)
+│  ├─ CourseRepository.swift        // Course management (uses Supabase)
 │  └─ Keychain/
 │     └─ KeychainStore.swift      // tokens, small secrets
 │

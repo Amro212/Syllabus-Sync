@@ -38,20 +38,33 @@ struct AuthView: View {
 
             
             ZStack(alignment: .bottom) {
-                WarmGradientBackground()
-                    .ignoresSafeArea()
-                    .overlay(
-                        GrainOverlay()
-                            .ignoresSafeArea()
-                    )
+                // Animated background: gradient → dark when email form shown
+                ZStack {
+                    WarmGradientBackground()
+                    
+                    // Dark overlay that fades in when email form appears
+                    Color(red: 0.129, green: 0.110, blue: 0.067) // #211c11
+                        .opacity(showEmailForm ? 1.0 : 0.0)
+                }
+                .ignoresSafeArea()
+                .animation(.easeInOut(duration: 0.4), value: showEmailForm)
+                .overlay(
+                    GrainOverlay()
+                        .ignoresSafeArea()
+                        .opacity(showEmailForm ? 0.0 : 1.0)
+                        .animation(.easeInOut(duration: 0.3), value: showEmailForm)
+                )
                 
                 // ShelfSurface: snug at bottom, slightly lower for perfect fit
+                // Fades out when email form is shown
                 ShelfSurface()
                     .frame(height: shelfHeight)
                     .frame(maxWidth: .infinity)
                     .ignoresSafeArea(edges: .bottom)
                     .allowsHitTesting(false)
-                    .offset(y: safeBottom * 1.0) // lower shelf slightly for snug bottom fit
+                    .offset(y: safeBottom * 1.0)
+                    .opacity(showEmailForm ? 0.0 : 1.0)
+                    .animation(.easeInOut(duration: 0.35), value: showEmailForm)
                 
                 VStack(spacing: 0) {
                     if showEmailForm {
@@ -135,14 +148,14 @@ struct AuthView: View {
                 .padding(.horizontal, Layout.Spacing.xxl)
                 
                 // BooksIllustrationView: sits flush with shelf, with shadow and animation
-                // Visible for Sign In, fade out for Sign Up
+                // Fades out completely when email form is shown
                 BooksIllustrationView(height: booksHeight)
                     .padding(.horizontal, Layout.Spacing.lg)
-                    .offset(y: -booksOffset) // Move up independently from shelf
-                    .opacity(showEmailForm && isSignUp ? 0.0 : (contentAppeared ? 1.0 : 0.0))
+                    .offset(y: -booksOffset)
+                    .opacity(showEmailForm ? 0.0 : (contentAppeared ? 1.0 : 0.0))
                     .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
+                    .animation(.spring(response: 0.5, dampingFraction: 0.8), value: showEmailForm)
                     .animation(.spring(response: 0.8, dampingFraction: 0.9), value: contentAppeared)
-                    .animation(.spring(response: 0.5, dampingFraction: 0.8), value: isSignUp)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
@@ -572,6 +585,12 @@ private enum AuthPalette {
     
     static let backgroundHighlight = Color(red: 1.0, green: 0.949, blue: 0.812)
     
+    // Form-specific colors (from wireframe)
+    static let formBackground = Color(red: 0.173, green: 0.153, blue: 0.118)    // #2c271e
+    static let inputBackground = Color(red: 0.243, green: 0.216, blue: 0.169)   // #3e372b
+    static let placeholderText = Color(red: 0.549, green: 0.510, blue: 0.451)   // #8c8273
+    static let primary = Color(red: 0.824, green: 0.612, blue: 0.118)           // #d29c1e
+    
     static let appleGoldLight = Color(red: 0.839, green: 0.690, blue: 0.215)   // #D6B157
     static let appleGoldDark = Color(red: 0.786, green: 0.612, blue: 0.200)    // #C89C38
     static let appleShadow = Color(red: 0.675, green: 0.525, blue: 0.157)
@@ -622,12 +641,12 @@ struct EmailAuthForm: View {
     @State private var showConfirmPassword = false
     
     enum Field: Hashable {
-        case email, password, confirmPassword, firstName, lastName
+        case email, password, confirmPassword
     }
     
     var body: some View {
-        VStack(spacing: Layout.Spacing.md) {
-            // Back button
+        VStack(spacing: Layout.Spacing.lg) {
+            // Header with title and back button
             HStack {
                 Button {
                     HapticFeedbackManager.shared.lightImpact()
@@ -636,206 +655,224 @@ struct EmailAuthForm: View {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(AuthPalette.textPrimary)
-                        .frame(width: 44, height: 44)
-                        .background(Color.white.opacity(0.3))
+                        .frame(width: 40, height: 40)
+                        .background(AuthPalette.formBackground)
                         .clipShape(Circle())
                 }
+                
                 Spacer()
             }
             
-            // Title
-            Text(isSignUp ? "Create Account" : "Sign In")
-                .font(.system(size: 32, weight: .bold, design: .rounded))
-                .foregroundColor(AuthPalette.textPrimary)
-            
-            // Toggle between sign up and sign in
-            HStack(spacing: 6) {
-                Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                        isSignUp = true
-                    }
-                    HapticFeedbackManager.shared.lightImpact()
-                } label: {
-                    Text("Sign Up")
-                        .font(.system(size: 17, weight: isSignUp ? .bold : .medium, design: .rounded))
-                        .foregroundColor(isSignUp ? Color.black : AuthPalette.textSecondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(isSignUp ? Color.white.opacity(0.8) : Color.clear)
-                                .shadow(color: isSignUp ? Color.black.opacity(0.1) : .clear, radius: 4, x: 0, y: 2)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(isSignUp ? AuthPalette.appleGoldDark.opacity(0.5) : Color.clear, lineWidth: isSignUp ? 1.5 : 0)
-                        )
-                }
+            // Title and subtitle
+            VStack(spacing: Layout.Spacing.xs) {
+                Text("Syllabus Sync")
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundColor(AuthPalette.textPrimary)
                 
+                Text("Your semester, simplified.")
+                    .font(.system(size: 16, weight: .regular, design: .rounded))
+                    .foregroundColor(AuthPalette.textPrimary.opacity(0.9))
+            }
+            
+            Spacer()
+                .frame(height: Layout.Spacing.md)
+            
+            // Sign In / Sign Up Toggle - matches wireframe exactly
+            HStack(spacing: 0) {
                 Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                         isSignUp = false
                     }
                     HapticFeedbackManager.shared.lightImpact()
                 } label: {
                     Text("Sign In")
-                        .font(.system(size: 17, weight: !isSignUp ? .bold : .medium, design: .rounded))
-                        .foregroundColor(!isSignUp ? Color.black : AuthPalette.textSecondary)
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundColor(!isSignUp ? Color(red: 0.129, green: 0.110, blue: 0.067) : AuthPalette.textPrimary.opacity(0.6))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
+                        .padding(.vertical, 12)
                         .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(!isSignUp ? Color.white.opacity(0.8) : Color.clear)
-                                .shadow(color: !isSignUp ? Color.black.opacity(0.1) : .clear, radius: 4, x: 0, y: 2)
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(!isSignUp ? AuthPalette.primary : Color.clear)
                         )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(!isSignUp ? AuthPalette.appleGoldDark.opacity(0.5) : Color.clear, lineWidth: !isSignUp ? 1.5 : 0)
+                }
+                
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        isSignUp = true
+                    }
+                    HapticFeedbackManager.shared.lightImpact()
+                } label: {
+                    Text("Sign Up")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundColor(isSignUp ? Color(red: 0.129, green: 0.110, blue: 0.067) : AuthPalette.textPrimary.opacity(0.6))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(isSignUp ? AuthPalette.primary : Color.clear)
                         )
                 }
             }
-            .padding(6)
+            .padding(4)
             .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.white.opacity(0.3))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(AuthPalette.creamBorder.opacity(0.6), lineWidth: 1)
-                    )
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(AuthPalette.formBackground)
+                    .shadow(color: Color.black.opacity(0.3), radius: 8, x: 0, y: 4)
             )
             
-            ScrollView {
-                VStack(spacing: Layout.Spacing.sm) {
-                    // Error Message
-                    if let error = formError {
-                        Text(error)
-                            .font(.system(size: 13, weight: .medium, design: .rounded))
-                            .foregroundColor(Color(red: 0.851, green: 0.325, blue: 0.310)) // #D9534F
-                            .padding(.vertical, 10)
-                            .padding(.horizontal, 14)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color(red: 0.851, green: 0.325, blue: 0.310).opacity(0.1))
-                            )
-                            .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
-                    
-                    // First Name & Last Name (Sign Up only)
-                    if isSignUp {
-                        HStack(spacing: Layout.Spacing.md) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("First Name")
-                                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .foregroundColor(AuthPalette.textSecondary)
-                                TextField("", text: $firstName)
-                                    .textFieldStyle(FocusedTextFieldStyle(isFocused: focusedField == .firstName))
-                                    .focused($focusedField, equals: .firstName)
-                                    .autocapitalization(.words)
-                            }
-                            
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Last Name")
-                                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .foregroundColor(AuthPalette.textSecondary)
-                                TextField("", text: $lastName)
-                                    .textFieldStyle(FocusedTextFieldStyle(isFocused: focusedField == .lastName))
-                                    .focused($focusedField, equals: .lastName)
-                                    .autocapitalization(.words)
-                            }
-                        }
-                    }
-                    
-                    // Email
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Email")
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundColor(AuthPalette.textSecondary)
-                        TextField("", text: $email)
-                            .textFieldStyle(FocusedTextFieldStyle(isFocused: focusedField == .email))
-                            .focused($focusedField, equals: .email)
-                            .keyboardType(.emailAddress)
+            // Form Card
+            VStack(spacing: Layout.Spacing.md) {
+                // Error Message
+                if let error = formError {
+                    Text(error)
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundColor(Color(red: 0.851, green: 0.325, blue: 0.310))
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color(red: 0.851, green: 0.325, blue: 0.310).opacity(0.15))
+                        )
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+                
+                // Email Field
+                TextField("Email Address", text: $email)
+                    .font(.system(size: 16, design: .rounded))
+                    .foregroundColor(AuthPalette.textPrimary)
+                    .keyboardType(.emailAddress)
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+                    .focused($focusedField, equals: .email)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(AuthPalette.inputBackground)
+                    )
+                
+                // Password Field
+                HStack {
+                    if showPassword {
+                        TextField("Password", text: $password)
+                            .font(.system(size: 16, design: .rounded))
+                            .foregroundColor(AuthPalette.textPrimary)
                             .autocapitalization(.none)
                             .autocorrectionDisabled()
+                    } else {
+                        SecureField("Password", text: $password)
+                            .font(.system(size: 16, design: .rounded))
+                            .foregroundColor(AuthPalette.textPrimary)
                     }
                     
-                    // Password
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Password")
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundColor(AuthPalette.textSecondary)
-                        
-                        PasswordFieldWithToggle(
-                            text: $password,
-                            isSecure: $showPassword,
-                            isFocused: focusedField == .password
-                        )
-                        .focused($focusedField, equals: .password)
-                        
-                        if isSignUp {
-                            Text("At least 6 characters with uppercase, lowercase, and digits")
-                                .font(.system(size: 11, design: .rounded))
-                                .foregroundColor(AuthPalette.textSecondary.opacity(0.7))
-                                .padding(.top, 2)
-                        }
-                    }
-                    
-                    // Confirm Password (Sign Up only)
-                    if isSignUp {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Confirm Password")
-                                .font(.system(size: 14, weight: .medium, design: .rounded))
-                                .foregroundColor(AuthPalette.textSecondary)
-                            
-                            PasswordFieldWithToggle(
-                                text: $confirmPassword,
-                                isSecure: $showConfirmPassword,
-                                isFocused: focusedField == .confirmPassword
-                            )
-                            .focused($focusedField, equals: .confirmPassword)
-                        }
-                    }
-                    
-                    // Submit Button
                     Button {
-                        HapticFeedbackManager.shared.mediumImpact()
-                        Task {
-                            await onSubmit(isSignUp ? .signUp : .signIn)
-                        }
+                        showPassword.toggle()
+                        HapticFeedbackManager.shared.lightImpact()
                     } label: {
-                        HStack {
-                            if isLoading {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                    .scaleEffect(0.8)
-                            } else {
-                                Text(isSignUp ? "Create Account" : "Sign In")
-                                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                            }
-                        }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 18)
-                        .background(
-                            LinearGradient(
-                                colors: [AuthPalette.appleGoldLight, AuthPalette.appleGoldDark],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .cornerRadius(28)
-                        .shadow(color: AuthPalette.appleShadow.opacity(0.28), radius: 18, x: 0, y: 14)
+                        Image(systemName: showPassword ? "eye.fill" : "eye.slash.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(AuthPalette.placeholderText)
                     }
-                    .disabled(isLoading || !isFormValid)
-                    .opacity(isFormValid ? 1.0 : 0.6)
-                    .padding(.top, Layout.Spacing.sm)
-                    .padding(.bottom, Layout.Spacing.xxl)
                 }
+                .focused($focusedField, equals: .password)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(AuthPalette.inputBackground)
+                )
+                
+                // Confirm Password (Sign Up only)
+                if isSignUp {
+                    HStack {
+                        if showConfirmPassword {
+                            TextField("Confirm Password", text: $confirmPassword)
+                                .font(.system(size: 16, design: .rounded))
+                                .foregroundColor(AuthPalette.textPrimary)
+                                .autocapitalization(.none)
+                                .autocorrectionDisabled()
+                        } else {
+                            SecureField("Confirm Password", text: $confirmPassword)
+                                .font(.system(size: 16, design: .rounded))
+                                .foregroundColor(AuthPalette.textPrimary)
+                        }
+                        
+                        Button {
+                            showConfirmPassword.toggle()
+                            HapticFeedbackManager.shared.lightImpact()
+                        } label: {
+                            Image(systemName: showConfirmPassword ? "eye.fill" : "eye.slash.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(AuthPalette.placeholderText)
+                        }
+                    }
+                    .focused($focusedField, equals: .confirmPassword)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(AuthPalette.inputBackground)
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+                
+                // Submit Button
+                Button {
+                    HapticFeedbackManager.shared.mediumImpact()
+                    Task {
+                        await onSubmit(isSignUp ? .signUp : .signIn)
+                    }
+                } label: {
+                    HStack {
+                        if isLoading {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: Color(red: 0.129, green: 0.110, blue: 0.067)))
+                                .scaleEffect(0.8)
+                        } else {
+                            Text(isSignUp ? "Sign Up" : "Sign In")
+                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                        }
+                    }
+                    .foregroundColor(Color(red: 0.129, green: 0.110, blue: 0.067))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 24)
+                            .fill(AuthPalette.primary)
+                            .shadow(color: AuthPalette.primary.opacity(0.3), radius: 8, x: 0, y: 4)
+                    )
+                }
+                .disabled(isLoading || !isFormValid)
+                .opacity(isFormValid ? 1.0 : 0.6)
                 .padding(.top, Layout.Spacing.xs)
+                
+                // Forgot Password (Sign In only)
+                if !isSignUp {
+                    Button {
+                        HapticFeedbackManager.shared.lightImpact()
+                        // TODO: Implement forgot password flow
+                    } label: {
+                        Text("Forgot Password?")
+                            .font(.system(size: 14, weight: .regular, design: .rounded))
+                            .foregroundColor(AuthPalette.primary)
+                            .underline()
+                    }
+                    .padding(.top, Layout.Spacing.sm)
+                }
             }
+            .padding(Layout.Spacing.lg)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AuthPalette.formBackground)
+                    .shadow(color: Color.black.opacity(0.3), radius: 12, x: 0, y: 6)
+            )
+            
+            Spacer()
         }
-        .padding(.horizontal, Layout.Spacing.xxl)
+        .padding(.horizontal, Layout.Spacing.lg)
         .offset(x: shakeAnimation)
+        .animation(.easeInOut(duration: 0.2), value: isSignUp)
     }
     
     private var isFormValid: Bool {

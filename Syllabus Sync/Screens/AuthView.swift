@@ -192,6 +192,7 @@ struct AuthView: View {
     private func handleEmailTap() {
         HapticFeedbackManager.shared.lightImpact()
         withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+            isSignUp = false // Force Sign In tab
             showEmailForm = true
         }
     }
@@ -361,7 +362,7 @@ struct EmailSignInButton: View {
         AuthButton(
             title: "Continue with Email",
             textColor: AuthPalette.textPrimary,
-            background: Color.white.opacity(0.72),
+            background: Color.white.opacity(0.1),
             borderColor: AuthPalette.creamBorder,
             shadowColor: AuthPalette.creamShadow,
             isLoading: false,
@@ -370,7 +371,7 @@ struct EmailSignInButton: View {
         ) {
             Image(systemName: "envelope.fill")
                 .font(.system(size: 20, weight: .medium))
-                .foregroundColor(AuthPalette.textPrimary)
+                .foregroundColor(AuthPalette.textSecondary)
         }
     }
 }
@@ -382,7 +383,7 @@ struct GoogleSignInButton: View {
         AuthButton(
             title: "Continue with Google",
             textColor: AuthPalette.textPrimary,
-            background: Color.white.opacity(0.75),
+            background: Color.white.opacity(0.1),
             borderColor: AuthPalette.creamBorder,
             shadowColor: AuthPalette.creamShadow,
             isLoading: false,
@@ -501,28 +502,11 @@ struct WarmGradientBackground: View {
             LinearGradient(
                 colors: [
                     AuthPalette.backgroundTop,
-                    AuthPalette.backgroundMid,
                     AuthPalette.backgroundBottom
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            
-            RadialGradient(
-                gradient: Gradient(colors: [AuthPalette.backgroundHighlight.opacity(0.35), .clear]),
-                center: .topLeading,
-                startRadius: 0,
-                endRadius: 420
-            )
-            .blendMode(.plusLighter)
-            
-            RadialGradient(
-                gradient: Gradient(colors: [AuthPalette.backgroundHighlight.opacity(0.28), .clear]),
-                center: .bottomTrailing,
-                startRadius: 0,
-                endRadius: 480
-            )
-            .blendMode(.screen)
         }
     }
 }
@@ -578,20 +562,22 @@ struct GoogleLogo: View {
 // MARK: - Palette & Helpers
 
 private enum AuthPalette {
-    static let textPrimary = Color(red: 0.353, green: 0.266, blue: 0.133)      // Deep brown
-    static let textSecondary = Color(red: 0.522, green: 0.413, blue: 0.220)    // Warm taupe
+    static let textPrimary = Color.white
+    static let textSecondary = Color(red: 0.85, green: 0.85, blue: 0.85)
     
-    static let backgroundTop = Color(red: 0.996, green: 0.972, blue: 0.927)
-    static let backgroundMid = Color(red: 0.975, green: 0.922, blue: 0.784)
-    static let backgroundBottom = Color(red: 0.945, green: 0.823, blue: 0.533)
+    // Top: 0.235    0.188    0.078
+    static let backgroundTop = Color(red: 0.235, green: 0.188, blue: 0.078)
+    // Bottom: 0.035    0.039    0.020
+    static let backgroundBottom = Color(red: 0.035, green: 0.039, blue: 0.020)
+    
     static let backgroundHighlight = Color(red: 1.0, green: 0.949, blue: 0.812)
     
     static let appleGoldLight = Color(red: 0.839, green: 0.690, blue: 0.215)   // #D6B157
     static let appleGoldDark = Color(red: 0.786, green: 0.612, blue: 0.200)    // #C89C38
     static let appleShadow = Color(red: 0.675, green: 0.525, blue: 0.157)
     
-    static let creamBorder = Color(red: 0.894, green: 0.800, blue: 0.612)
-    static let creamShadow = Color(red: 0.757, green: 0.597, blue: 0.327)
+    static let creamBorder = Color.white.opacity(0.15)
+    static let creamShadow = Color.clear
     
     static let shelfHighlight = Color.white.opacity(0.36)
     static let shelfShadow = Color(red: 0.478, green: 0.341, blue: 0.129)
@@ -843,7 +829,7 @@ struct EmailAuthForm: View {
                     .disabled(isLoading || !isFormValid)
                     .opacity(isFormValid ? 1.0 : 0.6)
                     .padding(.top, Layout.Spacing.sm)
-                    .padding(.bottom, Layout.Spacing.lg)
+                    .padding(.bottom, Layout.Spacing.xxl)
                 }
                 .padding(.top, Layout.Spacing.xs)
             }
@@ -868,7 +854,7 @@ struct EmailTextFieldStyle: TextFieldStyle {
         configuration
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(Color.white.opacity(0.6))
+            .background(Color.white.opacity(0.1))
             .cornerRadius(12)
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
@@ -884,10 +870,10 @@ struct FocusedTextFieldStyle: TextFieldStyle {
     
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration
-            .foregroundColor(.black) // Black text color
+            .foregroundColor(.white) // White text color for dark mode
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(Color.white.opacity(0.7))
+            .background(Color.white.opacity(0.1))
             .cornerRadius(12)
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
@@ -915,10 +901,10 @@ struct PasswordFieldWithToggle: View {
         HStack(spacing: 8) {
             if isSecure {
                 SecureField("", text: $text)
-                    .foregroundColor(.black)
+                    .foregroundColor(.white)
             } else {
                 TextField("", text: $text)
-                    .foregroundColor(.black)
+                    .foregroundColor(.white)
                     .autocapitalization(.none)
                     .autocorrectionDisabled()
             }
@@ -935,7 +921,7 @@ struct PasswordFieldWithToggle: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(Color.white.opacity(0.7))
+        .background(Color.white.opacity(0.1))
         .cornerRadius(12)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
@@ -1114,10 +1100,11 @@ struct OTPInputView: View {
                 TextField("", text: $digits[index])
                     .keyboardType(.numberPad)
                     .textContentType(.oneTimeCode)
+                    .foregroundColor(.white)
                     .multilineTextAlignment(.center)
                     .font(.system(size: 24, weight: .bold, design: .rounded))
                     .frame(width: 50, height: 60)
-                    .background(Color.white.opacity(0.6))
+                    .background(Color.white.opacity(0.1))
                     .cornerRadius(12)
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)

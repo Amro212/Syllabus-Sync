@@ -110,7 +110,7 @@ struct AuthView: View {
                                 .foregroundColor(AuthPalette.textPrimary)
                                 .multilineTextAlignment(.center)
                             
-                            Text("Your courses, labs, and deadlines — all synced in one place")
+                            Text("Your academic life in one place")
                                 .font(.system(size: 18, weight: .medium, design: .rounded))
                                 .foregroundColor(AuthPalette.textSecondary)
                                 .multilineTextAlignment(.center)

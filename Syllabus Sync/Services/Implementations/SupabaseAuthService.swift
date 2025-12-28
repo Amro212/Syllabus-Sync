@@ -47,6 +47,10 @@ class SupabaseAuthService: NSObject, AuthService {
     
     func signInWithGoogle() async -> AuthResult {
         do {
+            print("🔵 Starting Google Sign-In...")
+            print("🔵 Supabase URL: \(SupabaseConfig.url)")
+            print("🔵 Redirect URL: syllabussync://auth/callback")
+            
             // Use Supabase SDK's OAuth method with redirect URL
             let session = try await supabase.auth.signInWithOAuth(
                 provider: .google,
@@ -55,6 +59,8 @@ class SupabaseAuthService: NSObject, AuthService {
                 // Optional: customize the ASWebAuthenticationSession
                 session.prefersEphemeralWebBrowserSession = false
             }
+            
+            print("🟢 Google Sign-In successful!")
             
             // Convert Supabase session to our AuthUser
             let user = AuthUser(
@@ -75,6 +81,10 @@ class SupabaseAuthService: NSObject, AuthService {
             return .success(user: user)
             
         } catch {
+            print("🔴 Google Sign-In Error: \(error)")
+            print("🔴 Error Type: \(type(of: error))")
+            print("🔴 Error LocalizedDescription: \(error.localizedDescription)")
+            
             if let authError = error as? AuthError {
                 return .failure(error: authError)
             }

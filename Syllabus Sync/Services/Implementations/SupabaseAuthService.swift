@@ -7,6 +7,7 @@
 
 import Foundation
 import Supabase
+import AuthenticationServices
 
 /// Supabase authentication service implementation
 class SupabaseAuthService: NSObject, AuthService {
@@ -56,8 +57,9 @@ class SupabaseAuthService: NSObject, AuthService {
                 provider: .google,
                 redirectTo: URL(string: "syllabussync://auth/callback")
             ) { session in
-                // Optional: customize the ASWebAuthenticationSession
-                session.prefersEphemeralWebBrowserSession = false
+                // Use ephemeral session so user can choose a different account each time
+                // (doesn't share cookies with Safari)
+                session.prefersEphemeralWebBrowserSession = true
             }
             
             print("🟢 Google Sign-In successful!")
@@ -82,13 +84,25 @@ class SupabaseAuthService: NSObject, AuthService {
             
         } catch {
             print("🔴 Google Sign-In Error: \(error)")
-            print("🔴 Error Type: \(type(of: error))")
-            print("🔴 Error LocalizedDescription: \(error.localizedDescription)")
             
+            // Handle user cancellation specifically
+            if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
+                return .failure(error: .cancelled)
+            }
+            
+            // Handle Supabase Auth errors
             if let authError = error as? AuthError {
                 return .failure(error: authError)
             }
-            return .failure(error: .unknownError(error.localizedDescription))
+            
+            // Handle other errors with a user-friendly message
+            // Clean up the error message if it's the raw NSError description
+            let message = error.localizedDescription
+            if message.contains("ASWebAuthenticationSession") {
+                return .failure(error: .unknownError("Unable to start sign in session. Please try again."))
+            }
+            
+            return .failure(error: .unknownError("Sign in failed: \(message)"))
         }
     }
     

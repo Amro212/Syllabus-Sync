@@ -10,154 +10,201 @@ import SwiftUI
 struct AuthView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
     @State private var isLoading = false
-    @State private var contentAppeared = false
+    @State private var isSignInMode = false // Toggle between sign-up and sign-in
     @State private var errorMessage: String?
     @State private var showError = false
-    @State private var showEmailForm = false
-    @State private var isSignUp = true // Toggle between sign up and sign in
+    @State private var username = ""
+    @State private var fullName = ""
     @State private var email = ""
-    @State private var password = ""
-    @State private var confirmPassword = ""
-    @State private var firstName = ""
-    @State private var lastName = ""
     @State private var showEmailVerification = false
-    @State private var verificationCode = ""
     @State private var verificationEmail = ""
-    @State private var formError: String? = nil
-    @State private var shakeAnimation: CGFloat = 0
+    @FocusState private var focusedField: AuthField?
+    
+    enum AuthField {
+        case username
+        case fullName
+        case email
+    }
     
     private let authService = SupabaseAuthService.shared
     
+    
     var body: some View {
-        GeometryReader { proxy in
-            let safeBottom = proxy.safeAreaInsets.bottom
-            let shelfHeight = proxy.size.height * 0.23   // Adjust independently
-            let shelfOffset = safeBottom * 0.3           // Control vertical placement of shelf
-            let booksHeight = proxy.size.height * 0.35   // Separate height for books
-            let booksOffset = shelfHeight * 0.10          // Adjust how far above the shelf books appear
-
-            
-            ZStack(alignment: .bottom) {
-                // Animated background: gradient → dark when email form shown
-                ZStack {
-                    WarmGradientBackground()
-                    
-                    // Dark overlay that fades in when email form appears
-                    Color(red: 0.129, green: 0.110, blue: 0.067) // #211c11
-                        .opacity(showEmailForm ? 1.0 : 0.0)
-                }
+        ZStack {
+            // Dark background
+            Color(red: 0.129, green: 0.110, blue: 0.067) // #211c11
                 .ignoresSafeArea()
-                .animation(.easeInOut(duration: 0.4), value: showEmailForm)
-                .overlay(
-                    GrainOverlay()
-                        .ignoresSafeArea()
-                        .opacity(showEmailForm ? 0.0 : 1.0)
-                        .animation(.easeInOut(duration: 0.3), value: showEmailForm)
-                )
+            
+            VStack(spacing: 16) {
+                Spacer()
+                    .frame(minHeight: 8, maxHeight: 24)
                 
-                // ShelfSurface: snug at bottom, slightly lower for perfect fit
-                // Fades out when email form is shown
-                ShelfSurface()
-                    .frame(height: shelfHeight)
-                    .frame(maxWidth: .infinity)
-                    .ignoresSafeArea(edges: .bottom)
-                    .allowsHitTesting(false)
-                    .offset(y: safeBottom * 1.0)
-                    .opacity(showEmailForm ? 0.0 : 1.0)
-                    .animation(.easeInOut(duration: 0.35), value: showEmailForm)
+                // App Icon
+                Image("AppIconNewestBorders")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 125, height: 125)
+                    .shadow(color: AuthPalette.primary.opacity(0.3), radius: 12, x: 0, y: 4)
                 
-                VStack(spacing: 0) {
-                    if showEmailForm {
-                        // Email form at the top - maximize space
-                        Spacer()
-                            .frame(height: Layout.Spacing.xl)
-                        
-                        EmailAuthForm(
-                            isSignUp: $isSignUp,
-                            email: $email,
-                            password: $password,
-                            confirmPassword: $confirmPassword,
-                            firstName: $firstName,
-                            lastName: $lastName,
-                            isLoading: $isLoading,
-                            formError: $formError,
-                            shakeAnimation: $shakeAnimation,
-                            onBack: {
-                                withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                                    showEmailForm = false
-                                }
-                            },
-                            onSubmit: { mode in
-                                formError = nil
-                                if mode == .signUp {
-                                    await handleSignUp()
-                                } else {
-                                    await handleSignIn()
-                                }
-                            }
-                        )
-                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                        
-                        Spacer()
-                    } else {
-                        // Original layout for main auth screen
-                        Spacer()
-                            .frame(height: Layout.Spacing.massive + Layout.Spacing.lg)
-                        
-                        VStack(spacing: Layout.Spacing.md) {
-                            Text("Welcome to Syllabus Sync")
-                                .font(.system(size: 34, weight: .bold, design: .rounded))
-                                .foregroundColor(AuthPalette.textPrimary)
-                                .multilineTextAlignment(.center)
-                            
-                            Text("Your academic life in one place")
-                                .font(.system(size: 18, weight: .medium, design: .rounded))
-                                .foregroundColor(AuthPalette.textSecondary)
-                                .multilineTextAlignment(.center)
-                                .lineSpacing(4)
-                                .padding(.horizontal, Layout.Spacing.xxl)
-                        }
-                        .opacity(showEmailForm ? 0.0 : (contentAppeared ? 1.0 : 0.0))
-                        .offset(y: contentAppeared ? 0 : 24)
-                        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: showEmailForm)
-                        
-                        Spacer()
-                            .frame(height: Layout.Spacing.xxxl)
-                        
-                        VStack(spacing: Layout.Spacing.md) {
-                            AppleSignInButton(isLoading: $isLoading) {
-                                handleAppleTap()
-                            }
-                            
-                            EmailSignInButton {
-                                handleEmailTap()
-                            }
-                            
-                            GoogleSignInButton {
-                                handleGoogleTap()
-                            }
-                        }
-                        .opacity(showEmailForm ? 0.0 : (contentAppeared ? 1.0 : 0.0))
-                        .offset(y: contentAppeared ? 0 : 28)
-                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: showEmailForm)
-                        
-                        Spacer()
-                    }
+                // Header
+                VStack(spacing: 4) {
+                    Text(isSignInMode ? "Welcome back" : "Create an account")
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
+                        .foregroundColor(AuthPalette.textPrimary)
+                    
+                    Text(isSignInMode ? "Please enter your email to sign in." : "Please enter your details to create an account.")
+                        .font(.system(size: 14, weight: .regular, design: .rounded))
+                        .foregroundColor(AuthPalette.textSecondary)
+                        .multilineTextAlignment(.center)
                 }
-                .padding(.horizontal, Layout.Spacing.xxl)
                 
-                // BooksIllustrationView: sits flush with shelf, with shadow and animation
-                // Fades out completely when email form is shown
-                BooksIllustrationView(height: booksHeight)
-                    .padding(.horizontal, Layout.Spacing.lg)
-                    .offset(y: -booksOffset)
-                    .opacity(showEmailForm ? 0.0 : (contentAppeared ? 1.0 : 0.0))
-                    .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
-                    .animation(.spring(response: 0.5, dampingFraction: 0.8), value: showEmailForm)
-                    .animation(.spring(response: 0.8, dampingFraction: 0.9), value: contentAppeared)
+                // Form Container
+                VStack(spacing: 14) {
+                    // Username Field (only in sign-up mode)
+                    if !isSignInMode {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Username")
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                .foregroundColor(AuthPalette.textSecondary)
+                            
+                            TextField("Choose a username", text: $username)
+                                .font(.system(size: 15, design: .rounded))
+                                .foregroundColor(AuthPalette.textPrimary)
+                                .focused($focusedField, equals: .username)
+                                .autocapitalization(.none)
+                                .autocorrectionDisabled()
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .fill(AuthPalette.inputBackground)
+                                )
+                        }
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                    
+                    // Full Name Field (only in sign-up mode)
+                    if !isSignInMode {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Full Name")
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                .foregroundColor(AuthPalette.textSecondary)
+                            
+                            TextField("Enter your full name", text: $fullName)
+                                .font(.system(size: 15, design: .rounded))
+                                .foregroundColor(AuthPalette.textPrimary)
+                                .focused($focusedField, equals: .fullName)
+                                .autocapitalization(.words)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .fill(AuthPalette.inputBackground)
+                                )
+                        }
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                    
+                    // Email Field
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Email")
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundColor(AuthPalette.textSecondary)
+                        
+                        TextField("Enter your Email", text: $email)
+                            .font(.system(size: 15, design: .rounded))
+                            .foregroundColor(AuthPalette.textPrimary)
+                            .keyboardType(.emailAddress)
+                            .autocapitalization(.none)
+                            .autocorrectionDisabled()
+                            .focused($focusedField, equals: .email)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(AuthPalette.inputBackground)
+                            )
+                    }
+                    
+                    // Send Email Code Button
+                    Button {
+                        HapticFeedbackManager.shared.mediumImpact()
+                        handleSendEmailCode()
+                    } label: {
+                        HStack {
+                            if isLoading {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .scaleEffect(0.8)
+                            } else {
+                                Text(isSignInMode ? "Send sign in code" : "Send email code")
+                                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                            }
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 28)
+                                .fill(AuthPalette.formBackground)
+                        )
+                    }
+                    .disabled(isLoading || email.isEmpty || (!isSignInMode && (username.isEmpty || fullName.isEmpty)))
+                    .opacity((email.isEmpty || (!isSignInMode && (username.isEmpty || fullName.isEmpty))) ? 0.5 : 1.0)
+                    
+                    // OR Divider
+                    HStack(spacing: 12) {
+                        Rectangle()
+                            .fill(AuthPalette.textSecondary.opacity(0.3))
+                            .frame(height: 1)
+                        
+                        Text("OR")
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundColor(AuthPalette.textSecondary)
+                        
+                        Rectangle()
+                            .fill(AuthPalette.textSecondary.opacity(0.3))
+                            .frame(height: 1)
+                    }
+                    .padding(.vertical, 4)
+                    
+                    // Google Button
+                    GoogleSignInButton {
+                        handleGoogleTap()
+                    }
+                    
+                    // Apple Button  
+                    AppleSignInButton(isLoading: $isLoading) {
+                        handleAppleTap()
+                    }
+                    
+                    // Sign In / Sign Up Toggle
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isSignInMode.toggle()
+                        }
+                        HapticFeedbackManager.shared.lightImpact()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(isSignInMode ? "Don't have an account?" : "Already have an account?")
+                                .font(.system(size: 13, weight: .regular, design: .rounded))
+                                .foregroundColor(AuthPalette.textSecondary)
+                            
+                            Text(isSignInMode ? "Sign up" : "Sign in")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .foregroundColor(AuthPalette.primary)
+                                .underline()
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+                .padding(.horizontal, 24)
+                
+                Spacer()
+                    .frame(minHeight: 8, maxHeight: 24)
             }
-            .frame(width: proxy.size.width, height: proxy.size.height)
+            .frame(maxWidth: 500)
+            .frame(maxWidth: .infinity)
         }
         .navigationBarHidden(true)
         .alert("Authentication Error", isPresented: $showError) {
@@ -179,11 +226,6 @@ struct AuthView: View {
                 }
             )
         }
-        .onAppear {
-            withAnimation(.spring(response: 0.8, dampingFraction: 0.85)) {
-                contentAppeared = true
-            }
-        }
     }
     
     private func handleAppleTap() {
@@ -202,113 +244,55 @@ struct AuthView: View {
         }
     }
     
-    private func handleEmailTap() {
-        HapticFeedbackManager.shared.lightImpact()
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-            isSignUp = false // Force Sign In tab
-            showEmailForm = true
-        }
-    }
     
-    private func handleSignUp() async {
-        // Validate password requirements
-        guard validatePassword(password) else {
-            await MainActor.run {
-                errorMessage = "Password must be at least 6 characters and contain uppercase, lowercase letters, and digits"
-                showError = true
-            }
+    
+    private func handleSendEmailCode() {
+        guard !isLoading else { return }
+        
+        // Validate inputs
+        if !isSignInMode && (username.isEmpty || fullName.isEmpty) {
+            errorMessage = "Please fill in all fields"
+            showError = true
+            HapticFeedbackManager.shared.error()
             return
         }
         
-        guard password == confirmPassword else {
-            await MainActor.run {
-                errorMessage = "Passwords do not match"
-                showError = true
-            }
+        if email.isEmpty {
+            errorMessage = "Please enter your email"
+            showError = true
+            HapticFeedbackManager.shared.error()
             return
         }
         
-        await MainActor.run {
-            isLoading = true
-        }
+        isLoading = true
+        verificationEmail = email
         
-        let result = await authService.signUpWithEmail(
-            email: email,
-            password: password,
-            firstName: firstName.isEmpty ? nil : firstName,
-            lastName: lastName.isEmpty ? nil : lastName
-        )
-        
-        await MainActor.run {
-            isLoading = false
+        Task {
+            let result = await authService.sendOTP(
+                email: email,
+                shouldCreateUser: !isSignInMode,
+                username: isSignInMode ? nil : username,
+                fullName: isSignInMode ? nil : fullName
+            )
             
-            switch result {
-            case .success:
-                HapticFeedbackManager.shared.success()
-                // Show email verification screen
-                verificationEmail = email
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+            await MainActor.run {
+                isLoading = false
+                
+                switch result {
+                case .success:
+                    HapticFeedbackManager.shared.success()
                     showEmailVerification = true
-                }
-                
-            case .failure(let error):
-                HapticFeedbackManager.shared.error()
-                errorMessage = error.localizedDescription
-                showError = true
-                formError = error.localizedDescription
-                triggerShakeAnimation()
-            }
-        }
-    }
-    
-    private func handleSignIn() async {
-        await MainActor.run {
-            isLoading = true
-        }
-        
-        let result = await authService.signInWithEmail(email: email, password: password)
-        
-        await MainActor.run {
-            isLoading = false
-            
-            switch result {
-            case .success:
-                HapticFeedbackManager.shared.success()
-                withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) {
-                    navigationManager.setRoot(to: .dashboard)
-                }
-                
+                    
                 case .failure(let error):
                     HapticFeedbackManager.shared.error()
                     errorMessage = error.localizedDescription
                     showError = true
-                    formError = error.localizedDescription
-                    triggerShakeAnimation()
+                }
             }
         }
     }
     
-    private func triggerShakeAnimation() {
-        withAnimation(.linear(duration: 0.05).repeatCount(4, autoreverses: true)) {
-            shakeAnimation = 10
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            shakeAnimation = 0
-        }
-    }
-    
-    private func validatePassword(_ password: String) -> Bool {
-        // Minimum 6 characters
-        guard password.count >= 6 else { return false }
-        
-        // Must contain lowercase, uppercase, and digits
-        let hasLowercase = password.rangeOfCharacter(from: CharacterSet.lowercaseLetters) != nil
-        let hasUppercase = password.rangeOfCharacter(from: CharacterSet.uppercaseLetters) != nil
-        let hasDigits = password.rangeOfCharacter(from: CharacterSet.decimalDigits) != nil
-        
-        return hasLowercase && hasUppercase && hasDigits
-    }
+
     
     private func handleGoogleTap() {
         guard !isLoading else { return }
@@ -465,47 +449,7 @@ struct AuthButton<Leading: View, Background: ShapeStyle>: View {
     }
 }
 
-// MARK: - Illustration
-
-struct BooksIllustrationView: View {
-    let height: CGFloat
-    
-    var body: some View {
-        Image("BooksIllustration")
-            .resizable()
-            .scaledToFit()
-            .frame(height: height)
-            .shadow(color: Color.black.opacity(0.16), radius: 26, x: 0, y: 20)
-    }
-}
-
-struct ShelfSurface: View {
-    var body: some View {
-        Rectangle()
-            .fill(Color(red: 0.786, green: 0.612, blue: 0.200))
-            .overlay(
-                Rectangle()
-                    .stroke(AuthPalette.shelfHighlight, lineWidth: 1)
-                    .blendMode(.screen)
-                    .opacity(0.45)
-            )
-            .overlay(
-                Rectangle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.18),
-                                .clear
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .padding(.vertical, 2)
-            )
-            .shadow(color: AuthPalette.shelfShadow.opacity(0.25), radius: 20, x: 0, y: 8)
-    }
-}
+// MARK: - Decorative Elements (Legacy - Removed)
 
 // MARK: - Decorative Elements
 
@@ -691,7 +635,7 @@ struct EmailAuthForm: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .background(
-                            RoundedRectangle(cornerRadius: 10)
+                            RoundedRectangle(cornerRadius: 16)
                                 .fill(!isSignUp ? AuthPalette.primary : Color.clear)
                         )
                 }
@@ -708,14 +652,14 @@ struct EmailAuthForm: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .background(
-                            RoundedRectangle(cornerRadius: 10)
+                            RoundedRectangle(cornerRadius: 16)
                                 .fill(isSignUp ? AuthPalette.primary : Color.clear)
                         )
                 }
             }
             .padding(4)
             .background(
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 20)
                     .fill(AuthPalette.formBackground)
                     .shadow(color: Color.black.opacity(0.3), radius: 8, x: 0, y: 4)
             )
@@ -746,9 +690,9 @@ struct EmailAuthForm: View {
                     .autocorrectionDisabled()
                     .focused($focusedField, equals: .email)
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
+                    .padding(.vertical, 18)
                     .background(
-                        RoundedRectangle(cornerRadius: 12)
+                        RoundedRectangle(cornerRadius: 18)
                             .fill(AuthPalette.inputBackground)
                     )
                 
@@ -777,9 +721,9 @@ struct EmailAuthForm: View {
                 }
                 .focused($focusedField, equals: .password)
                 .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.vertical, 18)
                 .background(
-                    RoundedRectangle(cornerRadius: 12)
+                    RoundedRectangle(cornerRadius: 18)
                         .fill(AuthPalette.inputBackground)
                 )
                 
@@ -809,9 +753,9 @@ struct EmailAuthForm: View {
                     }
                     .focused($focusedField, equals: .confirmPassword)
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
+                    .padding(.vertical, 18)
                     .background(
-                        RoundedRectangle(cornerRadius: 12)
+                        RoundedRectangle(cornerRadius: 18)
                             .fill(AuthPalette.inputBackground)
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -836,9 +780,9 @@ struct EmailAuthForm: View {
                     }
                     .foregroundColor(Color(red: 0.129, green: 0.110, blue: 0.067))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
+                    .padding(.vertical, 18)
                     .background(
-                        RoundedRectangle(cornerRadius: 24)
+                        RoundedRectangle(cornerRadius: 32)
                             .fill(AuthPalette.primary)
                             .shadow(color: AuthPalette.primary.opacity(0.3), radius: 8, x: 0, y: 4)
                     )
@@ -861,9 +805,9 @@ struct EmailAuthForm: View {
                     .padding(.top, Layout.Spacing.sm)
                 }
             }
-            .padding(Layout.Spacing.lg)
+            .padding(24)
             .background(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: 24)
                     .fill(AuthPalette.formBackground)
                     .shadow(color: Color.black.opacity(0.3), radius: 12, x: 0, y: 6)
             )
@@ -1084,38 +1028,19 @@ struct EmailVerificationView: View {
             isLoading = true
         }
         
-        // Verify OTP with Supabase
-        do {
-            let session = try await authService.supabase.auth.verifyOTP(
-                email: email,
-                token: verificationCode,
-                type: .email
-            )
+        // Use the authService verifyOTP method which handles username storage
+        let result = await authService.verifyOTP(email: email, token: verificationCode)
+        
+        await MainActor.run {
+            isLoading = false
             
-            await MainActor.run {
-                isLoading = false
+            switch result {
+            case .success:
+                HapticFeedbackManager.shared.success()
+                onVerified()
                 
-                if session.user != nil {
-                    // Update auth service user
-                    let user = AuthUser(
-                        id: session.user.id.uuidString,
-                        email: session.user.email,
-                        displayName: session.user.userMetadata["full_name"]?.value as? String,
-                        photoURL: nil,
-                        provider: .email
-                    )
-                    authService.currentUser = user
-                    
-                    HapticFeedbackManager.shared.success()
-                    onVerified()
-                } else {
-                    errorMessage = "Verification failed. Please try again."
-                    showError = true
-                }
-            }
-        } catch {
-            await MainActor.run {
-                isLoading = false
+            case .failure(let error):
+                HapticFeedbackManager.shared.error()
                 errorMessage = error.localizedDescription
                 showError = true
             }

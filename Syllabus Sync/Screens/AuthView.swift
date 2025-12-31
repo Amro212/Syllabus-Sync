@@ -14,6 +14,7 @@ struct AuthView: View {
     @State private var errorMessage: String?
     @State private var showError = false
     @State private var username = ""
+    @State private var usernameError: String?
     @State private var fullName = ""
     @State private var email = ""
     @State private var showEmailVerification = false
@@ -73,6 +74,7 @@ struct AuthView: View {
                                 .focused($focusedField, equals: .username)
                                 .autocapitalization(.none)
                                 .autocorrectionDisabled()
+                                .onChange(of: username) { _, newValue in validateUsername(newValue) }
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 14)
                                 .background(
@@ -1112,4 +1114,32 @@ struct OTPInputView: View {
     AuthView()
         .environmentObject(AppNavigationManager())
         .environmentObject(ThemeManager())
+}
+
+// Username validation function
+extension AuthView {
+    func validateUsername(_ value: String) {
+        if value.isEmpty {
+            usernameError = nil
+            return
+        }
+        
+        if value.count < 3 {
+            usernameError = "Username must be at least 3 characters"
+            return
+        }
+        
+        if value.count > 20 {
+            usernameError = "Username must be 20 characters or less"
+            return
+        }
+        
+        let allowedCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+        if value.rangeOfCharacter(from: allowedCharacters.inverted) != nil {
+            usernameError = "Only letters, numbers, _ and - allowed"
+            return
+        }
+        
+        usernameError = nil
+    }
 }

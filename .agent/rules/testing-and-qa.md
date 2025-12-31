@@ -1,5 +1,5 @@
 ---
-trigger: model_decision
+trigger: always_on
 description: This rule ensures changes ship without surprises.
 ---
 

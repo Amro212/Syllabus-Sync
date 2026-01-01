@@ -35,34 +35,34 @@ struct AppTypography {
     // MARK: - Typography Scale
     
     /// Extra large title - main app headings, welcome screens
-    static let titleXL = Font.system(size: 34, weight: .bold, design: .default)
+    static let titleXL = Font.appFont(size: 34, weight: .bold, relativeTo: .largeTitle)
     
     /// Large title - section headers, primary content titles
-    static let titleL = Font.system(size: 28, weight: .semibold, design: .default)
+    static let titleL = Font.appFont(size: 28, weight: .semibold, relativeTo: .title)
     
     /// Medium title - card titles, secondary headers
-    static let titleM = Font.system(size: 22, weight: .semibold, design: .default)
+    static let titleM = Font.appFont(size: 22, weight: .semibold, relativeTo: .title2)
     
     /// Small title - subsection headers, tertiary titles
-    static let titleS = Font.system(size: 18, weight: .medium, design: .default)
+    static let titleS = Font.appFont(size: 18, weight: .medium, relativeTo: .title3)
     
     /// Large body - important body text, highlighted content
-    static let bodyL = Font.system(size: 17, weight: .regular, design: .default)
+    static let bodyL = Font.appFont(size: 17, weight: .regular, relativeTo: .body)
     
     /// Regular body - main content, default text
-    static let body = Font.system(size: 16, weight: .regular, design: .default)
+    static let body = Font.appFont(size: 16, weight: .regular, relativeTo: .body)
     
     /// Small body - secondary content, metadata
-    static let bodyS = Font.system(size: 14, weight: .regular, design: .default)
+    static let bodyS = Font.appFont(size: 14, weight: .regular, relativeTo: .subheadline)
     
     /// Large caption - button labels, important annotations
-    static let captionL = Font.system(size: 13, weight: .medium, design: .default)
+    static let captionL = Font.appFont(size: 13, weight: .medium, relativeTo: .caption)
     
     /// Regular caption - timestamps, descriptions, footnotes
-    static let caption = Font.system(size: 12, weight: .regular, design: .default)
+    static let caption = Font.appFont(size: 12, weight: .regular, relativeTo: .caption)
     
     /// Small caption - legal text, fine print
-    static let captionS = Font.system(size: 11, weight: .regular, design: .default)
+    static let captionS = Font.appFont(size: 11, weight: .regular, relativeTo: .caption2)
     
     // MARK: - Specialized Fonts
     
@@ -75,24 +75,24 @@ struct AppTypography {
     // MARK: - Button Typography
     
     /// Primary CTA button text
-    static let buttonPrimary = Font.system(size: 17, weight: .semibold, design: .default)
+    static let buttonPrimary = Font.appFont(size: 17, weight: .semibold, relativeTo: .body)
     
     /// Secondary button text
-    static let buttonSecondary = Font.system(size: 16, weight: .medium, design: .default)
+    static let buttonSecondary = Font.appFont(size: 16, weight: .medium, relativeTo: .body)
     
     /// Small button text (chips, tags)
-    static let buttonSmall = Font.system(size: 14, weight: .medium, design: .default)
+    static let buttonSmall = Font.appFont(size: 14, weight: .medium, relativeTo: .subheadline)
     
     // MARK: - Navigation Typography
     
     /// Navigation bar titles
-    static let navTitle = Font.system(size: 17, weight: .semibold, design: .default)
+    static let navTitle = Font.appFont(size: 17, weight: .semibold, relativeTo: .body)
     
     /// Tab bar labels
-    static let tabLabel = Font.system(size: 10, weight: .medium, design: .default)
+    static let tabLabel = Font.appFont(size: 10, weight: .medium, relativeTo: .caption2)
     
     /// Navigation link text
-    static let navLink = Font.system(size: 17, weight: .regular, design: .default)
+    static let navLink = Font.appFont(size: 17, weight: .regular, relativeTo: .body)
 }
 
 // MARK: - Font Extensions
@@ -111,7 +111,12 @@ extension Font {
         design: Font.Design = .default,
         relativeTo textStyle: Font.TextStyle = .body
     ) -> Font {
-        return .system(size: size, weight: weight, design: design)
+        // Use "Lexend" family name. 
+        // For variable fonts, usually "Lexend" covers all weights.
+        // We apply the SwiftUI .weight() modifier which works well with variable fonts
+        // if the custom font supports it.
+        return Font.custom("Lexend", size: size, relativeTo: textStyle)
+            .weight(weight)
     }
     
     /// Typography variants with semantic naming

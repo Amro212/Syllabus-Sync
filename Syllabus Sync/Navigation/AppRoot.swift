@@ -221,6 +221,8 @@ struct AppRoot: View {
 /// Tab-based navigation for main app sections
 struct TabNavigationView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
+    @EnvironmentObject var eventStore: EventStore
+    @EnvironmentObject var importViewModel: ImportViewModel
     
     /// Custom function to handle back navigation in tab context
     private func handleBackNavigation() {
@@ -233,65 +235,184 @@ struct TabNavigationView: View {
         }
     }
     
+    @State private var showingImportSheet = false
+    @State private var fabExpanded = false
+    @State private var editingEvent: EventItem?
+    @State private var isCreatingNewEvent = false
+
     var body: some View {
-        TabView(selection: $navigationManager.selectedTabRoute) {
-            // Dashboard tab
-            DashboardView()
-                .tabItem {
-                    Image(systemName: "house.fill")
-                    Text("Dashboard")
+        ZStack(alignment: .bottom) {
+            // Main Content Area
+            Group {
+                switch navigationManager.selectedTabRoute {
+                case .dashboard:
+                    DashboardView()
+                case .reminders:
+                    RemindersView()
+                case .preview: // Calendar Tab
+                    PreviewView()
+                case .settings:
+                    SettingsView()
+                default:
+                    DashboardView()
                 }
-                .tag(AppRoute.dashboard)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             
-            // Reminders tab
-            RemindersView()
-                .tabItem {
-                    Image(systemName: "bell.fill")
-                    Text("Reminders")
-                }
-                .tag(AppRoute.reminders)
-            
-            // Calendar tab
-                PreviewView()
-                    .tabItem {
-                        Image(systemName: "calendar")
-                        Text("Calendar")
+            // FAB Menu Backdrop (only when expanded)
+            if fabExpanded {
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            fabExpanded = false
+                        }
                     }
-                    .tag(AppRoute.preview) // Using preview route for now
+                    .transition(.opacity)
+                    .zIndex(10) // Just below the menu
+            }
             
-            // Settings tab
-            SettingsView()
-                .tabItem {
-                    Image(systemName: "gear")
-                    Text("Settings")
+            // FAB Menu Options (positioned above the tab bar)
+            if fabExpanded {
+                VStack(spacing: Layout.Spacing.sm) {
+                    // Add Reminder option
+                    FABOption(
+                        icon: "plus.circle.fill",
+                        label: "Add Reminder",
+                        color: Color.blue,
+                        action: {
+                            HapticFeedbackManager.shared.mediumImpact()
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                fabExpanded = false
+                            }
+                            // Small delay to allow menu closing animation to start
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                createNewEvent()
+                            }
+                        }
+                    )
+                    
+                    // Upload Syllabus option
+                    FABOption(
+                        icon: "doc.badge.plus",
+                        label: "Upload Syllabus",
+                        color: AppColors.accent,
+                        action: {
+                            HapticFeedbackManager.shared.mediumImpact()
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                fabExpanded = false
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                showingImportSheet = true
+                            }
+                        }
+                    )
                 }
-                .tag(AppRoute.settings)
+                .padding(.bottom, 100) // Lift above the tab bar (adjust as needed)
+                .transition(.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity).combined(with: .move(edge: .bottom)))
+                .zIndex(11) // Above backdrop
+            }
+            
+            // Custom Tab Bar
+            CustomTabBar(onFabTapped: {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    fabExpanded.toggle()
+                }
+            })
+            .zIndex(12) // Topmost to ensure button clicks work
         }
-        .onAppear {
-            // Configure tab bar appearance with charcoal theme
-            let appearance = UITabBarAppearance()
-            appearance.configureWithOpaqueBackground()
-            appearance.backgroundColor = UIColor(Color(red: 0.180, green: 0.180, blue: 0.180)) // Charcoal surface
-            appearance.shadowColor = UIColor(Color(red: 0.0, green: 0.0, blue: 0.0).opacity(0.3))
-            
-            // Configure tab bar item colors
-            appearance.stackedLayoutAppearance.normal.iconColor = UIColor(AppColors.textSecondary)
-            appearance.stackedLayoutAppearance.normal.titleTextAttributes = [
-                .foregroundColor: UIColor(AppColors.textSecondary)
-            ]
-            appearance.stackedLayoutAppearance.selected.iconColor = UIColor(AppColors.accent)
-            appearance.stackedLayoutAppearance.selected.titleTextAttributes = [
-                .foregroundColor: UIColor(AppColors.accent)
-            ]
-            
-            UITabBar.appearance().standardAppearance = appearance
-            UITabBar.appearance().scrollEdgeAppearance = appearance
+        .ignoresSafeArea(.keyboard) 
+        .sheet(isPresented: $showingImportSheet) {
+            ImportView()
+        }
+        .fullScreenCover(item: $editingEvent) { event in
+            EventEditView(event: event) { updated in
+                if isCreatingNewEvent {
+                    Task { 
+                        await eventStore.update(event: updated)
+                        isCreatingNewEvent = false
+                    }
+                } else {
+                    Task { await importViewModel.applyEditedEvent(updated) }
+                }
+                editingEvent = nil
+            } onCancel: {
+                isCreatingNewEvent = false
+                editingEvent = nil
+            }
         }
         .onChange(of: navigationManager.selectedTabRoute) {
-            // Only provide haptic feedback for tab changes
-            // Don't update navigationManager.currentRoute to avoid interfering with back navigation
-            HapticFeedbackManager.shared.selection()
+             HapticFeedbackManager.shared.selection()
+             // Close FAB if tab changes
+             fabExpanded = false
         }
+    }
+    
+    // Helper to create a new empty event
+    private func createNewEvent() {
+        let now = Date()
+        let newEvent = EventItem(
+            id: UUID().uuidString,
+            courseCode: "",
+            type: .assignment, // Default
+            title: "",
+            start: now,
+            end: nil,
+            allDay: false,
+            location: nil,
+            notes: nil,
+            recurrenceRule: nil,
+            reminderMinutes: 1440,
+            confidence: 1.0
+        )
+        isCreatingNewEvent = true
+        editingEvent = newEvent
+    }
+}
+
+// Reusable FAB Option Component
+private struct FABOption: View {
+    let icon: String
+    let label: String
+    let color: Color
+    let action: () -> Void
+    
+    @State private var isPressed = false
+    
+    var body: some View {
+        Button(action: {
+            isPressed = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isPressed = false
+                action()
+            }
+        }) {
+            HStack(spacing: Layout.Spacing.sm) {
+                Text(label)
+                    .font(.body)
+                    .fontWeight(.semibold)
+                    .foregroundColor(AppColors.textPrimary)
+                
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 50, height: 50)
+                    .background(
+                        Circle()
+                            .fill(color)
+                            .shadow(color: color.opacity(0.3), radius: 8, x: 0, y: 4)
+                    )
+            }
+            .padding(.horizontal, Layout.Spacing.md)
+            .padding(.vertical, 4) // Slight vertical padding
+            .background(
+                Capsule()
+                    .fill(AppColors.surface)
+                    .shadow(color: AppColors.shadow.opacity(0.15), radius: 8, x: 0, y: 4)
+            )
+        }
+        .scaleEffect(isPressed ? 0.95 : 1.0)
+        .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isPressed)
     }
 }
 

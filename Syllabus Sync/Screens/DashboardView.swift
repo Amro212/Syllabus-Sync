@@ -16,103 +16,85 @@ struct DashboardView: View {
     @State private var showShimmer = false
     @State private var buttonScale: CGFloat = 1.0
     @State private var showingImportView = false
-    @State private var fabPressed = false
-    @State private var fabExpanded = false
-    @State private var editingEvent: EventItem?
-    @State private var isCreatingNewEvent = false
+
+
 
     var body: some View {
-        NavigationView {
-            GeometryReader { geo in
-                let headerHeight = geo.safeAreaInsets.top + 4
+        GeometryReader { geo in
+            let headerHeight = geo.safeAreaInsets.top + 4
 
-                ZStack(alignment: .top) {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            // Custom header with consistent padding
-                            VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
-                                Text("Dashboard")
-                                    .font(.largeTitle)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(AppColors.textPrimary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                
-                                if eventStore.events.isEmpty {
-                                    Text("Welcome aboard! Let's get your semester organized.")
-                                        .font(.body)
-                                        .foregroundColor(AppColors.textSecondary)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
+            ZStack(alignment: .top) {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        // Custom header logic
+                        // We remove the Duplicate 'Dashboard' Text here because it is already in the Sticky Top Bar.
+                        
+                         if eventStore.events.isEmpty {
+                             // Empty state takes up space
+                             DashboardEmptyView(showingImportView: $showingImportView)
+                                .frame(minHeight: geo.size.height - headerHeight - 100)
+                                .transition(.opacity)
+                        } else {
+                            // New modular dashboard structure
+                            VStack(spacing: Layout.Spacing.xl) {
+                                DashboardHeaderSummaryView(events: eventStore.events)
+                                DashboardWeekCarouselView(events: eventStore.events, onDayTapped: { date in
+                                    let calendar = Calendar.current
+                                    if let firstEvent = eventStore.events.first(where: { event in
+                                        calendar.isDate(event.start, inSameDayAs: date)
+                                    }) {
+                                        navigationManager.scrollToEventId = firstEvent.id
+                                    }
+                                    navigationManager.selectedTabRoute = .reminders
+                                })
+                                DashboardHighlightsView(events: eventStore.events, onEventTapped: { event in
+                                    navigationManager.scrollToEventId = event.id
+                                    navigationManager.selectedTabRoute = .reminders
+                                })
+                                DashboardInsightsView(events: eventStore.events)
                             }
                             .padding(.horizontal, Layout.Spacing.md)
-                            .padding(.top, Layout.Spacing.sm)
-                            .padding(.bottom, Layout.Spacing.sm)
-                            
-                            if showShimmer {
-                                DashboardShimmerView()
-                                    .transition(.opacity)
-                            } else if eventStore.events.isEmpty {
-                                DashboardEmptyView(showingImportView: $showingImportView)
-                                    .transition(.opacity)
-                            } else {
-                                // New modular dashboard structure
-                                VStack(spacing: Layout.Spacing.xl) {
-                                    DashboardHeaderSummaryView(events: eventStore.events)
-                                    DashboardWeekCarouselView(events: eventStore.events, onDayTapped: { date in
-                                        // Find the first event on this date and scroll to it
-                                        let calendar = Calendar.current
-                                        if let firstEvent = eventStore.events.first(where: { event in
-                                            calendar.isDate(event.start, inSameDayAs: date)
-                                        }) {
-                                            navigationManager.scrollToEventId = firstEvent.id
-                                        }
-                                        navigationManager.selectedTabRoute = .reminders
-                                    })
-                                    DashboardHighlightsView(events: eventStore.events, onEventTapped: { event in
-                                        navigationManager.scrollToEventId = event.id
-                                        navigationManager.selectedTabRoute = .reminders
-                                    })
-                                    DashboardInsightsView(events: eventStore.events)
-                                }
-                                .padding(.horizontal, Layout.Spacing.md)
-                                .padding(.vertical, Layout.Spacing.xl)
-                                .transition(.opacity)
-                            }
+                            .padding(.vertical, Layout.Spacing.xl)
+                            .transition(.opacity)
                         }
-                        .padding(.top, 40)
                     }
-                    .background(AppColors.background)
-                    .refreshable {
-                        await performRefreshAsync()
-                    }
-
-                    VStack(spacing: 0) {
-                        Rectangle()
-                            .fill(.ultraThinMaterial)
-                            .frame(height: headerHeight)
-                            .overlay(alignment: .bottom) {
-                                Color.primary.opacity(0.12)
-                                    .frame(height: 1)
-                                    .allowsHitTesting(false)
-                            }
-                            .ignoresSafeArea(edges: .top)
-                        Spacer()
-                    }
+                    .padding(.top, 60)
                 }
                 .background(AppColors.background)
-                .overlay(alignment: .bottomTrailing) {
-                    if !eventStore.events.isEmpty {
-                        fabButton
-                            .padding(.trailing, Layout.Spacing.xl)
-                            .padding(.bottom, Layout.Spacing.xl)
-                    }
+                .refreshable {
+                    await performRefreshAsync()
                 }
+
+                // Custom Top Bar (Sticky)
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("Dashboard")
+                            .font(.titleL)
+                            .fontWeight(.bold)
+                            .foregroundColor(AppColors.textPrimary)
+                        
+                        Spacer()
+                        
+                        Image(systemName: "person.circle")
+                            .font(.system(size: 28))
+                            .foregroundColor(AppColors.textPrimary)
+                    }
+                    .padding(.horizontal, Layout.Spacing.md)
+                    .padding(.bottom, Layout.Spacing.sm)
+                    .padding(.top, geo.safeAreaInsets.top)
+                    .background(AppColors.background.opacity(0.95))
+                    .overlay(alignment: .bottom) {
+                        Divider().opacity(0.5)
+                    }
+                    
+                    Spacer()
+                }
+                .frame(height: headerHeight + 50)
+                .ignoresSafeArea(edges: .top)
             }
-            .navigationBarHidden(true)
+            .background(AppColors.background)
         }
-        .navigationViewStyle(StackNavigationViewStyle())
         .task {
-            // Load events from Supabase when dashboard appears
             await eventStore.fetchEvents()
         }
         .alert("Error", isPresented: $errorHandler.showError) {
@@ -123,25 +105,6 @@ struct DashboardView: View {
         .sheet(isPresented: $showingImportView) {
             ImportView()
                 .environmentObject(navigationManager)
-        }
-        .fullScreenCover(item: $editingEvent) { event in
-            EventEditView(event: event) { updated in
-                if isCreatingNewEvent {
-                    Task { 
-                        await eventStore.update(event: updated)
-                        isCreatingNewEvent = false
-                    }
-                } else {
-                    Task { await importViewModel.applyEditedEvent(updated) }
-                }
-                editingEvent = nil
-            } onCancel: {
-                isCreatingNewEvent = false
-                editingEvent = nil
-            }
-        }
-        .onChange(of: showingImportView) { newValue in
-            if !newValue { fabExpanded = false }
         }
     }
     
@@ -163,258 +126,87 @@ struct DashboardView: View {
     }
 }
 
-// MARK: - Floating Action Button
-
-private extension DashboardView {
-    var fabButton: some View {
-        ZStack(alignment: .bottomTrailing) {
-            // Backdrop dimming
-            if fabExpanded {
-                Color.black.opacity(0.3)
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            fabExpanded = false
-                        }
-                    }
-                    .transition(.opacity)
-            }
-            
-            VStack(alignment: .trailing, spacing: Layout.Spacing.md) {
-                // Expanded options
-                if fabExpanded {
-                    VStack(spacing: Layout.Spacing.sm) {
-                        // Add Reminder option
-                        FABOption(
-                            icon: "plus.circle.fill",
-                            label: "Add Reminder",
-                            color: Color.blue,
-                            action: {
-                                HapticFeedbackManager.shared.mediumImpact()
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                    fabExpanded = false
-                                }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                    createNewEvent()
-                                }
-                            }
-                        )
-                        
-                        // Upload Syllabus option
-                        FABOption(
-                            icon: "doc.badge.plus",
-                            label: "Upload Syllabus",
-                            color: AppColors.accent,
-                            action: {
-                                HapticFeedbackManager.shared.mediumImpact()
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                    fabExpanded = false
-                                }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                    showingImportView = true
-                                }
-                            }
-                        )
-                    }
-                    .transition(.scale.combined(with: .opacity))
-                }
-                
-                // Main FAB button
-                Button(action: handleFabTap) {
-                    Image(systemName: fabExpanded ? "xmark" : "plus")
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundColor(.white)
-                        .padding(24)
-                        .background(
-                            LinearGradient(
-                                gradient: Gradient(colors: [
-                                    Color(red: 0.886, green: 0.714, blue: 0.275), // #E2B646
-                                    Color(red: 0.816, green: 0.612, blue: 0.118)  // #D09C1E
-                                ]),
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .clipShape(Circle())
-                        .elevatedShadowLight()
-                        .rotationEffect(.degrees(fabExpanded ? 135 : 0))
-                }
-                .scaleEffect(fabPressed ? 0.90 : 1)
-                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: fabPressed)
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: fabExpanded)
-                .accessibilityLabel(fabExpanded ? "Close menu" : "Open quick actions")
-            }
-        }
-    }
-
-    func handleFabTap() {
-        HapticFeedbackManager.shared.mediumImpact()
-        fabPressed = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            fabPressed = false
-        }
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-            fabExpanded.toggle()
-        }
-    }
-
-    func createNewEvent() {
-        let now = Date()
-        let newEvent = EventItem(
-            id: UUID().uuidString,
-            courseCode: "", // Empty courseCode to avoid deletion conflicts
-            type: .assignment,
-            title: "",
-            start: now,
-            end: nil,
-            allDay: false,
-            location: nil,
-            notes: nil,
-            recurrenceRule: nil,
-            reminderMinutes: 1440,
-            confidence: 1.0
-        )
-        isCreatingNewEvent = true
-        editingEvent = newEvent
-    }
-}
-
 // MARK: - FAB Option
 
-private struct FABOption: View {
-    let icon: String
-    let label: String
-    let color: Color
-    let action: () -> Void
-    
-    @State private var isPressed = false
-    
-    var body: some View {
-        Button(action: {
-            isPressed = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                isPressed = false
-            }
-            action()
-        }) {
-            HStack(spacing: Layout.Spacing.sm) {
-                Text(label)
-                    .font(.body)
-                    .fontWeight(.semibold)
-                    .foregroundColor(AppColors.textPrimary)
-                
-                Image(systemName: icon)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 50, height: 50)
-                    .background(
-                        Circle()
-                            .fill(color)
-                            .shadow(color: color.opacity(0.3), radius: 8, x: 0, y: 4)
-                    )
-            }
-            .padding(.horizontal, Layout.Spacing.md)
-            .padding(.vertical, Layout.Spacing.sm)
-            .background(
-                Capsule()
-                    .fill(AppColors.surface)
-                    .shadow(color: AppColors.shadow.opacity(0.15), radius: 8, x: 0, y: 4)
-            )
-        }
-        .scaleEffect(isPressed ? 0.95 : 1.0)
-        .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isPressed)
-    }
-}
-
-// MARK: - Dashboard Empty State
 
 struct DashboardEmptyView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
     @State private var buttonScale: CGFloat = 1.0
-    @State private var showGlow: Bool = false
     @Binding var showingImportView: Bool
     
     var body: some View {
-        VStack(spacing: Layout.Spacing.xxl) {
-            // Illustration from dashboard-image.png
-            VStack(spacing: Layout.Spacing.xl) {
-                ZStack {
-                    Image("DashboardEmpty")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: 280, maxHeight: 240)
-                        .scaleEffect(showGlow ? 1.04 : 0.95)
-                        .opacity(showGlow ? 1.0 : 0.85)
-                        .animation(
-                            Animation.easeInOut(duration: 2.8)
-                                .repeatForever(autoreverses: true),
-                            value: showGlow
-                        )
-                        .onAppear { 
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                showGlow = true 
-                            }
-                        }
-                }
-                .frame(width: 280, height: 240)
-                .clipped()
-                
-                // Concise Copy
-                VStack(spacing: Layout.Spacing.md) {
-                    Text("Nothing here yet! Upload a syllabus to get started.")
-                        .font(.body)
-                        .foregroundColor(AppColors.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(4)
-                        .padding(.horizontal, Layout.Spacing.xl)
-                }
-            }
-            .padding(.horizontal, Layout.Spacing.md)
+        VStack(spacing: Layout.Spacing.xl) {
+            Spacer()
             
-            // Action Section
+            // Icon Section
             VStack(spacing: Layout.Spacing.lg) {
-                Spacer(minLength: 40) // Adds vertical empty space above the button (tweak value if needed)
-                // Primary CTA - Large gradient button
-                Button {
-                    HapticFeedbackManager.shared.mediumImpact()
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                        buttonScale = 0.95
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                            buttonScale = 1.0
-                        }
-                    }
-                    showingImportView = true
-                } label: {
-                    HStack(spacing: Layout.Spacing.sm) {
-                        Image(systemName: "doc.badge.plus")
-                            .font(.system(size: 18, weight: .semibold))
-                        
-                        Text("Import Syllabus PDFs")
-                            .font(.body)
-                            .fontWeight(.semibold)
-                    }
-                    .foregroundColor(.white)
-                    .frame(height: 55)     // Increased height
-                    .frame(maxWidth: 320) // Decreased width
-                    .background(
-                        LinearGradient(
-                            gradient: Gradient(colors: [
-                                Color(red: 0.886, green: 0.714, blue: 0.275), // Medium gold
-                                Color(red: 0.722, green: 0.565, blue: 0.110)  // Darker gold
-                            ]),
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .cornerRadius(Layout.CornerRadius.lg)
-                    .shadow(color: AppColors.accent.opacity(0.3), radius: 12, x: 0, y: 6)
-                }
-                .scaleEffect(buttonScale)
+                // Custom Asset Image
+                Image("DashboardEmpty")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 200, height: 200) // Adjusted size for illustration
+                    .padding(.bottom, Layout.Spacing.md)
+                
+                // Headings
+                Text("Your syllabus journey begins here!")
+                    .font(.titleL)
+                    .fontWeight(.bold)
+                    .foregroundColor(AppColors.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, Layout.Spacing.md)
+                
+                Text("Get started by adding your first task, assignment, or exam. We'll help you stay on track!")
+                    .font(.body)
+                    .foregroundColor(AppColors.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, Layout.Spacing.xl) // Increased padding to force better wrapping
             }
-            .padding(.bottom, Layout.Spacing.xl)
+            
+            // Action Button
+            Button {
+                HapticFeedbackManager.shared.mediumImpact()
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                    buttonScale = 0.95
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                        buttonScale = 1.0
+                    }
+                }
+                
+                // Show action sheet or navigate
+                // For "Add Your First Task", we trigger the import view for now as per previous logic, 
+                // or we could open the manual event creation if that's preferred. 
+                // The design says "Add Your First Task", suggesting manual creation.
+                // But the previous implementation linked to Import.
+                // Let's default to showing Import for now, as it's the primary "sync" feature.
+                showingImportView = true
+                
+            } label: {
+                HStack(spacing: Layout.Spacing.sm) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 18, weight: .bold))
+                    
+                    Text("Add Your First Event")
+                        .font(.body)
+                        .fontWeight(.medium)
+                }
+                .foregroundColor(.white) // Text matches design
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
+                .background(AppColors.accent)
+                .cornerRadius(Layout.CornerRadius.lg)
+                .shadow(color: AppColors.accent.opacity(0.3), radius: 10, x: 0, y: 5)
+            }
+            .scaleEffect(buttonScale)
+            
+            Spacer()
+            Spacer() // Push content slightly up from visual center
         }
+        .padding(Layout.Spacing.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

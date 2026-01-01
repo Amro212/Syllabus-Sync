@@ -71,11 +71,11 @@ protocol AuthService {
     /// Sign in with Apple
     func signInWithApple() async -> AuthResult
     
-    /// Sign in with email and password
-    func signInWithEmail(email: String, password: String) async -> AuthResult
+    /// Send OTP code to email for passwordless authentication
+    func sendOTP(email: String, shouldCreateUser: Bool, username: String?, fullName: String?) async -> Result<Void, AuthError>
     
-    /// Sign up with email and password
-    func signUpWithEmail(email: String, password: String, firstName: String?, lastName: String?) async -> AuthResult
+    /// Verify OTP code and complete authentication
+    func verifyOTP(email: String, token: String) async -> AuthResult
     
     /// Sign out current user
     func signOut() async throws

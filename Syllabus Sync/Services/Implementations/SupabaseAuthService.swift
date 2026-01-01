@@ -137,20 +137,53 @@ class SupabaseAuthService: NSObject, AuthService {
         }
     }
     
-    // MARK: - Email/Password Sign Up
+    // MARK: - OTP Authentication
     
-    func signUpWithEmail(email: String, password: String, firstName: String?, lastName: String?) async -> AuthResult {
+    /// Send OTP code to email for passwordless authentication
+    /// Note: Supabase "Confirm email" setting must be DISABLED for OTP codes to work
+    /// Otherwise, it sends magic links instead of 6-digit codes
+    func sendOTP(
+        email: String,
+        shouldCreateUser: Bool,
+        username: String? = nil,
+        fullName: String? = nil
+    ) async -> Result<Void, AuthError> {
         do {
             var metadata: [String: AnyJSON] = [:]
-            if let firstName = firstName, let lastName = lastName {
-                metadata["full_name"] = .string("\(firstName) \(lastName)")
+            if let username = username {
+                metadata["username"] = .string(username)
+            }
+            if let fullName = fullName {
+                metadata["full_name"] = .string(fullName)
             }
             
-            let session = try await supabase.auth.signUp(
+            // Send OTP - User is created on first OTP verification
+            try await supabase.auth.signInWithOTP(
                 email: email,
-                password: password,
-                data: metadata
+                redirectTo: nil,
+                shouldCreateUser: shouldCreateUser,  // Allow new users
+                data: metadata.isEmpty ? nil : metadata
             )
+            
+            print("✅ OTP code sent to \(email)")
+            return .success(())
+            
+        } catch {
+            print("❌ Failed to send OTP: \(error)")
+            return .failure(.unknownError(error.localizedDescription))
+        }
+    }
+    
+    /// Verify OTP code and complete authentication
+    func verifyOTP(email: String, token: String) async -> AuthResult {
+        do {
+            let session = try await supabase.auth.verifyOTP(
+                email: email,
+                token: token,
+                type: .email
+            )
+            
+            print("✅ OTP verified for \(email)")
             
             let user = AuthUser(
                 id: session.user.id.uuidString,
@@ -162,10 +195,36 @@ class SupabaseAuthService: NSObject, AuthService {
             
             self.currentUser = user
             
+            // Store username in database if it exists in metadata
+            if let username = session.user.userMetadata["username"]?.value as? String {
+                await storeUsernameInDatabase(userId: session.user.id.uuidString, username: username)
+            }
+            
             return .success(user: user)
             
         } catch {
-            return .failure(error: .unknownError(error.localizedDescription))
+            print("❌ OTP verification failed: \(error)")
+            return .failure(error: .invalidCredentials)
+        }
+    }
+    
+    /// Store username in profiles table for uniqueness and querying
+    private func storeUsernameInDatabase(userId: String, username: String) async {
+        do {
+            // Insert or update username in profiles table
+            try await supabase
+                .from("profiles")
+                .upsert([
+                    "id": userId,
+                    "username": username,
+                    "updated_at": ISO8601DateFormatter().string(from: Date())
+                ])
+                .execute()
+            
+            print("✅ Username '\(username)' stored in database")
+        } catch {
+            print("⚠️ Failed to store username in database: \(error)")
+            // Don't fail auth if database storage fails - username is in metadata
         }
     }
     

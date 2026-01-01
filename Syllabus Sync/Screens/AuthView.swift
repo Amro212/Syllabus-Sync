@@ -68,22 +68,55 @@ struct AuthView: View {
                                 .font(.system(size: 13, weight: .medium, design: .rounded))
                                 .foregroundColor(AuthPalette.textSecondary)
                             
-                            TextField("Choose a username", text: $username)
+                            TextField("Choose a username", text: Binding(
+                                get: { username },
+                                set: { newValue in
+                                    let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+                                    let filtered = newValue.filter { char in
+                                        String(char).rangeOfCharacter(from: allowed) != nil
+                                    }
+                                    
+                                    if filtered != username {
+                                        username = filtered
+                                        // Vibrate if characters were rejected (input length > filtered length) or just different
+                                        if newValue.count > filtered.count {
+                                            HapticFeedbackManager.shared.error()
+                                        }
+                                    }
+                                    
+                                    validateUsername(filtered)
+                                }
+                            ))
                                 .font(.system(size: 15, design: .rounded))
                                 .foregroundColor(AuthPalette.textPrimary)
                                 .focused($focusedField, equals: .username)
                                 .autocapitalization(.none)
                                 .autocorrectionDisabled()
-                                .onChange(of: username) { _, newValue in validateUsername(newValue) }
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 14)
                                 .background(
                                     RoundedRectangle(cornerRadius: 14)
                                         .fill(AuthPalette.inputBackground)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 14)
+                                                .stroke(usernameError != nil ? Color.red.opacity(0.6) : Color.clear, lineWidth: 1)
+                                        )
                                 )
+                            
+                            // Error or hint text
+                            if let error = usernameError {
+                                Text(error)
+                                    .font(.system(size: 12, design: .rounded))
+                                    .foregroundColor(.red.opacity(0.9))
+                            } else if !username.isEmpty {
+                                Text("3-20 characters, letters, numbers, _ and - only")
+                                    .font(.system(size: 12, design: .rounded))
+                                    .foregroundColor(AuthPalette.textSecondary.opacity(0.7))
+                            }
                         }
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     }
+
                     
                     // Full Name Field (only in sign-up mode)
                     if !isSignInMode {
@@ -254,6 +287,14 @@ struct AuthView: View {
         // Validate inputs
         if !isSignInMode && (username.isEmpty || fullName.isEmpty) {
             errorMessage = "Please fill in all fields"
+            showError = true
+            HapticFeedbackManager.shared.error()
+            return
+        }
+        
+        // Check username validity
+        if !isSignInMode && usernameError != nil {
+            errorMessage = usernameError
             showError = true
             HapticFeedbackManager.shared.error()
             return

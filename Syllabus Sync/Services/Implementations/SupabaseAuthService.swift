@@ -140,6 +140,8 @@ class SupabaseAuthService: NSObject, AuthService {
     // MARK: - OTP Authentication
     
     /// Send OTP code to email for passwordless authentication
+    /// Note: Supabase "Confirm email" setting must be DISABLED for OTP codes to work
+    /// Otherwise, it sends magic links instead of 6-digit codes
     func sendOTP(
         email: String,
         shouldCreateUser: Bool,
@@ -155,14 +157,15 @@ class SupabaseAuthService: NSObject, AuthService {
                 metadata["full_name"] = .string(fullName)
             }
             
+            // Send OTP - User is created on first OTP verification
             try await supabase.auth.signInWithOTP(
                 email: email,
                 redirectTo: nil,
-                shouldCreateUser: shouldCreateUser,
+                shouldCreateUser: shouldCreateUser,  // Allow new users
                 data: metadata.isEmpty ? nil : metadata
             )
             
-            print("✅ OTP sent to \(email)")
+            print("✅ OTP code sent to \(email)")
             return .success(())
             
         } catch {

@@ -239,6 +239,8 @@ private struct WeekAtGlanceView: View {
         var assignments = 0
         var labs = 0
         var exams = 0
+        var quizzes = 0
+        var lectures = 0
         var other = 0
         
         for event in thisWeekEvents {
@@ -246,16 +248,19 @@ private struct WeekAtGlanceView: View {
             case .assignment: assignments += 1
             case .lab: labs += 1
             case .midterm, .final: exams += 1
-            case .quiz: other += 1
-            case .lecture, .other: other += 1
+            case .quiz: quizzes += 1
+            case .lecture: lectures += 1
+            case .other: other += 1
             }
         }
         
         var result: [(icon: String, count: Int, label: String)] = []
         if assignments > 0 { result.append(("doc.text.fill", assignments, assignments == 1 ? "Assignment due" : "Assignments due")) }
         if labs > 0 { result.append(("flask.fill", labs, labs == 1 ? "Lab this week" : "Labs this week")) }
-        if exams > 0 { result.append(("graduationcap.fill", exams, exams == 1 ? "Midterm approaching" : "Exams approaching")) }
-        if other > 0 { result.append(("book.fill", other, other == 1 ? "Reading to complete" : "Readings to complete")) }
+        if exams > 0 { result.append(("graduationcap.fill", exams, exams == 1 ? "Exam approaching" : "Exams approaching")) }
+        if quizzes > 0 { result.append(("questionmark.circle.fill", quizzes, quizzes == 1 ? "Quiz this week" : "Quizzes this week")) }
+        if lectures > 0 { result.append(("person.3.fill", lectures, lectures == 1 ? "Lecture this week" : "Lectures this week")) }
+        if other > 0 { result.append(("calendar.badge.clock", other, other == 1 ? "Other event" : "Other events")) }
         return result
     }
     

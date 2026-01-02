@@ -288,38 +288,32 @@ private struct GlanceStatCard: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Icon at top-left
+            // Icon container at top-left
             Image(systemName: icon)
-                .font(.system(size: 24))
+                .font(.system(size: 22, weight: .medium))
                 .foregroundColor(AppColors.accent)
-                .frame(width: 48, height: 48)
+                .frame(width: 44, height: 44)
                 .background(
-                    RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
+                    RoundedRectangle(cornerRadius: 12)
                         .fill(AppColors.accent.opacity(0.2))
                 )
-                .padding(.bottom, Layout.Spacing.md)
             
-            // Push content to bottom
-            Spacer(minLength: 0)
+            Spacer()
             
             // Count and Label at bottom
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(count)")
-                    .font(.system(size: 30, weight: .bold))
-                    .foregroundColor(AppColors.textPrimary)
-                
-                Text(label)
-                    .font(.caption)
-                    .foregroundColor(AppColors.textSecondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text("\(count)")
+                .font(.system(size: 42, weight: .bold))
+                .foregroundColor(AppColors.textPrimary)
+            
+            Text(label)
+                .font(.subheadline)
+                .foregroundColor(AppColors.textSecondary)
+                .lineLimit(1)
         }
-        .frame(minWidth: 140, minHeight: 160)
-        .padding(Layout.Spacing.md)
+        .frame(width: 150, height: 170, alignment: .topLeading)
+        .padding(16)
         .background(AppColors.surface)
-        .cornerRadius(Layout.CornerRadius.lg)
-        .shadow(color: AppColors.shadow.opacity(0.08), radius: 6, x: 0, y: 2)
+        .cornerRadius(20)
     }
 }
 

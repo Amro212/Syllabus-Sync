@@ -274,12 +274,11 @@ struct TabNavigationView: View {
             
             // FAB Menu Options (positioned above the tab bar)
             if fabExpanded {
-                VStack(spacing: Layout.Spacing.sm) {
+                VStack(spacing: 4) {
                     // Add Reminder option
                     FABOption(
-                        icon: "plus.circle.fill",
+                        icon: "calendar.badge.plus",
                         label: "Add Reminder",
-                        color: Color.blue,
                         action: {
                             HapticFeedbackManager.shared.mediumImpact()
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
@@ -292,11 +291,10 @@ struct TabNavigationView: View {
                         }
                     )
                     
-                    // Upload Syllabus option
+                    // AI Syllabus Scan option
                     FABOption(
-                        icon: "doc.badge.plus",
-                        label: "Upload Syllabus",
-                        color: AppColors.accent,
+                        icon: "sparkles",
+                        label: "AI Syllabus Scan",
                         action: {
                             HapticFeedbackManager.shared.mediumImpact()
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
@@ -308,6 +306,17 @@ struct TabNavigationView: View {
                         }
                     )
                 }
+                .padding(8)
+                .background(
+                    RoundedRectangle(cornerRadius: Layout.CornerRadius.xl)
+                        .fill(AppColors.surface)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Layout.CornerRadius.xl)
+                                .stroke(AppColors.border.opacity(0.5), lineWidth: 1)
+                        )
+                        .shadow(color: AppColors.shadow.opacity(0.2), radius: 16, x: 0, y: 8)
+                )
+                .fixedSize()
                 .padding(.bottom, 100) // Lift above the tab bar (adjust as needed)
                 .transition(.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity).combined(with: .move(edge: .bottom)))
                 .zIndex(11) // Above backdrop
@@ -374,7 +383,6 @@ struct TabNavigationView: View {
 private struct FABOption: View {
     let icon: String
     let label: String
-    let color: Color
     let action: () -> Void
     
     @State private var isPressed = false
@@ -388,27 +396,26 @@ private struct FABOption: View {
             }
         }) {
             HStack(spacing: Layout.Spacing.sm) {
-                Text(label)
-                    .font(.body)
-                    .fontWeight(.semibold)
-                    .foregroundColor(AppColors.textPrimary)
-                
+                // Icon
                 Image(systemName: icon)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 50, height: 50)
-                    .background(
-                        Circle()
-                            .fill(color)
-                            .shadow(color: color.opacity(0.3), radius: 8, x: 0, y: 4)
-                    )
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(AppColors.textPrimary)
+                    .frame(width: 20)
+                
+                // Label - single line, no wrapping
+                Text(label)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(AppColors.textPrimary)
+                    .lineLimit(1)
+                    .fixedSize()
             }
             .padding(.horizontal, Layout.Spacing.md)
-            .padding(.vertical, 4) // Slight vertical padding
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
             .background(
-                Capsule()
+                RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
                     .fill(AppColors.surface)
-                    .shadow(color: AppColors.shadow.opacity(0.15), radius: 8, x: 0, y: 4)
             )
         }
         .scaleEffect(isPressed ? 0.95 : 1.0)

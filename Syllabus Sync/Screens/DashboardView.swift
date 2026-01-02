@@ -35,23 +35,14 @@ struct DashboardView: View {
                                 .frame(minHeight: geo.size.height - headerHeight - 100)
                                 .transition(.opacity)
                         } else {
-                            // New modular dashboard structure
+                            // New modular dashboard structure matching wireframe
                             VStack(spacing: Layout.Spacing.xl) {
-                                DashboardHeaderSummaryView(events: eventStore.events)
-                                DashboardWeekCarouselView(events: eventStore.events, onDayTapped: { date in
-                                    let calendar = Calendar.current
-                                    if let firstEvent = eventStore.events.first(where: { event in
-                                        calendar.isDate(event.start, inSameDayAs: date)
-                                    }) {
-                                        navigationManager.scrollToEventId = firstEvent.id
-                                    }
-                                    navigationManager.selectedTabRoute = .reminders
-                                })
-                                DashboardHighlightsView(events: eventStore.events, onEventTapped: { event in
+                                WeekAtGlanceView(events: eventStore.events)
+                                UpcomingDeadlinesView(events: eventStore.events, onEventTapped: { event in
                                     navigationManager.scrollToEventId = event.id
                                     navigationManager.selectedTabRoute = .reminders
                                 })
-                                DashboardInsightsView(events: eventStore.events)
+                                QuickInsightCardView(events: eventStore.events)
                             }
                             .padding(.horizontal, Layout.Spacing.md)
                             .padding(.vertical, Layout.Spacing.xl)
@@ -210,7 +201,312 @@ struct DashboardEmptyView: View {
     }
 }
 
-// MARK: - Dashboard Header Summary
+// MARK: - Week At a Glance
+
+private struct WeekAtGlanceView: View {
+    let events: [EventItem]
+    
+    private var thisWeekEvents: [EventItem] {
+        let calendar = Calendar.current
+        let now = Date()
+        let startOfWeek = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? now
+        let endOfWeek = calendar.date(byAdding: .day, value: 7, to: startOfWeek) ?? now
+        
+        return events.filter { event in
+            event.start >= startOfWeek && event.start < endOfWeek
+        }
+    }
+    
+    private var stats: [(icon: String, count: Int, label: String)] {
+        var assignments = 0
+        var labs = 0
+        var exams = 0
+        var other = 0
+        
+        for event in thisWeekEvents {
+            switch event.type {
+            case .assignment: assignments += 1
+            case .lab: labs += 1
+            case .midterm, .final: exams += 1
+            case .quiz: other += 1
+            case .lecture, .other: other += 1
+            }
+        }
+        
+        var result: [(icon: String, count: Int, label: String)] = []
+        if assignments > 0 { result.append(("doc.text.fill", assignments, assignments == 1 ? "Assignment due" : "Assignments due")) }
+        if labs > 0 { result.append(("flask.fill", labs, labs == 1 ? "Lab this week" : "Labs this week")) }
+        if exams > 0 { result.append(("graduationcap.fill", exams, exams == 1 ? "Midterm approaching" : "Exams approaching")) }
+        if other > 0 { result.append(("book.fill", other, other == 1 ? "Reading to complete" : "Readings to complete")) }
+        return result
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.md) {
+            Text("This Week at a Glance")
+                .font(.title2)
+                .fontWeight(.bold)
+                .foregroundColor(AppColors.textPrimary)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Layout.Spacing.md) {
+                    ForEach(Array(stats.enumerated()), id: \.offset) { _, stat in
+                        GlanceStatCard(icon: stat.icon, count: stat.count, label: stat.label)
+                    }
+                }
+                .padding(.horizontal, 2)
+                .padding(.vertical, 4)
+            }
+            .padding(.horizontal, -Layout.Spacing.md)
+            .padding(.leading, Layout.Spacing.md)
+        }
+    }
+}
+
+private struct GlanceStatCard: View {
+    let icon: String
+    let count: Int
+    let label: String
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.md) {
+            // Icon
+            Image(systemName: icon)
+                .font(.system(size: 24))
+                .foregroundColor(AppColors.accent)
+                .frame(width: 48, height: 48)
+                .background(
+                    RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
+                        .fill(AppColors.accent.opacity(0.2))
+                )
+            
+            Spacer()
+            
+            // Count and Label
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(count)")
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundColor(AppColors.textPrimary)
+                
+                Text(label)
+                    .font(.caption)
+                    .foregroundColor(AppColors.textSecondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(minWidth: 140)
+        .padding(Layout.Spacing.md)
+        .background(AppColors.surface)
+        .cornerRadius(Layout.CornerRadius.lg)
+        .shadow(color: AppColors.shadow.opacity(0.08), radius: 6, x: 0, y: 2)
+    }
+}
+
+// MARK: - Upcoming Deadlines
+
+private struct UpcomingDeadlinesView: View {
+    let events: [EventItem]
+    let onEventTapped: (EventItem) -> Void
+    
+    private var upcomingEvents: [EventItem] {
+        let now = Date()
+        let weekFromNow = Calendar.current.date(byAdding: .day, value: 7, to: now) ?? now
+        
+        return events
+            .filter { $0.start >= now && $0.start <= weekFromNow }
+            .sorted { $0.start < $1.start }
+            .prefix(5)
+            .map { $0 }
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.md) {
+            Text("Upcoming Deadlines")
+                .font(.title2)
+                .fontWeight(.bold)
+                .foregroundColor(AppColors.textPrimary)
+            
+            if upcomingEvents.isEmpty {
+                Text("No upcoming deadlines in the next 7 days")
+                    .font(.body)
+                    .foregroundColor(AppColors.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, Layout.Spacing.xl)
+            } else {
+                VStack(spacing: Layout.Spacing.sm) {
+                    ForEach(upcomingEvents) { event in
+                        DeadlineRow(event: event, onTap: { onEventTapped(event) })
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct DeadlineRow: View {
+    let event: EventItem
+    let onTap: () -> Void
+    
+    private var iconColor: Color {
+        switch event.type {
+        case .assignment: return Color.blue
+        case .lab: return Color.green
+        case .midterm, .final: return Color.red
+        case .quiz: return Color.orange
+        case .lecture, .other: return Color.gray
+        }
+    }
+    
+    private var icon: String {
+        switch event.type {
+        case .assignment: return "doc.text.fill"
+        case .lab: return "flask.fill"
+        case .midterm, .final: return "graduationcap.fill"
+        case .quiz: return "questionmark.circle.fill"
+        case .lecture: return "person.3.fill"
+        case .other: return "calendar"
+        }
+    }
+    
+    private var formattedDate: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, h:mm a"
+        return formatter.string(from: event.start)
+    }
+    
+    var body: some View {
+        Button(action: {
+            HapticFeedbackManager.shared.lightImpact()
+            onTap()
+        }) {
+            HStack(spacing: Layout.Spacing.md) {
+                // Color-coded icon
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(iconColor)
+                    .frame(width: 48, height: 48)
+                    .background(
+                        RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
+                            .fill(iconColor.opacity(0.2))
+                    )
+                
+                // Content
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(event.title)
+                        .font(.body)
+                        .fontWeight(.medium)
+                        .foregroundColor(AppColors.textPrimary)
+                        .lineLimit(1)
+                    
+                    Text(event.courseCode)
+                        .font(.caption)
+                        .foregroundColor(AppColors.textSecondary)
+                        .lineLimit(1)
+                }
+                
+                Spacer()
+                
+                // Date
+                Text(formattedDate)
+                    .font(.caption)
+                    .foregroundColor(AppColors.textSecondary)
+            }
+            .padding(Layout.Spacing.sm)
+            .background(AppColors.surface)
+            .cornerRadius(Layout.CornerRadius.md)
+            .shadow(color: AppColors.shadow.opacity(0.06), radius: 4, x: 0, y: 2)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - Quick Insight Card
+
+private struct QuickInsightCardView: View {
+    let events: [EventItem]
+    
+    private var insight: (title: String, description: String) {
+        let now = Date()
+        let twoDaysFromNow = Calendar.current.date(byAdding: .day, value: 2, to: now) ?? now
+        
+        let urgentEvents = events.filter { $0.start >= now && $0.start <= twoDaysFromNow }
+        let urgentCount = urgentEvents.count
+        
+        if urgentCount >= 2 {
+            // Find a specific event to suggest
+            let suggestedEvent = urgentEvents
+                .sorted { $0.start > $1.start } // Start with furthest to give prep time
+                .first
+            
+            let suggestion = suggestedEvent.map { "Consider starting your \($0.title) for \($0.courseCode) today." } ?? ""
+            
+            return (
+                "Heavy Workload Ahead",
+                "You have \(urgentCount) deadlines in the next 48 hours. \(suggestion)"
+            )
+        } else if urgentCount == 1, let next = urgentEvents.first {
+            return (
+                "Deadline Tomorrow",
+                "Don't forget: \(next.title) for \(next.courseCode) is due soon."
+            )
+        } else {
+            return (
+                "You're On Track! 🎉",
+                "No urgent deadlines in the next 48 hours. Great time to get ahead!"
+            )
+        }
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.md) {
+            Text("Quick Insights")
+                .font(.title2)
+                .fontWeight(.bold)
+                .foregroundColor(AppColors.textPrimary)
+            
+            HStack(alignment: .top, spacing: Layout.Spacing.md) {
+                // Lightbulb icon
+                Image(systemName: "lightbulb.fill")
+                    .font(.system(size: 24))
+                    .foregroundColor(.white)
+                    .frame(width: 48, height: 48)
+                    .background(
+                        RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
+                            .fill(AppColors.accent)
+                    )
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(insight.title)
+                        .font(.body)
+                        .fontWeight(.semibold)
+                        .foregroundColor(AppColors.textPrimary)
+                    
+                    Text(insight.description)
+                        .font(.subheadline)
+                        .foregroundColor(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(Layout.Spacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        AppColors.accent.opacity(0.3),
+                        AppColors.accent.opacity(0.1)
+                    ]),
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .cornerRadius(Layout.CornerRadius.lg)
+            .shadow(color: AppColors.shadow.opacity(0.08), radius: 6, x: 0, y: 2)
+        }
+    }
+}
+
+// MARK: - Dashboard Header Summary (Legacy - kept for potential future use)
 
 private struct DashboardHeaderSummaryView: View {
     let events: [EventItem]

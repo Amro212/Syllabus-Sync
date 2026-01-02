@@ -864,6 +864,7 @@ struct SettingsView: View {
                     }
                 }
                 .padding(Layout.Spacing.lg)
+                .padding(.bottom, 80) // Add bottom padding for tab bar
             }
             .background(AppColors.background)
             .navigationTitle("Settings")

@@ -50,6 +50,7 @@ struct DashboardView: View {
                         }
                     }
                     .padding(.top, 60)
+                    .padding(.bottom, 80) // Add bottom padding for tab bar
                 }
                 .background(AppColors.background)
                 .refreshable {

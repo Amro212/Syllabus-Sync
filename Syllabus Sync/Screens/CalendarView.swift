@@ -89,6 +89,7 @@ struct CalendarView: View {
                         }
                         .padding(.horizontal, Layout.Spacing.lg)
                         .padding(.vertical, Layout.Spacing.md)
+                        .padding(.bottom, 80) // Add bottom padding for tab bar
                     }
                 }
                 

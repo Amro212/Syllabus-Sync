@@ -63,6 +63,7 @@ struct RemindersView: View {
                                 }
                             }
                             .padding(.top, 40)
+                            .padding(.bottom, 80) // Add bottom padding for tab bar
                         }
                         .background(AppColors.background)
                         .refreshable {

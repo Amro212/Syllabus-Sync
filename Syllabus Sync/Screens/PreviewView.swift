@@ -334,9 +334,18 @@ struct PreviewEventCard: View {
         return formatter
     }()
     
+    private static let dateOnlyFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
+    
     private func formatEventTime(_ event: EventItem) -> String {
         if event.allDay == true {
-            return "All Day"
+            // Show date followed by "All Day"
+            let dateString = Self.dateOnlyFormatter.string(from: event.start)
+            return "\(dateString), All Day"
         }
         
         if let recurrenceRule = event.recurrenceRule {

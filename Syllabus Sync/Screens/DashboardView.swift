@@ -123,6 +123,7 @@ struct DashboardView: View {
 struct DashboardEmptyView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
     @State private var buttonScale: CGFloat = 1.0
+    @State private var showGlow: Bool = false
     @Binding var showingImportView: Bool
     
     var body: some View {
@@ -131,12 +132,28 @@ struct DashboardEmptyView: View {
             
             // Icon Section
             VStack(spacing: Layout.Spacing.lg) {
-                // Custom Asset Image
-                Image("DashboardEmpty")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 200, height: 200) // Adjusted size for illustration
-                    .padding(.bottom, Layout.Spacing.md)
+                // Custom Asset Image with breathing animation
+                ZStack {
+                    Image("DashboardEmpty")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 200, height: 200)
+                        .scaleEffect(showGlow ? 1.04 : 0.95)
+                        .opacity(showGlow ? 1.0 : 0.85)
+                        .animation(
+                            Animation.easeInOut(duration: 2.8)
+                                .repeatForever(autoreverses: true),
+                            value: showGlow
+                        )
+                        .onAppear {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                showGlow = true
+                            }
+                        }
+                }
+                .frame(width: 200, height: 200)
+                .clipped()
+                .padding(.bottom, Layout.Spacing.md)
                 
                 // Headings
                 Text("Your syllabus journey begins here!")

@@ -37,12 +37,12 @@ struct DashboardView: View {
                         } else {
                             // New modular dashboard structure matching wireframe
                             VStack(spacing: Layout.Spacing.xl) {
+                                QuickInsightCardView(events: eventStore.events)
                                 WeekAtGlanceView(events: eventStore.events)
                                 UpcomingDeadlinesView(events: eventStore.events, onEventTapped: { event in
                                     navigationManager.scrollToEventId = event.id
                                     navigationManager.selectedTabRoute = .reminders
                                 })
-                                QuickInsightCardView(events: eventStore.events)
                             }
                             .padding(.horizontal, Layout.Spacing.md)
                             .padding(.vertical, Layout.Spacing.xl)

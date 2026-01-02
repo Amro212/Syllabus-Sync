@@ -335,6 +335,10 @@ struct PreviewEventCard: View {
     }()
     
     private func formatEventTime(_ event: EventItem) -> String {
+        if event.allDay == true {
+            return "All Day"
+        }
+        
         if let recurrenceRule = event.recurrenceRule {
             // For recurring events, show pattern instead of specific date
             let dayPattern = extractDayPattern(from: recurrenceRule)

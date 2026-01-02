@@ -286,8 +286,8 @@ private struct GlanceStatCard: View {
     let label: String
     
     var body: some View {
-        VStack(alignment: .leading, spacing: Layout.Spacing.md) {
-            // Icon
+        VStack(alignment: .leading, spacing: 0) {
+            // Icon at top-left
             Image(systemName: icon)
                 .font(.system(size: 24))
                 .foregroundColor(AppColors.accent)
@@ -296,10 +296,12 @@ private struct GlanceStatCard: View {
                     RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
                         .fill(AppColors.accent.opacity(0.2))
                 )
+                .padding(.bottom, Layout.Spacing.md)
             
-            Spacer()
+            // Push content to bottom
+            Spacer(minLength: 0)
             
-            // Count and Label
+            // Count and Label at bottom
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(count)")
                     .font(.system(size: 30, weight: .bold))
@@ -312,7 +314,7 @@ private struct GlanceStatCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .frame(minWidth: 140)
+        .frame(minWidth: 140, minHeight: 160)
         .padding(Layout.Spacing.md)
         .background(AppColors.surface)
         .cornerRadius(Layout.CornerRadius.lg)

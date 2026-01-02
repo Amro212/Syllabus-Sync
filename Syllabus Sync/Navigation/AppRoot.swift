@@ -350,10 +350,10 @@ struct TabNavigationView: View {
                 editingEvent = nil
             }
         }
-        .onChange(of: navigationManager.selectedTabRoute) {
-             HapticFeedbackManager.shared.selection()
-             // Close FAB if tab changes
-             fabExpanded = false
+        .onChange(of: navigationManager.selectedTabRoute) { _ in
+            HapticFeedbackManager.shared.selection()
+            // Close FAB if tab changes
+            fabExpanded = false
         }
     }
     

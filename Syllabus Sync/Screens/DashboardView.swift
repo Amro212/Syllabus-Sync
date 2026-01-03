@@ -41,7 +41,7 @@ struct DashboardView: View {
                                 WeekAtGlanceView(events: eventStore.events)
                                 UpcomingDeadlinesView(events: eventStore.events, onEventTapped: { event in
                                     navigationManager.scrollToEventId = event.id
-                                    navigationManager.selectedTabRoute = .reminders
+                                    navigationManager.switchTab(to: .reminders)
                                 })
                             }
                             .padding(.horizontal, Layout.Spacing.md)

@@ -110,7 +110,9 @@ class AppNavigationManager: ObservableObject {
     
     /// Switch to a specific tab (for tab navigation)
     func switchTab(to route: AppRoute) {
-        selectedTabRoute = route
+        withAnimation(.easeInOut(duration: 0.1)) {
+            selectedTabRoute = route
+        }
         HapticFeedbackManager.shared.selection()
     }
 }
@@ -257,7 +259,10 @@ struct TabNavigationView: View {
                     DashboardView()
                 }
             }
+            .id(navigationManager.selectedTabRoute)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .transition(.opacity)
+            .animation(.easeInOut(duration: 0.5), value: navigationManager.selectedTabRoute)
             
             // FAB Menu Backdrop (only when expanded)
             if fabExpanded {

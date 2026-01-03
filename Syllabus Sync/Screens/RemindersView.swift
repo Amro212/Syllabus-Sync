@@ -30,25 +30,6 @@ struct RemindersView: View {
                     ScrollViewReader { proxy in
                         ScrollView {
                             LazyVStack(spacing: 0) {
-                                // Custom header with consistent padding
-                                VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
-                                    Text("Reminders")
-                                        .font(.largeTitle)
-                                        .fontWeight(.bold)
-                                        .foregroundColor(AppColors.textPrimary)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    
-                                    if eventStore.events.isEmpty {
-                                        Text("Set up reminders to stay on top of your academic schedule.")
-                                            .font(.body)
-                                            .foregroundColor(AppColors.textSecondary)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                }
-                                .padding(.horizontal, Layout.Spacing.md)
-                                .padding(.top, Layout.Spacing.sm)
-                                .padding(.bottom, Layout.Spacing.sm)
-                                
                                 if showShimmer {
                                     RemindersShimmerView()
                                         .transition(.opacity)
@@ -62,7 +43,7 @@ struct RemindersView: View {
                                         .transition(.opacity)
                                 }
                             }
-                            .padding(.top, 40)
+                            .padding(.top, 60)
                             .padding(.bottom, 80) // Add bottom padding for tab bar
                         }
                         .background(AppColors.background)
@@ -84,18 +65,32 @@ struct RemindersView: View {
                         }
                     }
 
+                    // Custom Top Bar (Sticky)
                     VStack(spacing: 0) {
-                        Rectangle()
-                            .fill(.ultraThinMaterial)
-                            .frame(height: headerHeight)
-                            .overlay(alignment: .bottom) {
-                                Color.primary.opacity(0.12)
-                                    .frame(height: 1)
-                                    .allowsHitTesting(false)
-                            }
-                            .ignoresSafeArea(edges: .top)
+                        HStack {
+                            Text("Reminders")
+                                .font(.titleL)
+                                .fontWeight(.bold)
+                                .foregroundColor(AppColors.textPrimary)
+                            
+                            Spacer()
+                            
+                            Image(systemName: "person.circle")
+                                .font(.system(size: 28))
+                                .foregroundColor(AppColors.textPrimary)
+                        }
+                        .padding(.horizontal, Layout.Spacing.md)
+                        .padding(.bottom, Layout.Spacing.sm)
+                        .padding(.top, geo.safeAreaInsets.top)
+                        .background(AppColors.background.opacity(0.95))
+                        .overlay(alignment: .bottom) {
+                            Divider().opacity(0.5)
+                        }
+                        
                         Spacer()
                     }
+                    .frame(height: headerHeight + 50)
+                    .ignoresSafeArea(edges: .top)
                 }
                 .background(AppColors.background)
                 .overlay(alignment: .bottomTrailing) {

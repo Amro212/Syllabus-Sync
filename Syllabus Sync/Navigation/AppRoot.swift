@@ -722,155 +722,185 @@ struct SettingsView: View {
     @State private var hapticEnabled = true
     
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: Layout.Spacing.xl) {
-                    // App Info Section
-                    VStack(spacing: Layout.Spacing.lg) {
-                        AppIcon("graduationcap.circle.fill", size: .xlarge, style: .filled)
+        GeometryReader { geo in
+            let headerHeight = geo.safeAreaInsets.top + 4
+            
+            ZStack(alignment: .top) {
+                ScrollView {
+                    VStack(spacing: Layout.Spacing.xl) {
+                        // App Info Section
+                        VStack(spacing: Layout.Spacing.lg) {
+                            AppIcon("graduationcap.circle.fill", size: .xlarge, style: .filled)
+                            
+                            VStack(spacing: Layout.Spacing.md) {
+                                Text("Syllabus Sync")
+                                    .font(.titleL)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(AppColors.textPrimary)
+                                
+                                Text("Version 1.0 (Beta)")
+                                    .font(.body)
+                                    .foregroundColor(AppColors.textSecondary)
+                            }
+                        }
                         
-                        VStack(spacing: Layout.Spacing.md) {
-                            Text("Syllabus Sync")
-                                .font(.titleL)
-                                .fontWeight(.bold)
-                                .foregroundColor(AppColors.textPrimary)
-                            
-                            Text("Version 1.0 (Beta)")
-                                .font(.body)
-                                .foregroundColor(AppColors.textSecondary)
-                        }
-                    }
-                    
-                    // Appearance Section
-                    SettingsSection(title: "Appearance", icon: "paintbrush") {
-                        VStack(spacing: Layout.Spacing.lg) {
-                            SettingsRow(
-                                title: "Theme",
-                                subtitle: "Choose your preferred theme",
-                                icon: "circle.lefthalf.filled"
-                            ) {
-                                ThemeToggle()
+                        // Appearance Section
+                        SettingsSection(title: "Appearance", icon: "paintbrush") {
+                            VStack(spacing: Layout.Spacing.lg) {
+                                SettingsRow(
+                                    title: "Theme",
+                                    subtitle: "Choose your preferred theme",
+                                    icon: "circle.lefthalf.filled"
+                                ) {
+                                    ThemeToggle()
+                                }
                             }
                         }
-                    }
-                    
-                    // Preferences Section
-                    SettingsSection(title: "Preferences", icon: "slider.horizontal.3") {
-                        VStack(spacing: Layout.Spacing.lg) {
-                            SettingsToggleRow(
-                                title: "Notifications",
-                                subtitle: "Get notified about upcoming events",
-                                icon: "bell",
-                                isOn: $notificationsEnabled
-                            )
-                            
-                            SettingsToggleRow(
-                                title: "Haptic Feedback",
-                                subtitle: "Feel interactions with haptic feedback",
-                                icon: "iphone.radiowaves.left.and.right",
-                                isOn: $hapticEnabled
-                            )
-                        }
-                    }
-                    
-                    // Testing Section
-                    SettingsSection(title: "Testing", icon: "wrench.and.screwdriver") {
-                        VStack(spacing: Layout.Spacing.lg) {
-                            SettingsActionRow(
-                                title: "Test Haptic Feedback",
-                                subtitle: "Try different haptic patterns",
-                                icon: "hand.tap"
-                            ) {
-                                testHapticFeedback()
-                            }
-                            
-                            SettingsActionRow(
-                                title: "Test Networking",
-                                subtitle: "Test API client and parsing functionality",
-                                icon: "network"
-                            ) {
-                                navigationManager.navigate(to: .networkingTest)
-                            }
-                            
-                            SettingsActionRow(
-                                title: "Reset to Empty State",
-                                subtitle: "Clear all data and return to onboarding",
-                                icon: "trash",
-                                isDestructive: true
-                            ) {
-                                showingResetAlert = true
+                        
+                        // Preferences Section
+                        SettingsSection(title: "Preferences", icon: "slider.horizontal.3") {
+                            VStack(spacing: Layout.Spacing.lg) {
+                                SettingsToggleRow(
+                                    title: "Notifications",
+                                    subtitle: "Get notified about upcoming events",
+                                    icon: "bell",
+                                    isOn: $notificationsEnabled
+                                )
+                                
+                                SettingsToggleRow(
+                                    title: "Haptic Feedback",
+                                    subtitle: "Feel interactions with haptic feedback",
+                                    icon: "iphone.radiowaves.left.and.right",
+                                    isOn: $hapticEnabled
+                                )
                             }
                         }
-                    }
-                    
-                    // Data Management Section
-                    SettingsSection(title: "Data Management", icon: "icloud") {
-                        VStack(spacing: Layout.Spacing.lg) {
-                            SettingsActionRow(
-                                title: "Delete Cloud Backup",
-                                subtitle: "Delete all data from Core Data and iCloud",
-                                icon: "icloud.slash",
-                                isDestructive: true
-                            ) {
-                                showingDeleteCloudDataAlert = true
+                        
+                        // Testing Section
+                        SettingsSection(title: "Testing", icon: "wrench.and.screwdriver") {
+                            VStack(spacing: Layout.Spacing.lg) {
+                                SettingsActionRow(
+                                    title: "Test Haptic Feedback",
+                                    subtitle: "Try different haptic patterns",
+                                    icon: "hand.tap"
+                                ) {
+                                    testHapticFeedback()
+                                }
+                                
+                                SettingsActionRow(
+                                    title: "Test Networking",
+                                    subtitle: "Test API client and parsing functionality",
+                                    icon: "network"
+                                ) {
+                                    navigationManager.navigate(to: .networkingTest)
+                                }
+                                
+                                SettingsActionRow(
+                                    title: "Reset to Empty State",
+                                    subtitle: "Clear all data and return to onboarding",
+                                    icon: "trash",
+                                    isDestructive: true
+                                ) {
+                                    showingResetAlert = true
+                                }
                             }
                         }
-                    }
-                    
-                    // Account Section
-                    SettingsSection(title: "Account", icon: "person.circle") {
-                        VStack(spacing: Layout.Spacing.lg) {
-                            SettingsActionRow(
-                                title: "Sign Out",
-                                subtitle: "Sign out of your account",
-                                icon: "arrow.right.square",
-                                isDestructive: true
-                            ) {
-                                showingSignOutAlert = true
+                        
+                        // Data Management Section
+                        SettingsSection(title: "Data Management", icon: "icloud") {
+                            VStack(spacing: Layout.Spacing.lg) {
+                                SettingsActionRow(
+                                    title: "Delete Cloud Backup",
+                                    subtitle: "Delete all data from Core Data and iCloud",
+                                    icon: "icloud.slash",
+                                    isDestructive: true
+                                ) {
+                                    showingDeleteCloudDataAlert = true
+                                }
                             }
                         }
-                    }
-                    
-                    // About Section
-                    SettingsSection(title: "About", icon: "info.circle") {
-                        VStack(spacing: Layout.Spacing.lg) {
-                            SettingsActionRow(
-                                title: "Privacy Policy",
-                                subtitle: "View our privacy policy",
-                                icon: "hand.raised"
-                            ) {
-                                // Open privacy policy (mock)
-                                HapticFeedbackManager.shared.lightImpact()
+                        
+                        // Account Section
+                        SettingsSection(title: "Account", icon: "person.circle") {
+                            VStack(spacing: Layout.Spacing.lg) {
+                                SettingsActionRow(
+                                    title: "Sign Out",
+                                    subtitle: "Sign out of your account",
+                                    icon: "arrow.right.square",
+                                    isDestructive: true
+                                ) {
+                                    showingSignOutAlert = true
+                                }
                             }
-                            
-                            SettingsActionRow(
-                                title: "Terms of Service",
-                                subtitle: "View terms and conditions",
-                                icon: "doc.text"
-                            ) {
-                                // Open terms (mock)
-                                HapticFeedbackManager.shared.lightImpact()
-                            }
-                            
-                            SettingsActionRow(
-                                title: "Contact Support",
-                                subtitle: "Get help with your account",
-                                icon: "envelope"
-                            ) {
-                                // Contact support (mock)
-                                HapticFeedbackManager.shared.lightImpact()
+                        }
+                        
+                        // About Section
+                        SettingsSection(title: "About", icon: "info.circle") {
+                            VStack(spacing: Layout.Spacing.lg) {
+                                SettingsActionRow(
+                                    title: "Privacy Policy",
+                                    subtitle: "View our privacy policy",
+                                    icon: "hand.raised"
+                                ) {
+                                    // Open privacy policy (mock)
+                                    HapticFeedbackManager.shared.lightImpact()
+                                }
+                                
+                                SettingsActionRow(
+                                    title: "Terms of Service",
+                                    subtitle: "View terms and conditions",
+                                    icon: "doc.text"
+                                ) {
+                                    // Open terms (mock)
+                                    HapticFeedbackManager.shared.lightImpact()
+                                }
+                                
+                                SettingsActionRow(
+                                    title: "Contact Support",
+                                    subtitle: "Get help with your account",
+                                    icon: "envelope"
+                                ) {
+                                    // Contact support (mock)
+                                    HapticFeedbackManager.shared.lightImpact()
+                                }
                             }
                         }
                     }
+                    .padding(Layout.Spacing.lg)
+                    .padding(.top, 60)
+                    .padding(.bottom, 80) // Add bottom padding for tab bar
                 }
-                .padding(Layout.Spacing.lg)
-                .padding(.bottom, 80) // Add bottom padding for tab bar
+                .background(AppColors.background)
+                
+                // Custom Top Bar (Sticky)
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("Settings")
+                            .font(.titleL)
+                            .fontWeight(.bold)
+                            .foregroundColor(AppColors.textPrimary)
+                        
+                        Spacer()
+                        
+                        Image(systemName: "person.circle")
+                            .font(.system(size: 28))
+                            .foregroundColor(AppColors.textPrimary)
+                    }
+                    .padding(.horizontal, Layout.Spacing.md)
+                    .padding(.bottom, Layout.Spacing.sm)
+                    .padding(.top, geo.safeAreaInsets.top)
+                    .background(AppColors.background.opacity(0.95))
+                    .overlay(alignment: .bottom) {
+                        Divider().opacity(0.5)
+                    }
+                    
+                    Spacer()
+                }
+                .frame(height: headerHeight + 50)
+                .ignoresSafeArea(edges: .top)
             }
             .background(AppColors.background)
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.large)
         }
-        .navigationViewStyle(StackNavigationViewStyle())
         .alert("Reset App Data", isPresented: $showingResetAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Reset", role: .destructive) {

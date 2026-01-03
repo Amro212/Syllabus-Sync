@@ -37,47 +37,78 @@ struct PreviewView: View {
     }
 
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                headerSection
-                    .padding(Layout.Spacing.lg)
-                
-                // Tab Selector
-                Picker("Preview Tab", selection: $selectedTab) {
-                    ForEach(PreviewTab.allCases, id: \.self) { tab in
-                        HStack(spacing: Layout.Spacing.xs) {
-                            Image(systemName: tab.icon)
-                                .font(.system(size: 14, weight: .medium))
-                            Text(tab.rawValue)
-                                .font(.body)
-                                .fontWeight(.medium)
+        GeometryReader { geo in
+            let headerHeight = geo.safeAreaInsets.top + 4
+            
+            ZStack(alignment: .top) {
+                VStack(spacing: 0) {
+                    headerSection
+                        .padding(Layout.Spacing.lg)
+                        .padding(.top, 60)
+                    
+                    // Tab Selector
+                    Picker("Preview Tab", selection: $selectedTab) {
+                        ForEach(PreviewTab.allCases, id: \.self) { tab in
+                            HStack(spacing: Layout.Spacing.xs) {
+                                Image(systemName: tab.icon)
+                                    .font(.system(size: 14, weight: .medium))
+                                Text(tab.rawValue)
+                                    .font(.body)
+                                    .fontWeight(.medium)
+                            }
+                            .tag(tab)
                         }
-                        .tag(tab)
                     }
-                }
-                .pickerStyle(SegmentedPickerStyle())
-                .padding(.horizontal, Layout.Spacing.lg)
-                .padding(.bottom, Layout.Spacing.md)
-                
-                // Tab Content
-                ScrollView {
-                    switch selectedTab {
-                    case .events:
-                        eventsTabContent
-                    case .rawOCR:
-                        rawOCRTabContent
-                    case .processedOCR:
-                        processedOCRTabContent
-                    case .aiOutput:
-                        aiOutputTabContent
+                    .pickerStyle(SegmentedPickerStyle())
+                    .padding(.horizontal, Layout.Spacing.lg)
+                    .padding(.bottom, Layout.Spacing.md)
+                    
+                    // Tab Content
+                    ScrollView {
+                        switch selectedTab {
+                        case .events:
+                            eventsTabContent
+                        case .rawOCR:
+                            rawOCRTabContent
+                        case .processedOCR:
+                            processedOCRTabContent
+                        case .aiOutput:
+                            aiOutputTabContent
+                        }
                     }
+                    .background(AppColors.background)
                 }
                 .background(AppColors.background)
+                
+                // Custom Top Bar (Sticky)
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("Preview")
+                            .font(.titleL)
+                            .fontWeight(.bold)
+                            .foregroundColor(AppColors.textPrimary)
+                        
+                        Spacer()
+                        
+                        Image(systemName: "person.circle")
+                            .font(.system(size: 28))
+                            .foregroundColor(AppColors.textPrimary)
+                    }
+                    .padding(.horizontal, Layout.Spacing.md)
+                    .padding(.bottom, Layout.Spacing.sm)
+                    .padding(.top, geo.safeAreaInsets.top)
+                    .background(AppColors.background.opacity(0.95))
+                    .overlay(alignment: .bottom) {
+                        Divider().opacity(0.5)
+                    }
+                    
+                    Spacer()
+                }
+                .frame(height: headerHeight + 50)
+                .ignoresSafeArea(edges: .top)
             }
-            .navigationTitle("Preview")
-            .navigationBarTitleDisplayMode(.large)
+            .background(AppColors.background)
         }
-        .navigationViewStyle(StackNavigationViewStyle())
         .fullScreenCover(item: $editingEvent) { event in
             EventEditView(event: event) { updated in
                 Task { await importViewModel.applyEditedEvent(updated) }

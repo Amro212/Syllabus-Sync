@@ -146,6 +146,7 @@ struct PreviewView: View {
             }
         }
         .padding(Layout.Spacing.lg)
+        .padding(.bottom, 80) // Add bottom padding for tab bar
     }
     
     private var aiOutputTabContent: some View {
@@ -157,6 +158,7 @@ struct PreviewView: View {
             }
         }
         .padding(Layout.Spacing.lg)
+        .padding(.bottom, 80) // Add bottom padding for tab bar
     }
 
     private var rawOCRTabContent: some View {
@@ -199,6 +201,7 @@ struct PreviewView: View {
             }
         }
         .padding(Layout.Spacing.lg)
+        .padding(.bottom, 80) // Add bottom padding for tab bar
     }
 
     private var processedOCRTabContent: some View {
@@ -241,6 +244,7 @@ struct PreviewView: View {
             }
         }
         .padding(Layout.Spacing.lg)
+        .padding(.bottom, 80) // Add bottom padding for tab bar
     }
 
     private var missingOCRState: some View {

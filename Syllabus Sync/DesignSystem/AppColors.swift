@@ -14,32 +14,53 @@ struct AppColors {
     // MARK: - Background Colors
     
     /// Primary background color - main app background
-    static let background = Color("Background", bundle: nil)
+    /// Light: #f8f7f6, Dark: #211c11
+    static let background = Color.adaptive(
+        light: Color(hex: "f8f7f6"),
+        dark: Color(hex: "211c11")
+    )
     
     /// Secondary background color - cards, sheets, elevated surfaces
-    static let surface = Color("Surface", bundle: nil)
+    /// Using slightly lighter/darker variations for surface separation
+    static let surface = Color.adaptive(
+        light: Color.white, // Standard white for cards on light mode
+        dark: Color(hex: "2c2619") // Slightly lighter than background-dark
+    )
     
     /// Tertiary background color - subtle elements, disabled states
-    static let surfaceSecondary = Color("SurfaceSecondary", bundle: nil)
+    static let surfaceSecondary = Color.adaptive(
+        light: Color(hex: "f0efeb"),
+        dark: Color(hex: "3a3425")
+    )
     
     // MARK: - Text Colors
     
     /// Primary text color - main content, headlines
-    static let textPrimary = Color("TextPrimary", bundle: nil)
+    static let textPrimary = Color.adaptive(
+        light: Color(hex: "18181b"), // zinc-900
+        dark: Color.white
+    )
     
     /// Secondary text color - subtitles, descriptions, metadata
-    static let textSecondary = Color("TextSecondary", bundle: nil)
+    static let textSecondary = Color.adaptive(
+        light: Color(hex: "71717a"), // zinc-500
+        dark: Color(hex: "c6b795")  // Custom gold-ish/beige text for dark mode
+    )
     
     /// Tertiary text color - captions, disabled text
-    static let textTertiary = Color("TextTertiary", bundle: nil)
+    static let textTertiary = Color.adaptive(
+        light: Color(hex: "a1a1aa"),
+        dark: Color(hex: "8f856d")
+    )
     
     // MARK: - Accent & Brand Colors
     
     /// Primary accent color - CTAs, selections, brand elements
-    static let accent = Color("Accent", bundle: nil)
+    /// #d29c1e
+    static let accent = Color(hex: "d29c1e")
     
     /// Secondary accent color - highlights, secondary actions
-    static let accentSecondary = Color("AccentSecondary", bundle: nil)
+    static let accentSecondary = Color(hex: "e2b646")
     
     // MARK: - Semantic Colors
     
@@ -93,7 +114,7 @@ extension Color {
     ///   - light: Color for light appearance
     ///   - dark: Color for dark appearance
     static func adaptive(light: Color, dark: Color) -> Color {
-        Color(.init { traitCollection in
+        Color(UIColor { traitCollection in
             switch traitCollection.userInterfaceStyle {
             case .dark:
                 return UIColor(dark)
@@ -107,6 +128,32 @@ extension Color {
     /// - Parameter value: Opacity value (0.0 - 1.0)
     func withOpacity(_ value: Double) -> Color {
         self.opacity(value)
+    }
+    
+    /// Initialize with Hex string
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: // RGB (12-bit)
+            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: // RGB (24-bit)
+            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: // ARGB (32-bit)
+            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default:
+            (a, r, g, b) = (1, 1, 1, 0)
+        }
+        
+        self.init(
+            .sRGB,
+            red: Double(r) / 255,
+            green: Double(g) / 255,
+            blue: Double(b) / 255,
+            opacity: Double(a) / 255
+        )
     }
 }
 

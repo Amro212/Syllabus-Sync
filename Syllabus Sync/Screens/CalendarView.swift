@@ -54,54 +54,83 @@ struct CalendarView: View {
     }
     
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // Filter Pills
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Layout.Spacing.sm) {
-                        ForEach(EventFilter.allCases, id: \.self) { filter in
-                            FilterPill(
-                                filter: filter,
-                                isSelected: selectedFilter == filter
-                            ) {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    selectedFilter = filter
-                                }
-                                HapticFeedbackManager.shared.lightImpact()
-                            }
-                        }
-                    }
-                    .padding(.horizontal, Layout.Spacing.lg)
-                }
-                .padding(.vertical, Layout.Spacing.md)
-                
-                // Events Timeline
-                if filteredEvents.isEmpty {
-                    EmptyStateView(filter: selectedFilter)
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: Layout.Spacing.md) {
-                            ForEach(filteredEvents) { event in
-                                TimelineEventCard(event: event) {
-                                    showingEventDetail = event
+        GeometryReader { geo in
+            let headerHeight = geo.safeAreaInsets.top + 4
+            
+            ZStack(alignment: .top) {
+                VStack(spacing: 0) {
+                    // Filter Pills
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: Layout.Spacing.sm) {
+                            ForEach(EventFilter.allCases, id: \.self) { filter in
+                                FilterPill(
+                                    filter: filter,
+                                    isSelected: selectedFilter == filter
+                                ) {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        selectedFilter = filter
+                                    }
+                               HapticFeedbackManager.shared.lightImpact()
                                 }
                             }
                         }
                         .padding(.horizontal, Layout.Spacing.lg)
-                        .padding(.vertical, Layout.Spacing.md)
+                    }
+                    .padding(.vertical, Layout.Spacing.md)
+                    .padding(.top, 60)
+                    
+                    // Events Timeline
+                    if filteredEvents.isEmpty {
+                        EmptyStateView(filter: selectedFilter)
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: Layout.Spacing.md) {
+                                ForEach(filteredEvents) { event in
+                                    TimelineEventCard(event: event) {
+                                        showingEventDetail = event
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, Layout.Spacing.lg)
+                            .padding(.vertical, Layout.Spacing.md)
+                            .padding(.bottom, 80) // Add bottom padding for tab bar
+                        }
                     }
                 }
+                .background(AppColors.background)
+                .sheet(item: $showingEventDetail) { event in
+                    EventDetailSheet(event: event)
+                }
                 
-                Spacer()
+                // Custom Top Bar (Sticky)
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("Calendar")
+                            .font(.titleL)
+                            .fontWeight(.bold)
+                            .foregroundColor(AppColors.textPrimary)
+                        
+                        Spacer()
+                        
+                        Image(systemName: "person.circle")
+                            .font(.system(size: 28))
+                            .foregroundColor(AppColors.textPrimary)
+                    }
+                    .padding(.horizontal, Layout.Spacing.md)
+                    .padding(.bottom, Layout.Spacing.sm)
+                    .padding(.top, geo.safeAreaInsets.top)
+                    .background(AppColors.background.opacity(0.95))
+                    .overlay(alignment: .bottom) {
+                        Divider().opacity(0.5)
+                    }
+                    
+                    Spacer()
+                }
+                .frame(height: headerHeight + 50)
+                .ignoresSafeArea(edges: .top)
             }
             .background(AppColors.background)
-            .navigationTitle("Calendar")
-            .navigationBarTitleDisplayMode(.large)
-            .sheet(item: $showingEventDetail) { event in
-                EventDetailSheet(event: event)
-            }
         }
-        .navigationViewStyle(StackNavigationViewStyle())
     }
 }
 

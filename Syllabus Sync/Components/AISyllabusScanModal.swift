@@ -203,10 +203,11 @@ private struct AILoadingView: View {
     @State private var particleOffset: CGFloat = 0
     
     var body: some View {
-        VStack(spacing: 24) {
-            Spacer()
+        VStack(spacing: 12) {
+            // Fixed top spacing
+            Spacer().frame(height: 20)
             
-            // AI Spinner with effects
+            // AI Spinner with effects (scaled down for 300pt sheet)
             ZStack {
                 // Outer glow ring
                 Circle()
@@ -220,11 +221,11 @@ private struct AILoadingView: View {
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ),
-                        lineWidth: 3
+                        lineWidth: 2
                     )
-                    .frame(width: 100, height: 100)
+                    .frame(width: 70, height: 70)
                     .scaleEffect(pulseScale)
-                    .blur(radius: 4)
+                    .blur(radius: 3)
                 
                 // Main spinning ring
                 Circle()
@@ -242,9 +243,9 @@ private struct AILoadingView: View {
                             startAngle: .degrees(0),
                             endAngle: .degrees(360)
                         ),
-                        style: StrokeStyle(lineWidth: 4, lineCap: .round)
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round)
                     )
-                    .frame(width: 80, height: 80)
+                    .frame(width: 56, height: 56)
                     .rotationEffect(.degrees(rotation))
                 
                 // Inner progress ring
@@ -252,14 +253,14 @@ private struct AILoadingView: View {
                     .trim(from: 0, to: progress)
                     .stroke(
                         AppColors.accent.opacity(0.3),
-                        style: StrokeStyle(lineWidth: 6, lineCap: .round)
+                        style: StrokeStyle(lineWidth: 4, lineCap: .round)
                     )
-                    .frame(width: 60, height: 60)
+                    .frame(width: 42, height: 42)
                     .rotationEffect(.degrees(-90))
                 
                 // Center AI icon
                 Image(systemName: "sparkles")
-                    .font(.system(size: 24, weight: .medium))
+                    .font(.system(size: 18, weight: .medium))
                     .foregroundColor(AppColors.accent)
                     .scaleEffect(pulseScale * 0.9)
                 
@@ -267,18 +268,18 @@ private struct AILoadingView: View {
                 ForEach(0..<3, id: \.self) { index in
                     Circle()
                         .fill(AppColors.accent)
-                        .frame(width: 4, height: 4)
+                        .frame(width: 3, height: 3)
                         .offset(
-                            x: cos(Double(index) * 2.1 + particleOffset) * 50,
-                            y: sin(Double(index) * 2.1 + particleOffset) * 50
+                            x: cos(Double(index) * 2.1 + particleOffset) * 35,
+                            y: sin(Double(index) * 2.1 + particleOffset) * 35
                         )
                         .opacity(0.6)
                 }
             }
-            .frame(width: 120, height: 120)
+            .frame(width: 80, height: 80)
             
             // Status text
-            VStack(spacing: 8) {
+            VStack(spacing: 4) {
                 Text("Processing with AI")
                     .font(.headline)
                     .fontWeight(.semibold)
@@ -293,7 +294,7 @@ private struct AILoadingView: View {
             
             // Progress percentage
             Text("\(Int(progress * 100))%")
-                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .font(.system(size: 24, weight: .bold, design: .rounded))
                 .foregroundColor(AppColors.accent)
             
             Spacer()
@@ -313,7 +314,7 @@ private struct AILoadingView: View {
                             .stroke(AppColors.border, lineWidth: 1)
                     )
             }
-            .padding(.bottom, 24)
+            .padding(.bottom, 40)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {

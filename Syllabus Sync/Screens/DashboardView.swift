@@ -95,8 +95,10 @@ struct DashboardView: View {
             Text(errorHandler.errorMessage)
         }
         .sheet(isPresented: $showingImportView) {
-            ImportView()
-                .environmentObject(navigationManager)
+            AISyllabusScanModal()
+                .presentationDetents([.height(300)])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(20)
         }
     }
     

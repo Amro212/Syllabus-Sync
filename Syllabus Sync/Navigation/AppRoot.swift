@@ -205,7 +205,7 @@ struct AppRoot: View {
         case .reminders:
             RemindersView()
         case .importSyllabus:
-            ImportView()
+            AISyllabusScanModal()
         case .preview:
             PreviewView()
         case .courseDetail(let course):
@@ -337,7 +337,10 @@ struct TabNavigationView: View {
         }
         .ignoresSafeArea(.keyboard) 
         .sheet(isPresented: $showingImportSheet) {
-            ImportView()
+            AISyllabusScanModal()
+                .presentationDetents([.height(300)])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(20)
         }
         .fullScreenCover(item: $editingEvent) { event in
             EventEditView(event: event) { updated in

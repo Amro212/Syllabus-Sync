@@ -103,8 +103,10 @@ struct RemindersView: View {
         }
         .navigationViewStyle(StackNavigationViewStyle())
         .sheet(isPresented: $showingImportView) {
-            ImportView()
-                .environmentObject(navigationManager)
+            AISyllabusScanModal()
+                .presentationDetents([.height(300)])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(20)
         }
         .fullScreenCover(item: $editingEvent) { event in
             EventEditView(event: event) { updated in

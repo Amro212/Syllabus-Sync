@@ -137,6 +137,72 @@ class SupabaseAuthService: NSObject, AuthService {
         }
     }
     
+    // MARK: - User Provider Check
+    
+    /// Check if a user exists and what auth provider they use
+    /// Uses Supabase client to check user's auth provider from app_metadata
+    func checkUserProvider(email: String) async -> Result<UserProviderInfo, AuthError> {
+        do {
+            // Try to sign in with a magic link to trigger user lookup
+            // This will fail if user doesn't exist, but we can catch the error
+            // Note: We're not actually sending an OTP, just checking if user exists
+            
+            // Alternative approach: Use the admin API through Supabase client
+            // Since we can't access admin API from client, we'll use a different strategy:
+            // Try to send OTP with shouldCreateUser: false
+            // If user doesn't exist, Supabase will return an error
+            // If user exists but used OAuth, we can't detect it this way
+            
+            // Best approach: Check via server endpoint (current implementation)
+            guard let serverURL = URL(string: "http://localhost:8787/auth/check-provider") else {
+                return .success(UserProviderInfo(exists: false, provider: nil))
+            }
+            
+            var request = URLRequest(url: serverURL)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try? JSONEncoder().encode(["email": email])
+            request.timeoutInterval = 10
+            
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    return .success(UserProviderInfo(exists: false, provider: nil))
+                }
+                
+                // If server endpoint doesn't exist (404), fall back to allowing OTP
+                if httpResponse.statusCode == 404 {
+                    return .success(UserProviderInfo(exists: false, provider: nil))
+                }
+                
+                guard httpResponse.statusCode == 200 else {
+                    return .success(UserProviderInfo(exists: false, provider: nil))
+                }
+                
+                // Parse response
+                struct ProviderResponse: Decodable {
+                    let exists: Bool
+                    let provider: String?
+                }
+                
+                let result = try JSONDecoder().decode(ProviderResponse.self, from: data)
+                let authProvider: AuthProvider? = result.provider.flatMap { AuthProvider(rawValue: $0) }
+                
+                return .success(UserProviderInfo(exists: result.exists, provider: authProvider))
+                
+            } catch {
+                // On network error, allow the flow to continue (fail open)
+                print("⚠️ Provider check failed, continuing: \(error)")
+                return .success(UserProviderInfo(exists: false, provider: nil))
+            }
+            
+        } catch {
+            print("⚠️ Provider check error: \(error)")
+            return .success(UserProviderInfo(exists: false, provider: nil))
+        }
+    }
+    
     // MARK: - OTP Authentication
     
     /// Send OTP code to email for passwordless authentication
@@ -161,7 +227,7 @@ class SupabaseAuthService: NSObject, AuthService {
             try await supabase.auth.signInWithOTP(
                 email: email,
                 redirectTo: nil,
-                shouldCreateUser: shouldCreateUser,  // Allow new users
+                shouldCreateUser: shouldCreateUser,
                 data: metadata.isEmpty ? nil : metadata
             )
             
@@ -170,7 +236,9 @@ class SupabaseAuthService: NSObject, AuthService {
             
         } catch {
             print("❌ Failed to send OTP: \(error)")
-            return .failure(.unknownError(error.localizedDescription))
+            // Use AuthErrorHandler to map raw error to user-friendly message
+            let mappedError = AuthErrorHandler.mapError(error.localizedDescription)
+            return .failure(mappedError)
         }
     }
     
@@ -204,7 +272,9 @@ class SupabaseAuthService: NSObject, AuthService {
             
         } catch {
             print("❌ OTP verification failed: \(error)")
-            return .failure(error: .invalidCredentials)
+            // Map verification errors to user-friendly messages
+            let mappedError = AuthErrorHandler.mapError(error.localizedDescription)
+            return .failure(error: mappedError)
         }
     }
     

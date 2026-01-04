@@ -307,10 +307,36 @@ struct AuthView: View {
             return
         }
         
+        // Basic email format validation
+        let emailRegex = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
+        if email.range(of: emailRegex, options: .regularExpression) == nil {
+            errorMessage = "Please enter a valid email address"
+            showError = true
+            HapticFeedbackManager.shared.error()
+            return
+        }
+        
         isLoading = true
         verificationEmail = email
         
         Task {
+            // For sign-in mode, check if user exists and their auth provider
+            if isSignInMode {
+                let providerResult = await authService.checkUserProvider(email: email)
+                if case .success(let info) = providerResult {
+                    // If user exists and used OAuth (Google/Apple), prompt them to use that method
+                    if info.exists, let provider = info.provider, provider != .email {
+                        await MainActor.run {
+                            isLoading = false
+                            HapticFeedbackManager.shared.error()
+                            errorMessage = AuthError.oauthUserAttemptingEmail(provider: provider).localizedDescription
+                            showError = true
+                        }
+                        return
+                    }
+                }
+            }
+            
             let result = await authService.sendOTP(
                 email: email,
                 shouldCreateUser: !isSignInMode,
@@ -328,6 +354,7 @@ struct AuthView: View {
                     
                 case .failure(let error):
                     HapticFeedbackManager.shared.error()
+                    // Error is already mapped to user-friendly message via AuthErrorHandler
                     errorMessage = error.localizedDescription
                     showError = true
                 }
@@ -1095,58 +1122,99 @@ struct EmailVerificationView: View {
 
 struct OTPInputView: View {
     @Binding var code: String
+    @FocusState private var isFocused: Bool
     
-    @State private var digits: [String] = Array(repeating: "", count: 6)
-    @FocusState private var focusedIndex: Int?
+    private let digitCount = 6
     
     var body: some View {
-        HStack(spacing: 12) {
-            ForEach(0..<6, id: \.self) { index in
-                TextField("", text: $digits[index])
-                    .keyboardType(.numberPad)
-                    .textContentType(.oneTimeCode)
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .frame(width: 50, height: 60)
-                    .background(Color.white.opacity(0.1))
-                    .cornerRadius(12)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(focusedIndex == index ? AuthPalette.appleGoldDark : AuthPalette.creamBorder, lineWidth: focusedIndex == index ? 2 : 1)
-                    )
-                    .focused($focusedIndex, equals: index)
-                    .onChange(of: digits[index]) { oldValue, newValue in
-                        // Only allow digits, max 1 character
-                        let filtered = newValue.filter { $0.isNumber }
-                        if filtered.count > 1 {
-                            digits[index] = String(filtered.prefix(1))
-                        } else {
-                            digits[index] = filtered
-                        }
-                        
-                        // Update code string
-                        code = digits.joined()
-                        
-                        // Move to next field if digit entered
-                        if !digits[index].isEmpty && index < 5 {
-                            focusedIndex = index + 1
-                        }
+        ZStack {
+            // Hidden text field that captures all input
+            TextField("", text: $code)
+                .keyboardType(.numberPad)
+                .textContentType(.oneTimeCode)
+                .focused($isFocused)
+                .frame(width: 1, height: 1)
+                .opacity(0.01) // Nearly invisible but still interactive
+                .onChange(of: code) { oldValue, newValue in
+                    // Only allow digits, max 6 characters
+                    let filtered = String(newValue.filter { $0.isNumber }.prefix(digitCount))
+                    if filtered != code {
+                        code = filtered
                     }
-            }
-        }
-        .onAppear {
-            focusedIndex = 0
-        }
-        .onChange(of: code) { newCode in
-            // Sync code back to digits array
-            for (index, char) in newCode.enumerated() {
-                if index < 6 {
-                    digits[index] = String(char)
+                }
+            
+            // Visual digit boxes
+            HStack(spacing: 12) {
+                ForEach(0..<digitCount, id: \.self) { index in
+                    DigitBox(
+                        digit: digitAt(index),
+                        isCurrent: isFocused && code.count == index,
+                        isFilled: index < code.count
+                    )
                 }
             }
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            isFocused = true
+        }
+        .onAppear {
+            isFocused = true
+        }
     }
+    
+    /// Returns the digit at the specified index, or empty string if not available
+    private func digitAt(_ index: Int) -> String {
+        guard index < code.count else { return "" }
+        let stringIndex = code.index(code.startIndex, offsetBy: index)
+        return String(code[stringIndex])
+    }
+}
+
+/// Individual digit box component for OTP display
+private struct DigitBox: View {
+    let digit: String
+    let isCurrent: Bool
+    let isFilled: Bool
+    
+    var body: some View {
+        ZStack {
+            // Background box
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.white.opacity(0.1))
+                .frame(width: 50, height: 60)
+            
+            // Border
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(borderColor, lineWidth: isCurrent ? 2 : 1)
+                .frame(width: 50, height: 60)
+            
+            // Digit text
+            Text(digit)
+                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+            
+            // Cursor indicator when focused and empty
+            if isCurrent && digit.isEmpty {
+                Rectangle()
+                    .fill(AuthPalette.appleGoldDark)
+                    .frame(width: 2, height: 24)
+                    .opacity(cursorOpacity)
+            }
+        }
+    }
+    
+    private var borderColor: Color {
+        if isCurrent {
+            return AuthPalette.appleGoldDark
+        } else if isFilled {
+            return AuthPalette.appleGoldDark.opacity(0.5)
+        } else {
+            return AuthPalette.creamBorder
+        }
+    }
+    
+    @State private var cursorOpacity: Double = 1.0
 }
 
 // MARK: - Preview

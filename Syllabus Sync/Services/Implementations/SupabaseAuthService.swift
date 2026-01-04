@@ -272,8 +272,10 @@ class SupabaseAuthService: NSObject, AuthService {
             
         } catch {
             print("❌ OTP verification failed: \(error)")
+            print("🔍 Raw error description: \(error.localizedDescription)")
             // Map verification errors to user-friendly messages
             let mappedError = AuthErrorHandler.mapError(error.localizedDescription)
+            print("📋 Mapped to: \(mappedError)")
             return .failure(error: mappedError)
         }
     }

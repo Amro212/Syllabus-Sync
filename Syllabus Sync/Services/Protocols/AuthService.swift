@@ -82,27 +82,31 @@ struct UserProviderInfo {
 /// Utility for mapping raw Supabase errors to user-friendly AuthError types
 enum AuthErrorHandler {
     /// Maps a raw error message from Supabase to an appropriate AuthError
+    /// Based on Supabase's documented error messages:
+    /// - Invalid OTP: "The code you provided is invalid" or "Invalid OTP"
+    /// - Expired OTP: "The token has expired"
     static func mapError(_ rawMessage: String) -> AuthError {
         let lowercased = rawMessage.lowercased()
+        
+        // Check for invalid/wrong OTP FIRST (before expired)
+        // Supabase returns: "The code you provided is invalid" or "Invalid OTP"
+        if lowercased.contains("invalid") ||
+           lowercased.contains("wrong") ||
+           lowercased.contains("incorrect") {
+            return .invalidOTP
+        }
+        
+        // Check for expired OTP SECOND
+        // Supabase returns: "The token has expired"
+        if lowercased.contains("expired") {
+            return .otpExpired
+        }
         
         // User doesn't exist
         if lowercased.contains("signups not allowed") ||
            lowercased.contains("user not found") ||
            lowercased.contains("no user found") {
             return .userNotFound
-        }
-        
-        // Invalid OTP
-        if lowercased.contains("invalid otp") ||
-           lowercased.contains("token has invalid") ||
-           lowercased.contains("otp disabled") {
-            return .invalidOTP
-        }
-        
-        // Expired OTP
-        if lowercased.contains("otp has expired") ||
-           lowercased.contains("token has expired") {
-            return .otpExpired
         }
         
         // Rate limiting
@@ -120,7 +124,7 @@ enum AuthErrorHandler {
             return .networkError
         }
         
-        // Invalid credentials
+        // Invalid credentials (for password auth)
         if lowercased.contains("invalid login") ||
            lowercased.contains("invalid credentials") ||
            lowercased.contains("invalid password") {

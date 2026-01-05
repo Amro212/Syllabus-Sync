@@ -16,7 +16,10 @@ struct DashboardView: View {
     @State private var showShimmer = false
     @State private var buttonScale: CGFloat = 1.0
     @State private var showingImportView = false
-
+    
+    // Track if the user has ever added events to distinguish "New User" from "Caught Up"
+    // We scope this to the specific user ID to prevent state leaking between accounts
+    @State private var hasAddedEvents: Bool = false
 
 
     var body: some View {
@@ -29,25 +32,25 @@ struct DashboardView: View {
                         // Custom header logic
                         // We remove the Duplicate 'Dashboard' Text here because it is already in the Sticky Top Bar.
                         
-                         if eventStore.events.isEmpty {
-                             // Empty state takes up space
-                             DashboardEmptyView(showingImportView: $showingImportView)
-                                .frame(minHeight: geo.size.height - headerHeight - 100)
-                                .transition(.opacity)
-                        } else {
-                            // New modular dashboard structure matching wireframe
-                            VStack(spacing: Layout.Spacing.xl) {
-                                QuickInsightCardView(events: eventStore.events)
-                                WeekAtGlanceView(events: eventStore.events)
-                                UpcomingDeadlinesView(events: eventStore.events, onEventTapped: { event in
+                        // New modular dashboard structure matching wireframe
+                        // Always show the structure, even if empty
+                        VStack(spacing: Layout.Spacing.xl) {
+                            QuickInsightCardView(events: eventStore.events, isNewUser: !hasAddedEvents && eventStore.events.isEmpty)
+                            
+                            WeekAtGlanceView(events: eventStore.events, isNewUser: !hasAddedEvents && eventStore.events.isEmpty)
+                            
+                            UpcomingDeadlinesView(
+                                events: eventStore.events,
+                                isNewUser: !hasAddedEvents && eventStore.events.isEmpty,
+                                onEventTapped: { event in
                                     navigationManager.scrollToEventId = event.id
                                     navigationManager.switchTab(to: .reminders)
-                                })
-                            }
-                            .padding(.horizontal, Layout.Spacing.md)
-                            .padding(.vertical, Layout.Spacing.xl)
-                            .transition(.opacity)
+                                }
+                            )
                         }
+                        .padding(.horizontal, Layout.Spacing.md)
+                        .padding(.vertical, Layout.Spacing.xl)
+                        .transition(.opacity)
                     }
                     .padding(.top, 60)
                     .padding(.bottom, 80) // Add bottom padding for tab bar
@@ -87,7 +90,18 @@ struct DashboardView: View {
             .background(AppColors.background)
         }
         .task {
+            // Load user-specific preference
+            loadUserPreference()
+            
             await eventStore.fetchEvents()
+            if !eventStore.events.isEmpty {
+                updateUserPreference(true)
+            }
+        }
+        .onChange(of: eventStore.events) { events in
+             if !events.isEmpty {
+                 updateUserPreference(true)
+             }
         }
         .alert("Error", isPresented: $errorHandler.showError) {
             Button("OK", role: .cancel) { }
@@ -100,6 +114,19 @@ struct DashboardView: View {
                 .presentationDragIndicator(.hidden)
                 .presentationCornerRadius(20)
         }
+    }
+    
+    // MARK: - User Preference Logic
+    
+    private func loadUserPreference() {
+        guard let userId = SupabaseAuthService.shared.currentUser?.id else { return }
+        hasAddedEvents = UserDefaults.standard.bool(forKey: "hasAddedEvents_\(userId)")
+    }
+    
+    private func updateUserPreference(_ value: Bool) {
+        guard let userId = SupabaseAuthService.shared.currentUser?.id else { return }
+        hasAddedEvents = value
+        UserDefaults.standard.set(value, forKey: "hasAddedEvents_\(userId)")
     }
     
     private func performRefreshAsync() async {
@@ -123,108 +150,17 @@ struct DashboardView: View {
 // MARK: - FAB Option
 
 
-struct DashboardEmptyView: View {
-    @EnvironmentObject var navigationManager: AppNavigationManager
-    @State private var buttonScale: CGFloat = 1.0
-    @State private var showGlow: Bool = false
-    @Binding var showingImportView: Bool
-    
-    var body: some View {
-        VStack(spacing: Layout.Spacing.xl) {
-            Spacer()
-            
-            // Icon Section
-            VStack(spacing: Layout.Spacing.lg) {
-                // Custom Asset Image with breathing animation
-                ZStack {
-                    Image("DashboardEmpty")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 200, height: 200)
-                        .scaleEffect(showGlow ? 1.04 : 0.95)
-                        .opacity(showGlow ? 1.0 : 0.85)
-                        .animation(
-                            Animation.easeInOut(duration: 2.8)
-                                .repeatForever(autoreverses: true),
-                            value: showGlow
-                        )
-                        .onAppear {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                showGlow = true
-                            }
-                        }
-                }
-                .frame(width: 200, height: 200)
-                .clipped()
-                .padding(.bottom, Layout.Spacing.md)
-                
-                // Headings
-                Text("Your syllabus journey begins here!")
-                    .font(.titleL)
-                    .fontWeight(.bold)
-                    .foregroundColor(AppColors.textPrimary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, Layout.Spacing.md)
-                
-                Text("Get started by adding your first task, assignment, or exam. We'll help you stay on track!")
-                    .font(.body)
-                    .foregroundColor(AppColors.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, Layout.Spacing.xl) // Increased padding to force better wrapping
-            }
-            
-            // Action Button
-            Button {
-                HapticFeedbackManager.shared.mediumImpact()
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                    buttonScale = 0.95
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                        buttonScale = 1.0
-                    }
-                }
-                
-                // Show action sheet or navigate
-                // For "Add Your First Task", we trigger the import view for now as per previous logic, 
-                // or we could open the manual event creation if that's preferred. 
-                // The design says "Add Your First Task", suggesting manual creation.
-                // But the previous implementation linked to Import.
-                // Let's default to showing Import for now, as it's the primary "sync" feature.
-                showingImportView = true
-                
-            } label: {
-                HStack(spacing: Layout.Spacing.sm) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 18, weight: .bold))
-                    
-                    Text("Add Your First Event")
-                        .font(.body)
-                        .fontWeight(.medium)
-                }
-                .foregroundColor(.white) // Text matches design
-                .padding(.horizontal, 24)
-                .padding(.vertical, 16)
-                .background(AppColors.accent)
-                .cornerRadius(Layout.CornerRadius.lg)
-                .shadow(color: AppColors.accent.opacity(0.3), radius: 10, x: 0, y: 5)
-            }
-            .scaleEffect(buttonScale)
-            
-            Spacer()
-            Spacer() // Push content slightly up from visual center
-        }
-        .padding(Layout.Spacing.xl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
+// MARK: - Legacy Components
+
+// DashboardEmptyView removed as we now use inline empty states within sections.
 
 // MARK: - Week At a Glance
 
+// MARK: - Dashboard Components
+
 private struct WeekAtGlanceView: View {
     let events: [EventItem]
+    let isNewUser: Bool
     
     private var thisWeekEvents: [EventItem] {
         let calendar = Calendar.current
@@ -273,17 +209,43 @@ private struct WeekAtGlanceView: View {
                 .fontWeight(.bold)
                 .foregroundColor(AppColors.textPrimary)
             
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Layout.Spacing.md) {
-                    ForEach(Array(stats.enumerated()), id: \.offset) { _, stat in
-                        GlanceStatCard(icon: stat.icon, count: stat.count, label: stat.label)
-                    }
+            if stats.isEmpty {
+                // Empty State Card
+                VStack(spacing: Layout.Spacing.md) {
+                    Image(systemName: isNewUser ? "text.book.closed.fill" : "checkmark.circle.fill")
+                        .font(.system(size: 48))
+                        .foregroundColor(AppColors.accent.opacity(0.8))
+                        .padding(.top, Layout.Spacing.lg)
+                    
+                    Text(isNewUser ? "Welcome to Syllabus Sync!" : "No events this week")
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .foregroundColor(AppColors.textPrimary)
+                    
+                    Text(isNewUser ? "It looks a little empty here. Start by adding your first course or assignment using the '+' button below!" : "You're clear for the week! Great time to study ahead.")
+                        .font(.body)
+                        .foregroundColor(AppColors.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, Layout.Spacing.lg)
+                        .padding(.bottom, Layout.Spacing.lg)
                 }
-                .padding(.horizontal, 2)
-                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity)
+                .background(AppColors.surface)
+                .cornerRadius(20)
+                
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Layout.Spacing.md) {
+                        ForEach(Array(stats.enumerated()), id: \.offset) { _, stat in
+                            GlanceStatCard(icon: stat.icon, count: stat.count, label: stat.label)
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                    .padding(.vertical, 4)
+                }
+                .padding(.horizontal, -Layout.Spacing.md)
+                .padding(.leading, Layout.Spacing.md)
             }
-            .padding(.horizontal, -Layout.Spacing.md)
-            .padding(.leading, Layout.Spacing.md)
         }
     }
 }
@@ -328,6 +290,7 @@ private struct GlanceStatCard: View {
 
 private struct UpcomingDeadlinesView: View {
     let events: [EventItem]
+    let isNewUser: Bool
     let onEventTapped: (EventItem) -> Void
     
     private var upcomingEvents: [EventItem] {
@@ -349,11 +312,22 @@ private struct UpcomingDeadlinesView: View {
                 .foregroundColor(AppColors.textPrimary)
             
             if upcomingEvents.isEmpty {
-                Text("No upcoming deadlines in the next 7 days")
-                    .font(.body)
-                    .foregroundColor(AppColors.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, Layout.Spacing.xl)
+                VStack(spacing: Layout.Spacing.md) {
+                    Image(systemName: isNewUser ? "calendar.badge.plus" : "calendar.badge.checkmark")
+                        .font(.system(size: 40))
+                        .foregroundColor(AppColors.textSecondary)
+                        .padding(.top, Layout.Spacing.md)
+                    
+                    Text(isNewUser ? "No deadlines yet! Tap the '+' button to add your first task or event." : "No upcoming deadlines")
+                        .font(.body)
+                        .foregroundColor(AppColors.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, Layout.Spacing.lg)
+                        .padding(.bottom, Layout.Spacing.md)
+                }
+                .frame(maxWidth: .infinity)
+                .background(AppColors.surface)
+                .cornerRadius(20)
             } else {
                 VStack(spacing: Layout.Spacing.sm) {
                     ForEach(upcomingEvents) { event in
@@ -446,35 +420,67 @@ private struct DeadlineRow: View {
 
 private struct QuickInsightCardView: View {
     let events: [EventItem]
+    let isNewUser: Bool
     
-    private var insight: (title: String, description: String) {
+    private var insight: (title: String, description: String, icon: String, gradientColors: [Color]) {
+        if isNewUser && events.isEmpty {
+            return (
+                "Your personal study assistant",
+                "Once you add your courses and assignments, we'll provide smart insights to help you stay on track!",
+                "lightbulb.fill",
+                [AppColors.accent.opacity(0.3), AppColors.accent.opacity(0.1)]
+            )
+        }
+        
+        // Date logic fix: Check "Today" specifically
         let now = Date()
-        let twoDaysFromNow = Calendar.current.date(byAdding: .day, value: 2, to: now) ?? now
+        let calendar = Calendar.current
+        
+        // Start of today
+        let startOfToday = calendar.startOfDay(for: now)
+        // End of today (start of tomorrow)
+        let startOfTomorrow = calendar.date(byAdding: .day, value: 1, to: startOfToday)!
+        // Use for 48 hour window
+        let twoDaysFromNow = calendar.date(byAdding: .day, value: 2, to: now)!
         
         let urgentEvents = events.filter { $0.start >= now && $0.start <= twoDaysFromNow }
         let urgentCount = urgentEvents.count
         
+        // Check for Deadline Today specifically
+        if let firstUrgent = urgentEvents.sorted(by: { $0.start < $1.start }).first,
+           firstUrgent.start < startOfTomorrow {
+             return (
+                "Deadline Today",
+                "Don't forget: \(firstUrgent.title) for \(firstUrgent.courseCode) is due today!",
+                "exclamationmark.circle.fill", // More urgent icon
+                 [Color.red.opacity(0.3), Color.red.opacity(0.1)] // Urgent color
+             )
+        }
+        
         if urgentCount >= 2 {
-            // Find a specific event to suggest
-            let suggestedEvent = urgentEvents
-                .sorted { $0.start > $1.start } // Start with furthest to give prep time
-                .first
-            
+            let suggestedEvent = urgentEvents.sorted { $0.start > $1.start }.first
             let suggestion = suggestedEvent.map { "Consider starting your \($0.title) for \($0.courseCode) today." } ?? ""
             
             return (
                 "Heavy Workload Ahead",
-                "You have \(urgentCount) deadlines in the next 48 hours. \(suggestion)"
+                "You have \(urgentCount) deadlines in the next 48 hours. \(suggestion)",
+                "hourglass",
+                 [Color.orange.opacity(0.3), Color.orange.opacity(0.1)]
             )
         } else if urgentCount == 1, let next = urgentEvents.first {
+             // If we reached here, it's not today, so it must be tomorrow
             return (
                 "Deadline Tomorrow",
-                "Don't forget: \(next.title) for \(next.courseCode) is due soon."
+                "Don't forget: \(next.title) for \(next.courseCode) is due soon.",
+                 "clock.fill",
+                 [Color.yellow.opacity(0.3), Color.yellow.opacity(0.1)]
             )
         } else {
             return (
                 "You're On Track! 🎉",
-                "No urgent deadlines in the next 48 hours. Great time to get ahead!"
+                "No urgent deadlines in the next 48 hours. Great time to get ahead!",
+                 "hand.thumbsup.fill",
+                 [Color.green.opacity(0.3), Color.green.opacity(0.1)]
             )
         }
     }
@@ -487,13 +493,14 @@ private struct QuickInsightCardView: View {
                 .foregroundColor(AppColors.textPrimary)
             
             HStack(alignment: .top, spacing: Layout.Spacing.md) {
-                // Lightbulb icon
-                Image(systemName: "lightbulb.fill")
+                // Dynamic icon
+                Image(systemName: insight.icon)
                     .font(.system(size: 24))
                     .foregroundColor(.white)
                     .frame(width: 48, height: 48)
                     .background(
                         RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
+                            // Use the primary color of the gradient for the icon bg, simplifed to accent for now or logic based
                             .fill(AppColors.accent)
                     )
                 
@@ -513,10 +520,7 @@ private struct QuickInsightCardView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 LinearGradient(
-                    gradient: Gradient(colors: [
-                        AppColors.accent.opacity(0.3),
-                        AppColors.accent.opacity(0.1)
-                    ]),
+                    gradient: Gradient(colors: insight.gradientColors),
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )

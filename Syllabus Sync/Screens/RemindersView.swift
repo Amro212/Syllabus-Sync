@@ -120,7 +120,14 @@ struct RemindersView: View {
                                  
                                  // Sort Menu
                                  Menu {
-                                     Picker("Sort By", selection: $sortOption) {
+                                     Picker("Sort By", selection: Binding(
+                                         get: { sortOption },
+                                         set: { newValue in
+                                             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                                 sortOption = newValue
+                                             }
+                                         }
+                                     )) {
                                          Text("Date (Earliest)").tag(SortOption.dateAsc)
                                          Text("Date (Latest)").tag(SortOption.dateDesc)
                                          Text("Course").tag(SortOption.course)
@@ -155,7 +162,7 @@ struct RemindersView: View {
                              }
                          }
                          .padding(.horizontal, Layout.Spacing.md)
-                         .padding(.top, headerHeight + 60) // Push down below sticky header
+                         .padding(.top, headerHeight + 10) // Push down below sticky header (Reduced from +60)
                          .padding(.bottom, Layout.Spacing.md)
                          .background(AppColors.background)
                          .zIndex(1)

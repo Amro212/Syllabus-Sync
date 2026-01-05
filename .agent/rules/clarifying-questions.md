@@ -1,5 +1,5 @@
 ---
-trigger: model_decision
+trigger: always_on
 description: This rule exists because the user may describe ideas loosely. The agent must clarify intent before making changes that could drift, break flows, or waste time.
 ---
 

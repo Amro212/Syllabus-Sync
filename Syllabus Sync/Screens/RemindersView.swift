@@ -363,6 +363,13 @@ private struct ReminderCard: View {
                         .foregroundColor(AppColors.textPrimary)
                         .lineLimit(1)
                     
+                    // Repeat Badge
+                    if event.recurrenceRule != nil {
+                        Image(systemName: "repeat")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(AppColors.accent)
+                    }
+                    
                     Spacer()
                     
                     if let location = event.location {
@@ -392,7 +399,7 @@ private struct ReminderCard: View {
                     
                     Spacer()
                     
-                    Text(formatDate(event.start))
+                    Text(formatDate(event))
                         .font(.subheadline)
                         .foregroundColor(eventColor) // Colored date for emphasis
                         .fontWeight(.medium)
@@ -413,10 +420,18 @@ private struct ReminderCard: View {
         .shadow(color: AppColors.shadow.opacity(0.05), radius: 4, x: 0, y: 2)
     }
     
-    private func formatDate(_ date: Date) -> String {
+    private func formatDate(_ event: EventItem) -> String {
         let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d, h:mm a"
-        return formatter.string(from: date)
+        
+        if event.allDay == true {
+            // All-day event: show date only with "All Day"
+            formatter.dateFormat = "MMM d"
+            return formatter.string(from: event.start) + ", All Day"
+        } else {
+            // Regular event: show date and time
+            formatter.dateFormat = "MMM d, h:mm a"
+            return formatter.string(from: event.start)
+        }
     }
 }
 

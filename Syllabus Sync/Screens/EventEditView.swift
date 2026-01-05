@@ -428,7 +428,7 @@ struct EventEditView: View {
             title: trimmedTitle,
             start: startDate,
             end: includeEndDate ? endDate : nil,
-            allDay: isAllDay ? true : nil,
+            allDay: isAllDay,
             location: normalizedLocation.isEmpty ? nil : normalizedLocation,
             notes: normalizedNotes.isEmpty ? nil : normalizedNotes,
             recurrenceRule: recurrenceValue,

@@ -89,6 +89,46 @@ struct RemindersView: View {
         case .type: return events.sorted { $0.type.rawValue < $1.type.rawValue }
         }
     }
+    
+    enum TimeSection: String, CaseIterable {
+        case today = "Today"
+        case tomorrow = "Tomorrow"
+        case laterThisWeek = "Later This Week"
+        case later = "Later"
+        
+        func contains(_ date: Date) -> Bool {
+            let calendar = Calendar.current
+            let now = Date()
+            
+            switch self {
+            case .today:
+                return calendar.isDateInToday(date)
+            case .tomorrow:
+                return calendar.isDateInTomorrow(date)
+            case .laterThisWeek:
+                guard !calendar.isDateInToday(date) && !calendar.isDateInTomorrow(date) else { return false }
+                guard let weekEnd = calendar.date(byAdding: .day, value: 7, to: now) else { return false }
+                return date >= now && date < weekEnd
+            case .later:
+                guard let weekEnd = calendar.date(byAdding: .day, value: 7, to: now) else { return false }
+                return date >= weekEnd
+            }
+        }
+    }
+    
+    var groupedEvents: [(TimeSection, [EventItem])] {
+        let sorted = filteredEvents.sorted { $0.start < $1.start }
+        var groups: [(TimeSection, [EventItem])] = []
+        
+        for section in TimeSection.allCases {
+            let sectionEvents = sorted.filter { section.contains($0.start) }
+            if !sectionEvents.isEmpty {
+                groups.append((section, sectionEvents))
+            }
+        }
+        
+        return groups
+    }
 
     var body: some View {
         NavigationView {
@@ -221,31 +261,42 @@ struct RemindersView: View {
                              }
                          } else {
                              List {
-                                 ForEach(filteredEvents) { event in
-                                     ReminderCard(event: event)
-                                         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                                         .listRowSeparator(.hidden)
-                                         .listRowBackground(Color.clear)
-                                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                             Button(role: .destructive) {
-                                                 deleteEvent(event)
-                                             } label: {
-                                                 Label("Delete", systemImage: "trash")
-                                             }
-                                             
-                                             Button {
-                                                 editingEvent = event
-                                             } label: {
-                                                 Label("Edit", systemImage: "pencil")
-                                             }
-                                             .tint(.blue)
+                                 ForEach(groupedEvents, id: \.0) { section, events in
+                                     Section {
+                                         ForEach(events) { event in
+                                             ReminderCard(event: event)
+                                                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                                                 .listRowSeparator(.hidden)
+                                                 .listRowBackground(Color.clear)
+                                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                                     Button(role: .destructive) {
+                                                         deleteEvent(event)
+                                                     } label: {
+                                                         Label("Delete", systemImage: "trash")
+                                                     }
+                                                     
+                                                     Button {
+                                                         editingEvent = event
+                                                     } label: {
+                                                         Label("Edit", systemImage: "pencil")
+                                                     }
+                                                     .tint(.blue)
+                                                 }
+                                                 .swipeActions(edge: .leading) {
+                                                      // Future: Mark Complete logic
+                                                 }
+                                                 .onTapGesture {
+                                                     editingEvent = event
+                                                 }
                                          }
-                                         .swipeActions(edge: .leading) {
-                                              // Future: Mark Complete logic
-                                         }
-                                         .onTapGesture {
-                                             editingEvent = event
-                                         }
+                                     } header: {
+                                         Text(section.rawValue)
+                                             .font(.system(.title2, design: .default, weight: .bold))
+                                             .foregroundColor(AppColors.textPrimary)
+                                             .textCase(nil)
+                                             .padding(.leading, -4)
+                                     }
+                                     .listSectionSpacing(8)
                                  }
                              }
                              .listStyle(.plain)

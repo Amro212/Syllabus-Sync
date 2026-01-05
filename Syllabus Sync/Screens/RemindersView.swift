@@ -20,6 +20,7 @@ struct RemindersView: View {
     // Filtering & Sorting
     @State private var searchText = ""
     @State private var sortOption: SortOption = .dateAsc
+    @State private var selectedFilter: ReminderFilter = .all
     
     // User State
     @AppStorage("hasAddedEvents") private var hasAddedEvents: Bool = false
@@ -38,12 +39,47 @@ struct RemindersView: View {
         }
     }
     
+    enum ReminderFilter: String, CaseIterable {
+        case all = "All"
+        case assignments = "Assignments"
+        case exams = "Exams"
+        case labs = "Labs"
+        case lectures = "Lectures"
+        case other = "Other"
+        
+        var icon: String {
+            switch self {
+            case .all: return "tray.fill" // Generic tray/all icon
+            case .assignments: return "doc.text.fill"
+            case .exams: return "graduationcap.fill"
+            case .labs: return "flask.fill"
+            case .lectures: return "person.3.fill"
+            case .other: return "star.fill"
+            }
+        }
+        
+        func matches(_ eventType: EventItem.EventType) -> Bool {
+            switch self {
+            case .all: return true
+            case .assignments: return eventType == .assignment
+            case .exams: return eventType == .midterm || eventType == .final || eventType == .quiz
+            case .labs: return eventType == .lab
+            case .lectures: return eventType == .lecture
+            case .other: return eventType == .other
+            }
+        }
+    }
+    
     var filteredEvents: [EventItem] {
         let text = searchText.lowercased()
         let events = eventStore.events.filter { event in
-            text.isEmpty ||
+            let matchesSearch = text.isEmpty ||
             event.title.lowercased().contains(text) ||
             event.courseCode.lowercased().contains(text)
+            
+            let matchesFilter = selectedFilter.matches(event.type)
+            
+            return matchesSearch && matchesFilter
         }
         
         switch sortOption {
@@ -62,45 +98,65 @@ struct RemindersView: View {
                  ZStack(alignment: .top) {
                      VStack(spacing: 0) {
                          // Search & Sort Bar
-                         HStack(spacing: Layout.Spacing.sm) {
-                             // Search Field
-                             HStack {
-                                 Image(systemName: "magnifyingglass")
-                                     .foregroundColor(AppColors.textSecondary)
-                                 TextField("Search reminders...", text: $searchText)
-                                     .foregroundColor(AppColors.textPrimary)
-                                 
-                                 if !searchText.isEmpty {
-                                     Button(action: { searchText = "" }) {
-                                         Image(systemName: "xmark.circle.fill")
-                                             .foregroundColor(AppColors.textSecondary)
+                         VStack(spacing: Layout.Spacing.xs) {
+                             HStack(spacing: Layout.Spacing.xs) {
+                                 // Search Field
+                                 HStack {
+                                     Image(systemName: "magnifyingglass")
+                                         .foregroundColor(AppColors.textSecondary)
+                                     TextField("Search reminders...", text: $searchText)
+                                         .foregroundColor(AppColors.textPrimary)
+                                     
+                                     if !searchText.isEmpty {
+                                         Button(action: { searchText = "" }) {
+                                             Image(systemName: "xmark.circle.fill")
+                                                 .foregroundColor(AppColors.textSecondary)
+                                         }
                                      }
                                  }
-                             }
-                             .padding(10)
-                             .background(AppColors.surface)
-                             .cornerRadius(10)
-                             
-                             // Sort Menu
-                             Menu {
-                                 Picker("Sort By", selection: $sortOption) {
-                                     Text("Date (Earliest)").tag(SortOption.dateAsc)
-                                     Text("Date (Latest)").tag(SortOption.dateDesc)
-                                     Text("Course").tag(SortOption.course)
-                                     Text("Type").tag(SortOption.type)
+                                 .padding(10)
+                                 .background(AppColors.surface)
+                                 .cornerRadius(10)
+                                 
+                                 // Sort Menu
+                                 Menu {
+                                     Picker("Sort By", selection: $sortOption) {
+                                         Text("Date (Earliest)").tag(SortOption.dateAsc)
+                                         Text("Date (Latest)").tag(SortOption.dateDesc)
+                                         Text("Course").tag(SortOption.course)
+                                         Text("Type").tag(SortOption.type)
+                                     }
+                                 } label: {
+                                     Image(systemName: "arrow.up.arrow.down")
+                                         .font(.system(size: 16, weight: .semibold))
+                                         .foregroundColor(AppColors.textPrimary)
+                                         .frame(width: 44, height: 44)
+                                         .background(AppColors.surface)
+                                         .cornerRadius(10)
                                  }
-                             } label: {
-                                 Image(systemName: "arrow.up.arrow.down")
-                                     .font(.system(size: 16, weight: .semibold))
-                                     .foregroundColor(AppColors.textPrimary)
-                                     .frame(width: 44, height: 44)
-                                     .background(AppColors.surface)
-                                     .cornerRadius(10)
+                             }
+                             
+                             // Quick Filter Bar
+                             ScrollView(.horizontal, showsIndicators: false) {
+                                 HStack(spacing: Layout.Spacing.sm) {
+                                     ForEach(ReminderFilter.allCases, id: \.self) { filter in
+                                         FilterTabButton(
+                                             filter: filter,
+                                             isSelected: selectedFilter == filter
+                                         ) {
+                                             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                                 selectedFilter = filter
+                                             }
+                                             HapticFeedbackManager.shared.lightImpact()
+                                         }
+                                     }
+                                 }
+                                 .padding(.horizontal, 4) // Slight inset for scroll
                              }
                          }
                          .padding(.horizontal, Layout.Spacing.md)
                          .padding(.top, headerHeight + 60) // Push down below sticky header
-                         .padding(.bottom, Layout.Spacing.sm)
+                         .padding(.bottom, Layout.Spacing.md)
                          .background(AppColors.background)
                          .zIndex(1)
                          
@@ -255,21 +311,7 @@ struct RemindersView: View {
     
     private func deleteEvent(_ event: EventItem) {
         Task {
-            // Optimistic UI update could happen here, but simpler to rely on store refresh
-            var currentEvents = eventStore.events
-            currentEvents.removeAll { $0.id == event.id }
-            // In a real app, delete from DB here. For now assuming eventStore can handle removal or we trigger a sync
-            // Since EventStore seems to be readonly/sync based, we might strictly rely on re-import or edit.
-            // But swipe-to-delete implies permanent removal.
-            // Assuming we have a delete method on EventStore or we just update the local list for now.
-            // Let's call a hypothetical delete:
-            // await eventStore.delete(event)
-            // If not available, we shouldn't show the option or we simulate it.
-            // Checking EventStore capabilities... assuming simple local removal for now:
-             // WARNING: This is a robust assumption. If EventStore implementation is missing delete, this does nothing visually permanent
-             // until refresh.
-             // I'll add a simplified implementation:
-             // eventStore.events.removeAll { $0.id == event.id }
+            await eventStore.deleteEvent(event)
         }
     }
     
@@ -414,6 +456,51 @@ struct RemindersShimmerView: View {
 }
 
 // MARK: - Preview
+
+// MARK: - Filter Tab Button
+
+struct FilterTabButton: View {
+    let filter: RemindersView.ReminderFilter
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Layout.Spacing.xs) {
+                Image(systemName: filter.icon)
+                    .font(.system(size: 14, weight: .medium))
+                
+                Text(filter.rawValue)
+                    .font(.captionL)
+                    .fontWeight(.medium)
+            }
+            .padding(.horizontal, Layout.Spacing.md)
+            .padding(.vertical, Layout.Spacing.sm)
+            .foregroundColor(isSelected ? .white : AppColors.textSecondary)
+            .background(
+                Group {
+                    if isSelected {
+                         LinearGradient(
+                             gradient: Gradient(colors: [
+                                 Color(red: 0.886, green: 0.714, blue: 0.275), // Medium gold
+                                 Color(red: 0.816, green: 0.612, blue: 0.118)  // Darker gold
+                             ]),
+                             startPoint: .topLeading,
+                             endPoint: .bottomTrailing
+                         )
+                         .shadow(color: Color(red: 0.886, green: 0.714, blue: 0.275).opacity(0.4), radius: 8, x: 0, y: 4)
+                    } else {
+                        AppColors.surface
+                            .shadow(color: AppColors.shadow.opacity(0.05), radius: 4, x: 0, y: 2)
+                    }
+                }
+            )
+            .cornerRadius(20) // Pill shape
+            .scaleEffect(isSelected ? 1.05 : 1.0)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
 
 #Preview {
     RemindersView()

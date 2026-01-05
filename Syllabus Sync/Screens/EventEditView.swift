@@ -91,8 +91,8 @@ struct EventEditView: View {
                     eventDetailsSection
                     eventTypeAndRecurrenceSection
                     dateAndTimeSection
-                    locationAndNotesSection
                     reminderSection
+                    locationAndNotesSection
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -260,15 +260,16 @@ struct EventEditView: View {
 
     // MARK: - Date & Time Section
     private var dateAndTimeSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Section header OUTSIDE card
-            Text("Date & Time")
-                .font(.titleS)
-                .fontWeight(.semibold)
-                .foregroundColor(AppColors.textPrimary)
+        VStack(alignment: .leading, spacing: 0) {
+            // Card with header INSIDE
+            VStack(alignment: .leading, spacing: 12) {
+                // Section header inside card
+                Text("Date & Time")
+                    .font(.titleS)
+                    .fontWeight(.semibold)
+                    .foregroundColor(AppColors.textPrimary)
+                    .padding(.bottom, 4)
 
-            // Card
-            VStack(spacing: 20) {
                 // All-Day Toggle
                 HStack {
                     Text("All-day")
@@ -280,38 +281,42 @@ struct EventEditView: View {
                         .labelsHidden()
                 }
                 
-                // Date picker - centered style
-                VStack(spacing: 8) {
+                // Date Field - full width
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Date")
                         .font(.captionL)
                         .foregroundColor(AppColors.accent)
                     
-                    DatePicker("", selection: $startDate, displayedComponents: .date)
-                        .datePickerStyle(.compact)
-                        .labelsHidden()
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 20)
-                        .background(AppColors.surfaceSecondary)
-                        .cornerRadius(12)
+                    HStack {
+                        DatePicker("", selection: $startDate, displayedComponents: .date)
+                            .datePickerStyle(.compact)
+                            .labelsHidden()
+                        Spacer()
+                    }
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 14)
+                    .background(AppColors.surfaceSecondary)
+                    .cornerRadius(12)
                 }
-                .frame(maxWidth: .infinity)
 
-                // Time picker - centered style (hidden when All-Day)
+                // Time Field - full width (hidden when All-Day)
                 if !isAllDay {
-                    VStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 6) {
                         Text("Time")
                             .font(.captionL)
                             .foregroundColor(AppColors.accent)
                         
-                        DatePicker("", selection: $startDate, displayedComponents: .hourAndMinute)
-                            .datePickerStyle(.compact)
-                            .labelsHidden()
-                            .padding(.vertical, 10)
-                            .padding(.horizontal, 20)
-                            .background(AppColors.surfaceSecondary)
-                            .cornerRadius(12)
+                        HStack {
+                            DatePicker("", selection: $startDate, displayedComponents: .hourAndMinute)
+                                .datePickerStyle(.compact)
+                                .labelsHidden()
+                            Spacer()
+                        }
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                        .background(AppColors.surfaceSecondary)
+                        .cornerRadius(12)
                     }
-                    .frame(maxWidth: .infinity)
                 }
                 
                 // Add end time toggle
@@ -327,20 +332,22 @@ struct EventEditView: View {
 
                 // End Date/Time (if enabled)
                 if includeEndDate {
-                    VStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 6) {
                         Text("End")
                             .font(.captionL)
                             .foregroundColor(AppColors.accent)
                         
-                        DatePicker("", selection: $endDate, in: startDate..., displayedComponents: isAllDay ? .date : [.date, .hourAndMinute])
-                            .datePickerStyle(.compact)
-                            .labelsHidden()
-                            .padding(.vertical, 10)
-                            .padding(.horizontal, 20)
-                            .background(AppColors.surfaceSecondary)
-                            .cornerRadius(12)
+                        HStack {
+                            DatePicker("", selection: $endDate, in: startDate..., displayedComponents: isAllDay ? .date : [.date, .hourAndMinute])
+                                .datePickerStyle(.compact)
+                                .labelsHidden()
+                            Spacer()
+                        }
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                        .background(AppColors.surfaceSecondary)
+                        .cornerRadius(12)
                     }
-                    .frame(maxWidth: .infinity)
                 }
             }
             .padding(16)

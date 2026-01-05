@@ -21,6 +21,7 @@ struct RemindersView: View {
     @State private var searchText = ""
     @State private var sortOption: SortOption = .dateAsc
     @State private var selectedFilter: ReminderFilter = .all
+    @State private var selectedCourse: String? = nil  // nil means "All"
     
     // User State
     @AppStorage("hasAddedEvents") private var hasAddedEvents: Bool = false
@@ -79,7 +80,9 @@ struct RemindersView: View {
             
             let matchesFilter = selectedFilter.matches(event.type)
             
-            return matchesSearch && matchesFilter
+            let matchesCourse = selectedCourse == nil || event.courseCode == selectedCourse
+            
+            return matchesSearch && matchesFilter && matchesCourse
         }
         
         switch sortOption {
@@ -88,6 +91,12 @@ struct RemindersView: View {
         case .course: return events.sorted { $0.courseCode < $1.courseCode }
         case .type: return events.sorted { $0.type.rawValue < $1.type.rawValue }
         }
+    }
+    
+    // Unique courses from events
+    var availableCourses: [String] {
+        let courses = Set(eventStore.events.map { $0.courseCode }).filter { !$0.isEmpty }
+        return courses.sorted()
     }
     
     enum TimeSection: String, CaseIterable {
@@ -139,6 +148,37 @@ struct RemindersView: View {
                      VStack(spacing: 0) {
                          // Search & Sort Bar
                          VStack(spacing: Layout.Spacing.xs) {
+                             // Course Filter Bar - only show when events exist
+                             if !eventStore.events.isEmpty {
+                                 ScrollView(.horizontal, showsIndicators: false) {
+                                     HStack(spacing: Layout.Spacing.sm) {
+                                         // "All" pill
+                                         CourseFilterButton(
+                                             title: "All",
+                                             isSelected: selectedCourse == nil
+                                         ) {
+                                             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                                 selectedCourse = nil
+                                             }
+                                             HapticFeedbackManager.shared.lightImpact()
+                                         }
+                                         
+                                         ForEach(availableCourses, id: \.self) { course in
+                                             CourseFilterButton(
+                                                 title: course,
+                                                 isSelected: selectedCourse == course
+                                             ) {
+                                                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                                     selectedCourse = course
+                                                 }
+                                                 HapticFeedbackManager.shared.lightImpact()
+                                             }
+                                         }
+                                     }
+                                     .padding(.horizontal, 4)
+                                 }
+                             }
+                             
                              HStack(spacing: Layout.Spacing.xs) {
                                  // Search Field
                                  HStack {
@@ -183,7 +223,7 @@ struct RemindersView: View {
                                  }
                              }
                              
-                             // Quick Filter Bar
+                             // Event Type Filter Bar
                              ScrollView(.horizontal, showsIndicators: false) {
                                  HStack(spacing: Layout.Spacing.sm) {
                                      ForEach(ReminderFilter.allCases, id: \.self) { filter in
@@ -202,7 +242,7 @@ struct RemindersView: View {
                              }
                          }
                          .padding(.horizontal, Layout.Spacing.md)
-                         .padding(.top, headerHeight + 10) // Push down below sticky header (Reduced from +60)
+                         .padding(.top, headerHeight + 10)
                          .padding(.bottom, Layout.Spacing.md)
                          .background(AppColors.background)
                          .zIndex(1)
@@ -547,6 +587,49 @@ struct FilterTabButton: View {
                     .font(.system(size: 14, weight: .medium))
                 
                 Text(filter.rawValue)
+                    .font(.captionL)
+                    .fontWeight(.medium)
+            }
+            .padding(.horizontal, Layout.Spacing.md)
+            .padding(.vertical, Layout.Spacing.sm)
+            .foregroundColor(isSelected ? .white : AppColors.textSecondary)
+            .background(
+                Group {
+                    if isSelected {
+                         LinearGradient(
+                             gradient: Gradient(colors: [
+                                 Color(red: 0.886, green: 0.714, blue: 0.275), // Medium gold
+                                 Color(red: 0.816, green: 0.612, blue: 0.118)  // Darker gold
+                             ]),
+                             startPoint: .topLeading,
+                             endPoint: .bottomTrailing
+                         )
+                         .shadow(color: Color(red: 0.886, green: 0.714, blue: 0.275).opacity(0.4), radius: 8, x: 0, y: 4)
+                    } else {
+                        AppColors.surface
+                            .shadow(color: AppColors.shadow.opacity(0.05), radius: 4, x: 0, y: 2)
+                    }
+                }
+            )
+            .cornerRadius(20) // Pill shape
+            .scaleEffect(isSelected ? 1.05 : 1.0)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+struct CourseFilterButton: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Layout.Spacing.xs) {
+                Image(systemName: "book.fill")
+                    .font(.system(size: 12, weight: .medium))
+                
+                Text(title)
                     .font(.captionL)
                     .fontWeight(.medium)
             }

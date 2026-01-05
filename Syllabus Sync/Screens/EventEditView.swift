@@ -2,6 +2,7 @@ import SwiftUI
 
 struct EventEditView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var eventStore: EventStore
 
     let event: EventItem
     let isCreatingNew: Bool
@@ -116,8 +117,8 @@ struct EventEditView: View {
                     Button("Save") { saveEdit() }
                         .font(.bodyRegular)
                         .fontWeight(.medium)
-                        .foregroundColor(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? AppColors.textTertiary : AppColors.accent)
-                        .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .foregroundColor(canSave ? AppColors.accent : AppColors.textTertiary)
+                        .disabled(!canSave)
                 }
             }
         }
@@ -158,21 +159,40 @@ struct EventEditView: View {
                         .cornerRadius(12)
                 }
 
-                // Course Code Field
+                // Course Code Field with Dropdown
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Course Code (Optional)")
+                    Text("Course Code")
                         .font(.captionL)
                         .foregroundColor(AppColors.accent)
                     
-                    TextField("e.g., CS 101", text: $courseCode)
-                        .font(.bodyRegular)
-                        .textInputAutocapitalization(.characters)
-                        .autocorrectionDisabled(true)
-                        .focused($focusedField, equals: .courseCode)
-                        .padding(.vertical, 14)
-                        .padding(.horizontal, 16)
-                        .background(AppColors.surfaceSecondary)
-                        .cornerRadius(12)
+                    HStack(spacing: 0) {
+                        TextField("e.g., CS 101", text: $courseCode)
+                            .font(.bodyRegular)
+                            .textInputAutocapitalization(.characters)
+                            .autocorrectionDisabled(true)
+                            .focused($focusedField, equals: .courseCode)
+                        
+                        // Dropdown for existing courses
+                        if !existingCourses.isEmpty {
+                            Menu {
+                                ForEach(existingCourses, id: \.self) { course in
+                                    Button(course) {
+                                        courseCode = course
+                                        HapticFeedbackManager.shared.selection()
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "chevron.down.circle.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(AppColors.accent)
+                            }
+                            .menuIndicator(.hidden)
+                        }
+                    }
+                    .padding(.vertical, 14)
+                    .padding(.horizontal, 16)
+                    .background(AppColors.surfaceSecondary)
+                    .cornerRadius(12)
                 }
             }
             .padding(16)
@@ -444,6 +464,19 @@ struct EventEditView: View {
     }
 
     // MARK: - Helpers
+    
+    // Existing courses from the event store (for dropdown)
+    private var existingCourses: [String] {
+        let courses = Set(eventStore.events.map { $0.courseCode }).filter { !$0.isEmpty }
+        return courses.sorted()
+    }
+    
+    // Validation for Save button
+    private var canSave: Bool {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedCourseCode = courseCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmedTitle.isEmpty && !trimmedCourseCode.isEmpty
+    }
 
     private var hasUnsavedChanges: Bool {
         if title != event.title { return true }
@@ -461,7 +494,7 @@ struct EventEditView: View {
     private func saveEdit() {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCourseCode = courseCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard !trimmedTitle.isEmpty else { return }
+        guard !trimmedTitle.isEmpty && !trimmedCourseCode.isEmpty else { return }
 
         let normalizedLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -31,15 +31,15 @@ describe('OpenAI client', () => {
       const body = JSON.parse(init.body);
       expect(body.response_format?.type).toBe('json_schema');
       return new Response(
-        JSON.stringify({ choices: [ { message: { content: JSON.stringify([goodEvent]) } } ] }),
+        JSON.stringify({ choices: [{ message: { content: JSON.stringify([goodEvent]) } }] }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }) as any;
-    ;(globalThis as any).fetch = mock;
+    ; (globalThis as any).fetch = mock;
 
     const prompt = {
-      model: 'gpt-4o-mini',
-      messages: [ { role: 'system', content: 'test' }, { role: 'user', content: 'parse' } ],
+      model: 'gpt-4.1-mini',
+      messages: [{ role: 'system', content: 'test' }, { role: 'user', content: 'parse' }],
       response_format: { type: 'json_schema', json_schema: { name: 'event_items', schema: { type: 'array', items: {} } } }
     } as any;
 
@@ -53,15 +53,15 @@ describe('OpenAI client', () => {
     const mock = vi.fn(async (url: string, init: any) => {
       expect(url).toContain('/v1/chat/completions');
       return new Response(
-        JSON.stringify({ choices: [ { message: { content: JSON.stringify([goodEvent]) } } ] }),
+        JSON.stringify({ choices: [{ message: { content: JSON.stringify([goodEvent]) } }] }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }) as any;
-    ;(globalThis as any).fetch = mock;
+    ; (globalThis as any).fetch = mock;
 
     const prompt = {
-      model: 'gpt-4o-mini',
-      messages: [ { role: 'system', content: 'test' }, { role: 'user', content: 'parse' } ],
+      model: 'gpt-4.1-mini',
+      messages: [{ role: 'system', content: 'test' }, { role: 'user', content: 'parse' }],
       response_format: { type: 'json_object' }
     } as any;
 
@@ -78,15 +78,15 @@ describe('OpenAI client', () => {
         return new Response('oops', { status: 500 });
       }
       return new Response(
-        JSON.stringify({ choices: [ { message: { content: JSON.stringify([goodEvent]) } } ] }),
+        JSON.stringify({ choices: [{ message: { content: JSON.stringify([goodEvent]) } }] }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }) as any;
-    ;(globalThis as any).fetch = mock;
+    ; (globalThis as any).fetch = mock;
 
     const prompt = {
-      model: 'gpt-4o-mini',
-      messages: [ { role: 'user', content: 'go' } ],
+      model: 'gpt-4.1-mini',
+      messages: [{ role: 'user', content: 'go' }],
     } as any;
 
     const res = await callOpenAIParse(env as Env, prompt, reqMeta, { timeoutMs: 5000, retries: 1 });
@@ -108,15 +108,15 @@ describe('OpenAI client', () => {
       const body = JSON.parse(init.body);
       expect(body.response_format).toBeUndefined();
       return new Response(
-        JSON.stringify({ choices: [ { message: { content: JSON.stringify([goodEvent]) } } ] }),
+        JSON.stringify({ choices: [{ message: { content: JSON.stringify([goodEvent]) } }] }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }) as any;
-    ;(globalThis as any).fetch = mock;
+    ; (globalThis as any).fetch = mock;
 
     const prompt = {
-      model: 'gpt-4o-mini',
-      messages: [ { role: 'system', content: 'test' }, { role: 'user', content: 'parse' } ],
+      model: 'gpt-4.1-mini',
+      messages: [{ role: 'system', content: 'test' }, { role: 'user', content: 'parse' }],
       response_format: { type: 'json_schema', json_schema: { name: 'event_items', schema: { type: 'array', items: {} } } }
     } as any;
 

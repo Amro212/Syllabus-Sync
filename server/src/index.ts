@@ -394,7 +394,7 @@ export default {
 						termStart: (body as any).termStart,
 						termEnd: (body as any).termEnd,
 						timezone: tz,
-						model: (env as any).OPENAI_MODEL || 'gpt-4o-mini',
+						model: (env as any).OPENAI_MODEL || 'gpt-4.1-mini',
 					});
 
 					let aiItems: unknown[];
@@ -465,7 +465,7 @@ export default {
 							textLength: text.length,
 							warnings,
 							validation: validationResult.stats,
-							openai: { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-4o-mini' }
+							openai: { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-4.1-mini' }
 						}
 					};
 

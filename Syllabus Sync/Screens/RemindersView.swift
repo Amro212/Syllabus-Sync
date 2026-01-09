@@ -125,12 +125,40 @@ struct RemindersView: View {
         }
     }
     
+    /// Returns the effective date for display/sorting
+    /// For recurring events, calculates the next occurrence; otherwise returns the start date
+    private func effectiveDate(for event: EventItem) -> Date {
+        // If event has a recurrence rule and the start date is in the past, find next occurrence
+        guard let _ = event.recurrenceRule, event.start < Date() else {
+            return event.start
+        }
+        
+        // For recurring events, calculate next occurrence based on pattern
+        // This is a simplified calculation - assumes weekly recurrence (most common for classes)
+        let calendar = Calendar.current
+        let now = Date()
+        var nextDate = event.start
+        
+        // Keep adding weeks until we find a future occurrence
+        // Limit to 52 weeks to prevent infinite loops
+        var weeksAdded = 0
+        while nextDate < now && weeksAdded < 52 {
+            guard let next = calendar.date(byAdding: .weekOfYear, value: 1, to: nextDate) else {
+                break
+            }
+            nextDate = next
+            weeksAdded += 1
+        }
+        
+        return nextDate
+    }
+    
     var groupedEvents: [(TimeSection, [EventItem])] {
-        let sorted = filteredEvents.sorted { $0.start < $1.start }
+        let sorted = filteredEvents.sorted { effectiveDate(for: $0) < effectiveDate(for: $1) }
         var groups: [(TimeSection, [EventItem])] = []
         
         for section in TimeSection.allCases {
-            let sectionEvents = sorted.filter { section.contains($0.start) }
+            let sectionEvents = sorted.filter { section.contains(effectiveDate(for: $0)) }
             if !sectionEvents.isEmpty {
                 groups.append((section, sectionEvents))
             }
@@ -248,8 +276,8 @@ struct RemindersView: View {
                          .zIndex(1)
                          
                          // List Content
-                         if filteredEvents.isEmpty {
-                             if !userSpecificHasAddedEvents && searchText.isEmpty {
+                         if groupedEvents.isEmpty {
+                             if !userSpecificHasAddedEvents && searchText.isEmpty && selectedFilter == .all && selectedCourse == nil {
                                  // "New User" Empty State
                                  VStack(spacing: Layout.Spacing.lg) {
                                      Spacer()
@@ -324,9 +352,6 @@ struct RemindersView: View {
                                                  }
                                                  .swipeActions(edge: .leading) {
                                                       // Future: Mark Complete logic
-                                                 }
-                                                 .onTapGesture {
-                                                     editingEvent = event
                                                  }
                                          }
                                      } header: {

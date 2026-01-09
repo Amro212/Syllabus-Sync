@@ -1,6 +1,6 @@
 /*
  * Prompt builder for OpenAI JSON-mode parsing of syllabi → EventItemDTO[]
- * Optimized for small, JSON-capable models (e.g., gpt-4o-mini).
+ * Optimized for gpt-4.1-mini model.
  */
 
 import eventItemSchema from '../../schemas/eventItem.schema.json';
@@ -87,7 +87,29 @@ You are a specialized AI that extracts academic events from preprocessed syllabu
 - Format: "FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=2025-12-12"
 - Day codes: MO,TU,WE,TH,FR,SA,SU
 - Start/end: first occurrence from termStart
-- If incomplete info: output lecture without recurrenceRule
+- **Lectures** with day patterns (MWF, TuTh, etc.) → Always set "recurrenceRule"
+
+## LAB PARSING RULES (CRITICAL)
+Labs appear as **sessions** (attendance) OR **deliverables** (graded work). Parse them SEPARATELY:
+
+### Lab Sessions (Recurring Attendance)
+Look for schedules with Day/Time/Location/Section patterns.
+→ Create ONE recurring event PER SECTION:
+  - title: "Lab - Section [number]" (e.g., "Lab - Section 01")
+  - recurrenceRule: FREQ=WEEKLY;BYDAY=...
+  - notes: If graded deliverables exist, add "See Lab 1-N for graded work"
+
+### Lab Deliverables (Graded Work)
+Look for numbered labs with due dates, weights, or topics (e.g., "Lab 1: Topic", "Lab 2 worth 5%").
+→ Create ONE event PER DELIVERABLE:
+  - title: "Lab 1", "Lab 2", etc. (keep original numbering)
+  - NO recurrenceRule (one-time deadline)
+  - notes: Include weight and topic if available
+
+### Important Distinctions
+- "Section 01, Section 02" in schedule table = SESSIONS (recurring)
+- "Lab 1, Lab 2, Lab 3" with topics/weights = DELIVERABLES (graded)
+- Ungraded labs = Sessions only with notes "Not graded"
 
 ## ADDITIONAL RULES
 - Notes: Max 200 chars, always include weight/submission if present
@@ -795,6 +817,118 @@ const FEWSHOT = [
         }
       ]
     })
+  },
+  {
+    role: 'user' as const,
+    content:
+      'Example 13 — Lab Sessions + Graded Deliverables (CRITICAL PATTERN).\n' +
+      'Context: courseCode=ENGG*4540, timezone=America/Toronto, termStart=2025-01-06, termEnd=2025-04-18.\n' +
+      'Text:\n' +
+      'Lab Schedule:\n' +
+      '| Day | Time | Location | Section |\n' +
+      '| Monday | 11:30 AM - 1:20 PM | RICH 2531 | 01 |\n' +
+      '| Monday | 2:30 PM - 4:20 PM | RICH 2531 | 02 |\n' +
+      '| Wednesday | 12:30 PM - 2:20 PM | RICH 2531 | 03 |\n\n' +
+      'Lab Topics: Lab 1: Benchmark, Lab 2: MARS/MIPS, Lab 3: Pipelining, Lab 4: DRAM, Lab 5: Execution\n' +
+      'Labs worth 25% total (5% each).'
+  },
+  {
+    role: 'assistant' as const,
+    content: JSON.stringify({
+      events: [
+        // Lab SESSIONS (recurring per section)
+        {
+          id: 'lab-session-01',
+          courseCode: 'ENGG*4540',
+          type: 'LAB',
+          title: 'Lab - Section 01',
+          start: '2025-01-06T11:30:00.000-05:00',
+          end: '2025-01-06T13:20:00.000-05:00',
+          allDay: false,
+          location: 'RICH 2531',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO;UNTIL=2025-04-18',
+          notes: 'Weekly lab session. See Lab 1-5 for graded work.',
+          confidence: 0.9
+        },
+        {
+          id: 'lab-session-02',
+          courseCode: 'ENGG*4540',
+          type: 'LAB',
+          title: 'Lab - Section 02',
+          start: '2025-01-06T14:30:00.000-05:00',
+          end: '2025-01-06T16:20:00.000-05:00',
+          allDay: false,
+          location: 'RICH 2531',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO;UNTIL=2025-04-18',
+          notes: 'Weekly lab session. See Lab 1-5 for graded work.',
+          confidence: 0.9
+        },
+        {
+          id: 'lab-session-03',
+          courseCode: 'ENGG*4540',
+          type: 'LAB',
+          title: 'Lab - Section 03',
+          start: '2025-01-08T12:30:00.000-05:00',
+          end: '2025-01-08T14:20:00.000-05:00',
+          allDay: false,
+          location: 'RICH 2531',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=WE;UNTIL=2025-04-18',
+          notes: 'Weekly lab session. See Lab 1-5 for graded work.',
+          confidence: 0.9
+        },
+        // Lab DELIVERABLES (graded, one-time)
+        {
+          id: 'lab-1',
+          courseCode: 'ENGG*4540',
+          type: 'LAB',
+          title: 'Lab 1',
+          start: '2025-01-13T00:00:00.000-05:00',
+          allDay: true,
+          notes: 'Weight: 5%. Topic: Benchmark',
+          confidence: 0.85
+        },
+        {
+          id: 'lab-2',
+          courseCode: 'ENGG*4540',
+          type: 'LAB',
+          title: 'Lab 2',
+          start: '2025-01-20T00:00:00.000-05:00',
+          allDay: true,
+          notes: 'Weight: 5%. Topic: MARS/MIPS',
+          confidence: 0.85
+        },
+        {
+          id: 'lab-3',
+          courseCode: 'ENGG*4540',
+          type: 'LAB',
+          title: 'Lab 3',
+          start: '2025-01-27T00:00:00.000-05:00',
+          allDay: true,
+          notes: 'Weight: 5%. Topic: Pipelining',
+          confidence: 0.85
+        },
+        {
+          id: 'lab-4',
+          courseCode: 'ENGG*4540',
+          type: 'LAB',
+          title: 'Lab 4',
+          start: '2025-02-03T00:00:00.000-05:00',
+          allDay: true,
+          notes: 'Weight: 5%. Topic: DRAM',
+          confidence: 0.85
+        },
+        {
+          id: 'lab-5',
+          courseCode: 'ENGG*4540',
+          type: 'LAB',
+          title: 'Lab 5',
+          start: '2025-02-10T00:00:00.000-05:00',
+          allDay: true,
+          notes: 'Weight: 5%. Topic: Execution',
+          confidence: 0.85
+        }
+      ]
+    })
   }
 ];
 
@@ -807,7 +941,7 @@ export function buildParseSyllabusRequest(
     termStart,
     termEnd,
     timezone = 'UTC',
-    model = 'gpt-4o-mini'
+    model = 'gpt-4.1-mini'
   } = options;
 
   const system = SYSTEM_PROMPT({ timezone });

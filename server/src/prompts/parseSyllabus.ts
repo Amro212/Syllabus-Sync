@@ -83,11 +83,19 @@ You are a specialized AI that extracts academic events from preprocessed syllabu
 - Recurring lectures with proper RRULE.
 - Important administrative dates (drop/add, withdrawal, holidays).
 
-## RECURRENCE RULES
-- Format: "FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=2025-12-12"
+## RECURRENCE RULES - SPLIT MULTI-DAY PATTERNS (CRITICAL)
+⚠️ Multi-day patterns (TuTh, MWF, etc.) MUST be SPLIT into SEPARATE events:
+- "Tue/Thu 2:30 PM" → Create 2 SEPARATE events: "Lecture (Tue)" + "Lecture (Thu)"
+- "MWF 10:00 AM" → Create 3 SEPARATE events: "Lecture (Mon)" + "Lecture (Wed)" + "Lecture (Fri)"
+- Each event has SINGLE day in recurrenceRule: "FREQ=WEEKLY;BYDAY=TU" (NOT BYDAY=TU,TH)
 - Day codes: MO,TU,WE,TH,FR,SA,SU
-- Start/end: first occurrence from termStart
-- **Lectures** with day patterns (MWF, TuTh, etc.) → Always set "recurrenceRule"
+- Start date: first occurrence of THAT DAY from termStart
+
+## MULTIPLE SECTIONS (CRITICAL)
+When a course has MULTIPLE SECTIONS with DIFFERENT instructors/times:
+- Create ONE event PER SECTION PER DAY
+- Example: "Section 01: Tue/Thu 4:00 PM" = 2 events (Lecture Section 01 Tue + Lecture Section 01 Thu)
+- Extract the EXACT time for EACH section (do NOT copy times between sections)
 
 ## LAB PARSING RULES (CRITICAL)
 Labs appear as **sessions** (attendance) OR **deliverables** (graded work). Parse them SEPARATELY:
@@ -159,21 +167,33 @@ Output:
   ]
 }
 
-### Example 3 — Recurring Lecture
+### Example 3 — Recurring Lecture (SPLIT DAYS)
 Text: TuTh 10:00-11:20 AM in Room 204 from Sept 4 to Dec 12.
 Output:
 {
   "events": [
     {
-      "id": "lecture-series",
+      "id": "lecture-tue",
       "courseCode": "CS2750",
       "type": "LECTURE",
-      "title": "Lecture",
+      "title": "Lecture (Tue)",
       "start": "2025-09-04T10:00:00.000-04:00",
       "end": "2025-09-04T11:20:00.000-04:00",
       "allDay": false,
       "location": "Room 204",
-      "recurrenceRule": "FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=2025-12-12",
+      "recurrenceRule": "FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-12-12",
+      "confidence": 0.9
+    },
+    {
+      "id": "lecture-thu",
+      "courseCode": "CS2750",
+      "type": "LECTURE",
+      "title": "Lecture (Thu)",
+      "start": "2025-09-06T10:00:00.000-04:00",
+      "end": "2025-09-06T11:20:00.000-04:00",
+      "allDay": false,
+      "location": "Room 204",
+      "recurrenceRule": "FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-12-12",
       "confidence": 0.9
     }
   ]
@@ -303,15 +323,27 @@ const FEWSHOT = [
     content: JSON.stringify({
       events: [
         {
-          id: 'lecture-series',
+          id: 'lecture-tue',
           courseCode: 'CS2750',
           type: 'LECTURE',
-          title: 'Lecture',
+          title: 'Lecture (Tue)',
           start: '2025-09-04T10:00:00.000-04:00',
           end: '2025-09-04T11:20:00.000-04:00',
           allDay: false,
           location: 'Room 204',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=2025-12-12',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-12-12',
+          confidence: 0.9
+        },
+        {
+          id: 'lecture-thu',
+          courseCode: 'CS2750',
+          type: 'LECTURE',
+          title: 'Lecture (Thu)',
+          start: '2025-09-06T10:00:00.000-04:00',
+          end: '2025-09-06T11:20:00.000-04:00',
+          allDay: false,
+          location: 'Room 204',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-12-12',
           confidence: 0.9
         }
       ]
@@ -357,15 +389,27 @@ const FEWSHOT = [
     content: JSON.stringify({
       events: [
         {
-          id: 'physics-lecture-series',
+          id: 'physics-lecture-tue',
           courseCode: 'PHYS201',
           type: 'LECTURE',
-          title: 'Lecture',
+          title: 'Lecture (Tue)',
           start: '2025-09-04T13:00:00.000-07:00',
           end: '2025-09-04T14:15:00.000-07:00',
           allDay: false,
           location: 'Room 101',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=2025-12-13',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-12-13',
+          confidence: 0.9
+        },
+        {
+          id: 'physics-lecture-thu',
+          courseCode: 'PHYS201',
+          type: 'LECTURE',
+          title: 'Lecture (Thu)',
+          start: '2025-09-06T13:00:00.000-07:00',
+          end: '2025-09-06T14:15:00.000-07:00',
+          allDay: false,
+          location: 'Room 101',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-12-13',
           confidence: 0.9
         }
       ]
@@ -384,16 +428,100 @@ const FEWSHOT = [
     content: JSON.stringify({
       events: [
         {
-          id: 'english-lecture-series',
+          id: 'english-lecture-tue',
           courseCode: 'ENGL102',
           type: 'LECTURE',
-          title: 'Lecture',
+          title: 'Lecture (Tue)',
           start: '2025-08-27T11:00:00.000-05:00',
           end: '2025-08-27T12:15:00.000-05:00',
           allDay: false,
           location: 'Room 205',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU,TH',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU',
           confidence: 0.85
+        },
+        {
+          id: 'english-lecture-thu',
+          courseCode: 'ENGL102',
+          type: 'LECTURE',
+          title: 'Lecture (Thu)',
+          start: '2025-08-29T11:00:00.000-05:00',
+          end: '2025-08-29T12:15:00.000-05:00',
+          allDay: false,
+          location: 'Room 205',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TH',
+          confidence: 0.85
+        }
+      ]
+    })
+  },
+  {
+    role: 'user' as const,
+    content:
+      'Example 6b — MULTIPLE LECTURE SECTIONS with DIFFERENT TIMES (CRITICAL).\\n' +
+      'Context: courseCode=CIS*2750, timezone=America/Toronto, termStart=2025-01-06, termEnd=2025-04-18.\\n' +
+      'Text:\\n' +
+      'Lecture Section 01\\n' +
+      'Instructor: Dr. D. Nikitenko\\n' +
+      'Class Time / Location: Tue/Thu 4:00-5:20 pm | MACN 105\\n\\n' +
+      'Lecture Section 02\\n' +
+      'Instructor: Dr. J. McCuaig\\n' +
+      'Class Time / Location: Tue/Thu 8:30-9:50 am | MACN 105'
+  },
+  {
+    role: 'assistant' as const,
+    content: JSON.stringify({
+      events: [
+        {
+          id: 'lecture-section-01-tue',
+          courseCode: 'CIS*2750',
+          type: 'LECTURE',
+          title: 'Lecture Section 01 (Tue)',
+          start: '2025-01-07T16:00:00.000-05:00',
+          end: '2025-01-07T17:20:00.000-05:00',
+          allDay: false,
+          location: 'MACN 105',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-04-18',
+          notes: 'Instructor: Dr. D. Nikitenko',
+          confidence: 0.95
+        },
+        {
+          id: 'lecture-section-01-thu',
+          courseCode: 'CIS*2750',
+          type: 'LECTURE',
+          title: 'Lecture Section 01 (Thu)',
+          start: '2025-01-09T16:00:00.000-05:00',
+          end: '2025-01-09T17:20:00.000-05:00',
+          allDay: false,
+          location: 'MACN 105',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-04-18',
+          notes: 'Instructor: Dr. D. Nikitenko',
+          confidence: 0.95
+        },
+        {
+          id: 'lecture-section-02-tue',
+          courseCode: 'CIS*2750',
+          type: 'LECTURE',
+          title: 'Lecture Section 02 (Tue)',
+          start: '2025-01-07T08:30:00.000-05:00',
+          end: '2025-01-07T09:50:00.000-05:00',
+          allDay: false,
+          location: 'MACN 105',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-04-18',
+          notes: 'Instructor: Dr. J. McCuaig',
+          confidence: 0.95
+        },
+        {
+          id: 'lecture-section-02-thu',
+          courseCode: 'CIS*2750',
+          type: 'LECTURE',
+          title: 'Lecture Section 02 (Thu)',
+          start: '2025-01-09T08:30:00.000-05:00',
+          end: '2025-01-09T09:50:00.000-05:00',
+          allDay: false,
+          location: 'MACN 105',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-04-18',
+          notes: 'Instructor: Dr. J. McCuaig',
+          confidence: 0.95
         }
       ]
     })

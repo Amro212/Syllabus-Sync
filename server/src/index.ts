@@ -12,6 +12,7 @@ import { validateEvents, type ValidationConfig } from './validation/eventValidat
 import { buildParseSyllabusRequest } from './prompts/parseSyllabus';
 import { detectCourseCode } from './utils/courseCode';
 import { callOpenAIParse } from './clients/openai';
+import { splitMultiDayRecurrence } from './utils/splitMultiDayRecurrence';
 
 // Basic in-memory token buckets by IP (per-isolate, best-effort)
 const buckets = new Map<string, { tokens: number; lastRefill: number }>();
@@ -454,8 +455,11 @@ export default {
 						warnings.push(...validationResult.errors);
 					}
 
+					// Post-process: split multi-day recurrence rules into separate events
+					const splitEvents = splitMultiDayRecurrence(validationResult.events);
+
 					const response = {
-						events: validationResult.events,
+						events: splitEvents,
 						source: 'openai' as const,
 						confidence: Number.isFinite(avgConfidence) ? Number(avgConfidence.toFixed(3)) : 0,
 						preprocessedText: processedText,

@@ -98,8 +98,11 @@ export function splitMultiDayRecurrence<T extends { id: string; title: string; s
         }
 
         // Split into multiple events, one per day
-        const startDate = new Date(event.start);
-        const startDayOfWeek = startDate.getDay(); // 0=Sun, 1=Mon, etc.
+        // Derive weekday from the date portion to respect the event's own offset.
+        const dateMatch = event.start.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        const startDayOfWeek = dateMatch
+            ? new Date(Date.UTC(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]))).getUTCDay() // 0=Sun, 1=Mon, etc.
+            : new Date(event.start).getUTCDay();
 
         for (const dayCode of days) {
             const dayName = DAY_CODE_TO_NAME[dayCode] || dayCode;
@@ -117,10 +120,6 @@ export function splitMultiDayRecurrence<T extends { id: string; title: string; s
             }
 
             // Preserve original timezone by manipulating the date string directly
-            // Extract timezone offset from original start (e.g., "-05:00" or "Z")
-            const tzMatch = event.start.match(/([+-]\d{2}:\d{2}|Z)$/);
-            const tzSuffix = tzMatch ? tzMatch[1] : '';
-
             // Add days to start date while preserving time and timezone
             const newStartStr = addDaysToIsoString(event.start, dayOffset);
             let newEndStr: string | undefined;

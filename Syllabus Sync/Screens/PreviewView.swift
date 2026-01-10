@@ -109,13 +109,16 @@ struct PreviewView: View {
             }
             .background(AppColors.background)
         }
-        .fullScreenCover(item: $editingEvent) { event in
-            EventEditView(event: event) { updated in
+        .sheet(item: $editingEvent) { event in
+            EventEditView(event: event, isCreatingNew: false) { updated in
                 Task { await importViewModel.applyEditedEvent(updated) }
                 editingEvent = nil
             } onCancel: {
                 editingEvent = nil
             }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(20)
         }
     }
 

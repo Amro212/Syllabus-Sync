@@ -11,95 +11,439 @@ struct RemindersView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
     @EnvironmentObject var eventStore: EventStore
     @EnvironmentObject var importViewModel: ImportViewModel
+    
+    // UI State
     @State private var isRefreshing = false
-    @State private var showShimmer = false
-    @State private var buttonScale: CGFloat = 1.0
     @State private var showingImportView = false
-    @State private var fabPressed = false
-    @State private var fabExpanded = false
     @State private var editingEvent: EventItem?
-    @State private var isCreatingNewEvent = false
-    @State private var scrollProxy: ScrollViewProxy?
+    
+    // Filtering & Sorting
+    @State private var searchText = ""
+    @State private var sortOption: SortOption = .dateAsc
+    @State private var selectedFilter: ReminderFilter = .all
+    @State private var selectedCourse: String? = nil  // nil means "All"
+    
+    // User State
+    @AppStorage("hasAddedEvents") private var hasAddedEvents: Bool = false
+    @State private var userSpecificHasAddedEvents: Bool = false
+
+    enum SortOption {
+        case dateAsc, dateDesc, course, type
+        
+        var label: String {
+            switch self {
+            case .dateAsc: return "Date (Earliest First)"
+            case .dateDesc: return "Date (Latest First)"
+            case .course: return "Course Code"
+            case .type: return "Event Type"
+            }
+        }
+    }
+    
+    enum ReminderFilter: String, CaseIterable {
+        case all = "All"
+        case assignments = "Assignments"
+        case exams = "Exams"
+        case labs = "Labs"
+        case lectures = "Lectures"
+        case other = "Other"
+        
+        var icon: String {
+            switch self {
+            case .all: return "tray.fill" // Generic tray/all icon
+            case .assignments: return "doc.text.fill"
+            case .exams: return "graduationcap.fill"
+            case .labs: return "flask.fill"
+            case .lectures: return "person.3.fill"
+            case .other: return "star.fill"
+            }
+        }
+        
+        func matches(_ eventType: EventItem.EventType) -> Bool {
+            switch self {
+            case .all: return true
+            case .assignments: return eventType == .assignment
+            case .exams: return eventType == .midterm || eventType == .final || eventType == .quiz
+            case .labs: return eventType == .lab
+            case .lectures: return eventType == .lecture
+            case .other: return eventType == .other
+            }
+        }
+    }
+    
+    var filteredEvents: [EventItem] {
+        let text = searchText.lowercased()
+        let events = eventStore.events.filter { event in
+            let matchesSearch = text.isEmpty ||
+            event.title.lowercased().contains(text) ||
+            event.courseCode.lowercased().contains(text)
+            
+            let matchesFilter = selectedFilter.matches(event.type)
+            
+            let matchesCourse = selectedCourse == nil || event.courseCode == selectedCourse
+            
+            return matchesSearch && matchesFilter && matchesCourse
+        }
+        
+        switch sortOption {
+        case .dateAsc: return events.sorted { $0.start < $1.start }
+        case .dateDesc: return events.sorted { $0.start > $1.start }
+        case .course: return events.sorted { $0.courseCode < $1.courseCode }
+        case .type: return events.sorted { $0.type.rawValue < $1.type.rawValue }
+        }
+    }
+    
+    // Unique courses from events
+    var availableCourses: [String] {
+        let courses = Set(eventStore.events.map { $0.courseCode }).filter { !$0.isEmpty }
+        return courses.sorted()
+    }
+    
+    enum TimeSection: String, CaseIterable {
+        case today = "Today"
+        case tomorrow = "Tomorrow"
+        case laterThisWeek = "Later This Week"
+        case later = "Later"
+        
+        func contains(_ date: Date) -> Bool {
+            let calendar = Calendar.current
+            let now = Date()
+            
+            switch self {
+            case .today:
+                return calendar.isDateInToday(date)
+            case .tomorrow:
+                return calendar.isDateInTomorrow(date)
+            case .laterThisWeek:
+                guard !calendar.isDateInToday(date) && !calendar.isDateInTomorrow(date) else { return false }
+                guard let weekEnd = calendar.date(byAdding: .day, value: 7, to: now) else { return false }
+                return date >= now && date < weekEnd
+            case .later:
+                guard let weekEnd = calendar.date(byAdding: .day, value: 7, to: now) else { return false }
+                return date >= weekEnd
+            }
+        }
+    }
+    
+    /// Returns the effective date for display/sorting
+    /// For recurring events, calculates the next occurrence; otherwise returns the start date
+    private func effectiveDate(for event: EventItem) -> Date {
+        guard let recurrenceRule = event.recurrenceRule, event.start < Date() else {
+            return event.start
+        }
+        
+        let calendar = Calendar.current
+        let now = Date()
+        let timeComponents = calendar.dateComponents([.hour, .minute, .second, .nanosecond], from: event.start)
+        
+        // Find weekdays defined in BYDAY; default to the event's original weekday when absent
+        let recurringWeekdays = weekdays(from: recurrenceRule, calendar: calendar)
+        let targetWeekdays = recurringWeekdays.isEmpty ? [calendar.component(.weekday, from: event.start)] : recurringWeekdays
+        
+        var nextOccurrence: Date?
+        
+        for weekday in targetWeekdays {
+            var components = DateComponents()
+            components.weekday = weekday
+            components.hour = timeComponents.hour
+            components.minute = timeComponents.minute
+            components.second = timeComponents.second
+            components.nanosecond = timeComponents.nanosecond
+            
+            if let candidate = calendar.nextDate(after: now, matching: components, matchingPolicy: .nextTime, direction: .forward) {
+                if let untilDate = recurrenceEndDate(from: recurrenceRule, calendar: calendar), candidate > untilDate {
+                    continue
+                }
+                
+                if nextOccurrence == nil || candidate < nextOccurrence! {
+                    nextOccurrence = candidate
+                }
+            }
+        }
+        
+        return nextOccurrence ?? event.start
+    }
+    
+    private func weekdays(from recurrenceRule: String, calendar: Calendar) -> [Int] {
+        guard let range = recurrenceRule.range(of: "BYDAY=") else { return [] }
+        
+        let afterByDay = recurrenceRule[range.upperBound...]
+        let endIndex = afterByDay.firstIndex(of: ";") ?? afterByDay.endIndex
+        let dayCodes = String(afterByDay[..<endIndex]).split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        
+        let mapping: [String: Int] = [
+            "SU": 1, "MO": 2, "TU": 3, "WE": 4,
+            "TH": 5, "FR": 6, "SA": 7
+        ]
+        
+        return dayCodes.compactMap { mapping[$0] }
+    }
+    
+    private func recurrenceEndDate(from recurrenceRule: String, calendar: Calendar) -> Date? {
+        guard let range = recurrenceRule.range(of: "UNTIL=") else { return nil }
+        
+        let afterUntil = recurrenceRule[range.upperBound...]
+        let endIndex = afterUntil.firstIndex(of: ";") ?? afterUntil.endIndex
+        let untilString = String(afterUntil[..<endIndex])
+        
+        // Try common RFC 5545 formats, falling back to simple dates
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withDashSeparatorInDate, .withColonSeparatorInTime]
+        if let date = isoFormatter.date(from: untilString) {
+            return date
+        }
+        
+        let dateFormatter = DateFormatter()
+        dateFormatter.calendar = calendar
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        return dateFormatter.date(from: untilString)
+    }
+    
+    var groupedEvents: [(TimeSection, [EventItem])] {
+        let sorted = filteredEvents.sorted { effectiveDate(for: $0) < effectiveDate(for: $1) }
+        var groups: [(TimeSection, [EventItem])] = []
+        
+        for section in TimeSection.allCases {
+            let sectionEvents = sorted.filter { section.contains(effectiveDate(for: $0)) }
+            if !sectionEvents.isEmpty {
+                groups.append((section, sectionEvents))
+            }
+        }
+        
+        return groups
+    }
 
     var body: some View {
         NavigationView {
-            GeometryReader { geo in
-                let headerHeight = geo.safeAreaInsets.top + 4
-
-                ZStack(alignment: .top) {
-                    ScrollViewReader { proxy in
-                        ScrollView {
-                            LazyVStack(spacing: 0) {
-                                if showShimmer {
-                                    RemindersShimmerView()
-                                        .transition(.opacity)
-                                } else if eventStore.events.isEmpty {
-                                    RemindersEmptyView(showingImportView: $showingImportView)
-                                        .transition(.opacity)
-                                } else {
-                                    RemindersEventList(events: eventStore.events, onEventTapped: { event in
-                                        editingEvent = event
-                                    })
-                                        .transition(.opacity)
-                                }
-                            }
-                            .padding(.top, 60)
-                            .padding(.bottom, 80) // Add bottom padding for tab bar
-                        }
-                        .background(AppColors.background)
-                        .refreshable {
-                            await performRefreshAsync()
-                        }
-                        .onAppear {
-                            scrollProxy = proxy
-                        }
-                        .onChange(of: navigationManager.scrollToEventId) { eventId in
-                            if let eventId = eventId {
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    withAnimation {
-                                        proxy.scrollTo(eventId, anchor: .center)
-                                    }
-                                    navigationManager.scrollToEventId = nil
-                                }
-                            }
-                        }
-                    }
-
-                    // Custom Top Bar (Sticky)
-                    VStack(spacing: 0) {
-                        HStack {
-                            Text("Reminders")
-                                .font(.titleL)
-                                .fontWeight(.bold)
-                                .foregroundColor(AppColors.textPrimary)
-                            
-                            Spacer()
-                            
-                            Image(systemName: "person.circle")
-                                .font(.system(size: 28))
-                                .foregroundColor(AppColors.textPrimary)
-                        }
-                        .padding(.horizontal, Layout.Spacing.md)
-                        .padding(.bottom, Layout.Spacing.sm)
-                        .padding(.top, geo.safeAreaInsets.top)
-                        .background(AppColors.background.opacity(0.95))
-                        .overlay(alignment: .bottom) {
-                            Divider().opacity(0.5)
-                        }
-                        
-                        Spacer()
-                    }
-                    .frame(height: headerHeight + 50)
-                    .ignoresSafeArea(edges: .top)
-                }
-                .background(AppColors.background)
-                .overlay(alignment: .bottomTrailing) {
-                    fabButton
-                        .padding(.trailing, Layout.Spacing.xl)
-                        .padding(.bottom, Layout.Spacing.xl)
-                }
-            }
-            .navigationBarHidden(true)
+             GeometryReader { geo in
+                 let headerHeight = geo.safeAreaInsets.top + 4
+                 
+                 ZStack(alignment: .top) {
+                     VStack(spacing: 0) {
+                         // Search & Sort Bar
+                         VStack(spacing: Layout.Spacing.xs) {
+                             // Course Filter Bar - only show when events exist
+                             if !eventStore.events.isEmpty {
+                                 ScrollView(.horizontal, showsIndicators: false) {
+                                     HStack(spacing: Layout.Spacing.sm) {
+                                         // "All" pill
+                                         CourseFilterButton(
+                                             title: "All",
+                                             isSelected: selectedCourse == nil
+                                         ) {
+                                             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                                 selectedCourse = nil
+                                             }
+                                             HapticFeedbackManager.shared.lightImpact()
+                                         }
+                                         
+                                         ForEach(availableCourses, id: \.self) { course in
+                                             CourseFilterButton(
+                                                 title: course,
+                                                 isSelected: selectedCourse == course
+                                             ) {
+                                                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                                     selectedCourse = course
+                                                 }
+                                                 HapticFeedbackManager.shared.lightImpact()
+                                             }
+                                         }
+                                     }
+                                     .padding(.horizontal, 4)
+                                 }
+                             }
+                             
+                             HStack(spacing: Layout.Spacing.xs) {
+                                 // Search Field
+                                 HStack {
+                                     Image(systemName: "magnifyingglass")
+                                         .foregroundColor(AppColors.textSecondary)
+                                     TextField("Search reminders...", text: $searchText)
+                                         .foregroundColor(AppColors.textPrimary)
+                                     
+                                     if !searchText.isEmpty {
+                                         Button(action: { searchText = "" }) {
+                                             Image(systemName: "xmark.circle.fill")
+                                                 .foregroundColor(AppColors.textSecondary)
+                                         }
+                                     }
+                                 }
+                                 .padding(10)
+                                 .background(AppColors.surface)
+                                 .cornerRadius(10)
+                                 
+                                 // Sort Menu
+                                 Menu {
+                                     Picker("Sort By", selection: Binding(
+                                         get: { sortOption },
+                                         set: { newValue in
+                                             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                                 sortOption = newValue
+                                             }
+                                         }
+                                     )) {
+                                         Text("Date (Earliest)").tag(SortOption.dateAsc)
+                                         Text("Date (Latest)").tag(SortOption.dateDesc)
+                                         Text("Course").tag(SortOption.course)
+                                         Text("Type").tag(SortOption.type)
+                                     }
+                                 } label: {
+                                     Image(systemName: "arrow.up.arrow.down")
+                                         .font(.system(size: 16, weight: .semibold))
+                                         .foregroundColor(AppColors.textPrimary)
+                                         .frame(width: 44, height: 44)
+                                         .background(AppColors.surface)
+                                         .cornerRadius(10)
+                                 }
+                             }
+                             
+                             // Event Type Filter Bar
+                             ScrollView(.horizontal, showsIndicators: false) {
+                                 HStack(spacing: Layout.Spacing.sm) {
+                                     ForEach(ReminderFilter.allCases, id: \.self) { filter in
+                                         FilterTabButton(
+                                             filter: filter,
+                                             isSelected: selectedFilter == filter
+                                         ) {
+                                             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                                 selectedFilter = filter
+                                             }
+                                             HapticFeedbackManager.shared.lightImpact()
+                                         }
+                                     }
+                                 }
+                                 .padding(.horizontal, 4) // Slight inset for scroll
+                             }
+                         }
+                         .padding(.horizontal, Layout.Spacing.md)
+                         .padding(.top, headerHeight + 10)
+                         .padding(.bottom, Layout.Spacing.md)
+                         .background(AppColors.background)
+                         .zIndex(1)
+                         
+                         // List Content
+                         if groupedEvents.isEmpty {
+                             if !userSpecificHasAddedEvents && searchText.isEmpty && selectedFilter == .all && selectedCourse == nil {
+                                 // "New User" Empty State
+                                 VStack(spacing: Layout.Spacing.lg) {
+                                     Spacer()
+                                     Image(systemName: "checklist")
+                                         .font(.system(size: 64))
+                                         .foregroundColor(AppColors.accent.opacity(0.8))
+                                     
+                                     Text("No reminders yet")
+                                         .font(.title2)
+                                         .fontWeight(.bold)
+                                         .foregroundColor(AppColors.textPrimary)
+                                     
+                                     Text("Import your syllabus to automatically generate reminders for assignments and exams.")
+                                         .font(.body)
+                                         .foregroundColor(AppColors.textSecondary)
+                                         .multilineTextAlignment(.center)
+                                         .padding(.horizontal, Layout.Spacing.xl)
+                                     
+                                     Button {
+                                         showingImportView = true
+                                     } label: {
+                                         Text("Import Syllabus")
+                                             .fontWeight(.semibold)
+                                             .padding(.horizontal, 24)
+                                             .padding(.vertical, 12)
+                                             .background(AppColors.accent)
+                                             .foregroundColor(.white)
+                                             .cornerRadius(Layout.CornerRadius.md)
+                                     }
+                                     Spacer()
+                                 }
+                                 .frame(maxWidth: .infinity)
+                                 
+                             } else {
+                                 // "Filtered/Empty but Existing" State
+                                 VStack(spacing: Layout.Spacing.lg) {
+                                     Spacer()
+                                     Image(systemName: "magnifyingglass")
+                                         .font(.system(size: 48))
+                                         .foregroundColor(AppColors.textSecondary.opacity(0.5))
+                                     
+                                     Text("No reminders found")
+                                         .font(.title3)
+                                         .fontWeight(.semibold)
+                                         .foregroundColor(AppColors.textSecondary)
+                                     Spacer()
+                                 }
+                                 .frame(maxWidth: .infinity)
+                             }
+                         } else {
+                             List {
+                                 ForEach(groupedEvents, id: \.0) { section, events in
+                                     Section {
+                                         ForEach(events) { event in
+                                            ReminderCard(event: event, displayDate: effectiveDate(for: event))
+                                                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                                                 .listRowSeparator(.hidden)
+                                                 .listRowBackground(Color.clear)
+                                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                                     Button(role: .destructive) {
+                                                         deleteEvent(event)
+                                                     } label: {
+                                                         Label("Delete", systemImage: "trash")
+                                                     }
+                                                     
+                                                     Button {
+                                                         editingEvent = event
+                                                     } label: {
+                                                         Label("Edit", systemImage: "pencil")
+                                                     }
+                                                     .tint(.blue)
+                                                 }
+                                                 .swipeActions(edge: .leading) {
+                                                      // Future: Mark Complete logic
+                                                 }
+                                         }
+                                     } header: {
+                                         Text(section.rawValue)
+                                             .font(.system(.title2, design: .default, weight: .bold))
+                                             .foregroundColor(AppColors.textPrimary)
+                                             .textCase(nil)
+                                             .padding(.leading, -4)
+                                     }
+                                     .listSectionSpacing(8)
+                                 }
+                             }
+                             .listStyle(.plain)
+                             .refreshable {
+                                 await eventStore.refresh()
+                             }
+                             .padding(.bottom, 60) // Space for tab bar
+                         }
+                     }
+                     
+                     // Sticky Header
+                     VStack(spacing: 0) {
+                         HStack {
+                             Text("Reminders")
+                                 .font(.titleL)
+                                 .fontWeight(.bold)
+                                 .foregroundColor(AppColors.textPrimary)
+                             Spacer()
+                             Image(systemName: "person.circle")
+                                 .font(.system(size: 28))
+                                 .foregroundColor(AppColors.textPrimary)
+                         }
+                         .padding(.horizontal, Layout.Spacing.md)
+                         .padding(.bottom, Layout.Spacing.sm)
+                         .padding(.top, geo.safeAreaInsets.top)
+                         .background(AppColors.background.opacity(0.95))
+                         .overlay(alignment: .bottom) { Divider().opacity(0.5) }
+                         Spacer()
+                     }
+                     .frame(height: headerHeight + 50)
+                     .ignoresSafeArea(edges: .top)
+                     .zIndex(2)
+                 }
+                 .background(AppColors.background)
+             }
+             .navigationBarHidden(true)
         }
         .navigationViewStyle(StackNavigationViewStyle())
         .sheet(isPresented: $showingImportView) {
@@ -108,326 +452,152 @@ struct RemindersView: View {
                 .presentationDragIndicator(.hidden)
                 .presentationCornerRadius(20)
         }
-        .fullScreenCover(item: $editingEvent) { event in
-            EventEditView(event: event) { updated in
-                if isCreatingNewEvent {
-                    Task { 
-                        await eventStore.update(event: updated)
-                        isCreatingNewEvent = false
-                    }
-                } else {
-                    Task { await importViewModel.applyEditedEvent(updated) }
+        .sheet(item: $editingEvent) { event in
+            EventEditView(event: event, isCreatingNew: false) { updated in
+                Task {
+                    await importViewModel.applyEditedEvent(updated)
+                    editingEvent = nil
                 }
-                editingEvent = nil
             } onCancel: {
-                isCreatingNewEvent = false
                 editingEvent = nil
             }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(20)
         }
-        .onChange(of: showingImportView) { newValue in
-            if !newValue { fabExpanded = false }
+        .task {
+            loadUserPreference()
+            await eventStore.fetchEvents()
+            if !eventStore.events.isEmpty {
+                updateUserPreference(true)
+            }
+        }
+        .onChange(of: eventStore.events) { events in
+            if !events.isEmpty {
+                updateUserPreference(true)
+            }
         }
     }
     
-    private func performRefreshAsync() async {
-        await MainActor.run {
-            isRefreshing = true
-            showShimmer = true
-            HapticFeedbackManager.shared.lightImpact()
+    // MARK: - Helpers
+    
+    private func deleteEvent(_ event: EventItem) {
+        Task {
+            await eventStore.deleteEvent(event)
         }
-
-        await eventStore.refresh()
-
-        await MainActor.run {
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-                isRefreshing = false
-                showShimmer = false
-            }
-        }
+    }
+    
+    private func loadUserPreference() {
+        guard let userId = SupabaseAuthService.shared.currentUser?.id else { return }
+        userSpecificHasAddedEvents = UserDefaults.standard.bool(forKey: "hasAddedEvents_\(userId)")
+    }
+    
+    private func updateUserPreference(_ value: Bool) {
+        guard let userId = SupabaseAuthService.shared.currentUser?.id else { return }
+        userSpecificHasAddedEvents = value
+        UserDefaults.standard.set(value, forKey: "hasAddedEvents_\(userId)")
     }
 }
 
-// MARK: - Floating Action Button
-
-private extension RemindersView {
-    var fabButton: some View {
-        ZStack(alignment: .bottomTrailing) {
-            // Backdrop dimming
-            if fabExpanded {
-                Color.black.opacity(0.3)
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            fabExpanded = false
-                        }
-                    }
-                    .transition(.opacity)
-            }
+// MARK: - Reminder Card
+private struct ReminderCard: View {
+    let event: EventItem
+    let displayDate: Date
+    
+    var eventColor: Color {
+        switch event.type {
+        case .assignment: return .blue
+        case .quiz, .midterm, .final: return .red
+        case .lab: return .green
+        case .lecture: return .purple
+        case .other: return AppColors.accent
+        }
+    }
+    
+    var body: some View {
+        HStack(spacing: 0) {
+            // Color Strip
+            Rectangle()
+                .fill(eventColor)
+                .frame(width: 6)
             
-            VStack(alignment: .trailing, spacing: Layout.Spacing.md) {
-                // Expanded options
-                if fabExpanded {
-                    VStack(spacing: Layout.Spacing.sm) {
-                        // Add Reminder option
-                        FABOption(
-                            icon: "plus.circle.fill",
-                            label: "Add Reminder",
-                            color: Color.blue,
-                            action: {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                    fabExpanded = false
-                                }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    createNewEvent()
-                                }
-                            }
-                        )
-                        
-                        // Upload Syllabus option
-                        FABOption(
-                            icon: "doc.badge.plus",
-                            label: "Upload Syllabus",
-                            color: AppColors.accent,
-                            action: {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                    fabExpanded = false
-                                }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    showingImportView = true
-                                }
-                            }
-                        )
+            // Content
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(event.title)
+                        .font(.headline)
+                        .foregroundColor(AppColors.textPrimary)
+                        .lineLimit(1)
+                    
+                    // Repeat Badge
+                    if event.recurrenceRule != nil {
+                        Image(systemName: "repeat")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(AppColors.accent)
                     }
-                    .transition(.scale.combined(with: .opacity))
-                }
-                
-                // Main FAB button
-                Button(action: handleFabTap) {
-                    Image(systemName: fabExpanded ? "xmark" : "plus")
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundColor(.white)
-                        .padding(24)
-                        .background(
-                            LinearGradient(
-                                gradient: Gradient(colors: [
-                                    Color(red: 0.886, green: 0.714, blue: 0.275), // #E2B646
-                                    Color(red: 0.816, green: 0.612, blue: 0.118)  // #D09C1E
-                                ]),
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .clipShape(Circle())
-                        .elevatedShadowLight()
-                        .rotationEffect(.degrees(fabExpanded ? 135 : 0))
-                }
-                .scaleEffect(fabPressed ? 0.90 : 1)
-                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: fabPressed)
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: fabExpanded)
-                .accessibilityLabel(fabExpanded ? "Close menu" : "Open quick actions")
-            }
-        }
-    }
-
-    func handleFabTap() {
-        HapticFeedbackManager.shared.mediumImpact()
-        fabPressed = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            fabPressed = false
-        }
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-            fabExpanded.toggle()
-        }
-    }
-
-    func createNewEvent() {
-        let now = Date()
-        let newEvent = EventItem(
-            id: UUID().uuidString,
-            courseCode: "", // Empty courseCode to avoid deletion conflicts
-            type: .assignment,
-            title: "",
-            start: now,
-            end: nil,
-            allDay: false,
-            location: nil,
-            notes: nil,
-            recurrenceRule: nil,
-            reminderMinutes: 1440,
-            confidence: 1.0
-        )
-        isCreatingNewEvent = true
-        editingEvent = newEvent
-    }
-}
-
-// MARK: - FAB Option
-
-private struct FABOption: View {
-    let icon: String
-    let label: String
-    let color: Color
-    let action: () -> Void
-    
-    @State private var isPressed = false
-    
-    var body: some View {
-        Button(action: {
-            isPressed = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                isPressed = false
-            }
-            action()
-        }) {
-            HStack(spacing: Layout.Spacing.sm) {
-                Text(label)
-                    .font(.body)
-                    .fontWeight(.semibold)
-                    .foregroundColor(AppColors.textPrimary)
-                
-                Image(systemName: icon)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 50, height: 50)
-                    .background(
-                        Circle()
-                            .fill(color)
-                            .shadow(color: color.opacity(0.3), radius: 8, x: 0, y: 4)
-                    )
-            }
-            .padding(.horizontal, Layout.Spacing.md)
-            .padding(.vertical, Layout.Spacing.sm)
-            .background(
-                Capsule()
-                    .fill(AppColors.surface)
-                    .shadow(color: AppColors.shadow.opacity(0.15), radius: 8, x: 0, y: 4)
-            )
-        }
-        .scaleEffect(isPressed ? 0.95 : 1.0)
-        .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isPressed)
-    }
-}
-
-// MARK: - Reminders Empty State
-
-struct RemindersEmptyView: View {
-    @EnvironmentObject var navigationManager: AppNavigationManager
-    @State private var buttonScale: CGFloat = 1.0
-    @State private var showGlow: Bool = false
-    @Binding var showingImportView: Bool
-    
-    var body: some View {
-        VStack(spacing: Layout.Spacing.xxl) {
-            // Illustration from reminders-icon.png
-            VStack(spacing: Layout.Spacing.xl) {
-                ZStack {
-                    Image("RemindersIcon")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: 280, maxHeight: 240)
-                        .scaleEffect(showGlow ? 1.04 : 0.95)
-                        .opacity(showGlow ? 1.0 : 0.85)
-                        .animation(
-                            Animation.easeInOut(duration: 2.8)
-                                .repeatForever(autoreverses: true),
-                            value: showGlow
-                        )
-                        .onAppear { 
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                showGlow = true 
-                            }
+                    
+                    Spacer()
+                    
+                    if let location = event.location {
+                        HStack(spacing: 4) {
+                            Image(systemName: "location.fill")
+                                .font(.caption2)
+                            Text(location)
+                                .font(.caption)
                         }
-                }
-                .frame(width: 280, height: 240)
-                .clipped()
-                
-                // Concise Copy
-                VStack(spacing: Layout.Spacing.md) {
-                    Text("No reminders set up yet! Import a syllabus to create reminders.")
-                        .font(.body)
                         .foregroundColor(AppColors.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(4)
-                        .padding(.horizontal, Layout.Spacing.xl)
+                    }
                 }
-            }
-            .padding(.horizontal, Layout.Spacing.md)
-            
-            // Action Section
-            VStack(spacing: Layout.Spacing.lg) {
-                Spacer(minLength: 40) // Adds vertical empty space above the button (tweak value if needed)
-                // Primary CTA - Large gradient button
-                Button {
-                    HapticFeedbackManager.shared.mediumImpact()
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                        buttonScale = 0.95
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                            buttonScale = 1.0
-                        }
-                    }
-                    showingImportView = true
-                } label: {
-                    HStack(spacing: Layout.Spacing.sm) {
-                        Image(systemName: "doc.badge.plus")
-                            .font(.system(size: 18, weight: .semibold))
-                        
-                        Text("Import Syllabus PDFs")
-                            .font(.body)
-                            .fontWeight(.semibold)
-                    }
-                    .foregroundColor(.white)
-                    .frame(height: 55)     // Increased height
-                    .frame(maxWidth: 320) // Decreased width
-                    .background(
-                        LinearGradient(
-                            gradient: Gradient(colors: [
-                                Color(red: 0.886, green: 0.714, blue: 0.275), // Medium gold
-                                Color(red: 0.722, green: 0.565, blue: 0.110)  // Darker gold
-                            ]),
-                            startPoint: .leading,
-                            endPoint: .trailing
+                
+                HStack {
+                    Text(event.courseCode)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(AppColors.textSecondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(AppColors.surface.opacity(0.5)) // Darker/Lighter background
+                        .cornerRadius(4)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(AppColors.separator, lineWidth: 1)
                         )
-                    )
-                    .cornerRadius(Layout.CornerRadius.lg)
-                    .shadow(color: AppColors.accent.opacity(0.3), radius: 12, x: 0, y: 6)
+                    
+                    Spacer()
+                    
+                    Text(formatDate(event))
+                        .font(.subheadline)
+                        .foregroundColor(eventColor) // Colored date for emphasis
+                        .fontWeight(.medium)
                 }
-                .scaleEffect(buttonScale)
+                
+                if let notes = event.notes, !notes.isEmpty {
+                    Text(notes)
+                        .font(.caption)
+                        .foregroundColor(AppColors.textSecondary)
+                        .lineLimit(2)
+                        .padding(.top, 2)
+                }
             }
-            .padding(.bottom, Layout.Spacing.xl)
+            .padding(12)
         }
+        .background(AppColors.surface)
+        .cornerRadius(12)
+        .shadow(color: AppColors.shadow.opacity(0.05), radius: 4, x: 0, y: 2)
     }
-}
-
-// MARK: - Event List
-
-private struct RemindersEventList: View {
-    let events: [EventItem]
-    let onEventTapped: (EventItem) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Layout.Spacing.lg) {
-            VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
-                Text("Upcoming Reminders")
-                    .font(.titleS)
-                    .fontWeight(.semibold)
-                    .foregroundColor(AppColors.textPrimary)
-                Text("Tap to edit reminder details.")
-                    .font(.caption)
-                    .foregroundColor(AppColors.textSecondary)
-            }
-
-            VStack(alignment: .leading, spacing: Layout.Spacing.md) {
-                ForEach(events) { event in
-                    PreviewEventCard(event: event)
-                        .id(event.id)
-                        .onTapGesture { onEventTapped(event) }
-                }
-            }
+    
+    private func formatDate(_ event: EventItem) -> String {
+        let formatter = DateFormatter()
+        
+        if event.allDay == true {
+            // All-day event: show date only with "All Day"
+            formatter.dateFormat = "MMM d"
+            return formatter.string(from: displayDate) + ", All Day"
+        } else {
+            // Regular event: show date and time
+            formatter.dateFormat = "MMM d, h:mm a"
+            return formatter.string(from: displayDate)
         }
-        .padding(.horizontal, Layout.Spacing.md)
-        .padding(.vertical, Layout.Spacing.xl)
     }
 }
 
@@ -474,6 +644,94 @@ struct RemindersShimmerView: View {
 }
 
 // MARK: - Preview
+
+// MARK: - Filter Tab Button
+
+struct FilterTabButton: View {
+    let filter: RemindersView.ReminderFilter
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Layout.Spacing.xs) {
+                Image(systemName: filter.icon)
+                    .font(.system(size: 14, weight: .medium))
+                
+                Text(filter.rawValue)
+                    .font(.captionL)
+                    .fontWeight(.medium)
+            }
+            .padding(.horizontal, Layout.Spacing.md)
+            .padding(.vertical, Layout.Spacing.sm)
+            .foregroundColor(isSelected ? .white : AppColors.textSecondary)
+            .background(
+                Group {
+                    if isSelected {
+                         LinearGradient(
+                             gradient: Gradient(colors: [
+                                 Color(red: 0.886, green: 0.714, blue: 0.275), // Medium gold
+                                 Color(red: 0.816, green: 0.612, blue: 0.118)  // Darker gold
+                             ]),
+                             startPoint: .topLeading,
+                             endPoint: .bottomTrailing
+                         )
+                         .shadow(color: Color(red: 0.886, green: 0.714, blue: 0.275).opacity(0.4), radius: 8, x: 0, y: 4)
+                    } else {
+                        AppColors.surface
+                            .shadow(color: AppColors.shadow.opacity(0.05), radius: 4, x: 0, y: 2)
+                    }
+                }
+            )
+            .cornerRadius(20) // Pill shape
+            .scaleEffect(isSelected ? 1.05 : 1.0)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+struct CourseFilterButton: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Layout.Spacing.xs) {
+                Image(systemName: "book.fill")
+                    .font(.system(size: 12, weight: .medium))
+                
+                Text(title)
+                    .font(.captionL)
+                    .fontWeight(.medium)
+            }
+            .padding(.horizontal, Layout.Spacing.md)
+            .padding(.vertical, Layout.Spacing.sm)
+            .foregroundColor(isSelected ? .white : AppColors.textSecondary)
+            .background(
+                Group {
+                    if isSelected {
+                         LinearGradient(
+                             gradient: Gradient(colors: [
+                                 Color(red: 0.886, green: 0.714, blue: 0.275), // Medium gold
+                                 Color(red: 0.816, green: 0.612, blue: 0.118)  // Darker gold
+                             ]),
+                             startPoint: .topLeading,
+                             endPoint: .bottomTrailing
+                         )
+                         .shadow(color: Color(red: 0.886, green: 0.714, blue: 0.275).opacity(0.4), radius: 8, x: 0, y: 4)
+                    } else {
+                        AppColors.surface
+                            .shadow(color: AppColors.shadow.opacity(0.05), radius: 4, x: 0, y: 2)
+                    }
+                }
+            )
+            .cornerRadius(20) // Pill shape
+            .scaleEffect(isSelected ? 1.05 : 1.0)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
 
 #Preview {
     RemindersView()

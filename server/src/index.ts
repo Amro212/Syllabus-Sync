@@ -12,6 +12,7 @@ import { validateEvents, type ValidationConfig } from './validation/eventValidat
 import { buildParseSyllabusRequest } from './prompts/parseSyllabus';
 import { detectCourseCode } from './utils/courseCode';
 import { callOpenAIParse } from './clients/openai';
+import { splitMultiDayRecurrence } from './utils/splitMultiDayRecurrence';
 
 // Basic in-memory token buckets by IP (per-isolate, best-effort)
 const buckets = new Map<string, { tokens: number; lastRefill: number }>();
@@ -394,7 +395,7 @@ export default {
 						termStart: (body as any).termStart,
 						termEnd: (body as any).termEnd,
 						timezone: tz,
-						model: (env as any).OPENAI_MODEL || 'gpt-4o-mini',
+						model: (env as any).OPENAI_MODEL || 'gpt-4.1-mini',
 					});
 
 					let aiItems: unknown[];
@@ -454,8 +455,11 @@ export default {
 						warnings.push(...validationResult.errors);
 					}
 
+					// Post-process: split multi-day recurrence rules into separate events
+					const splitEvents = splitMultiDayRecurrence(validationResult.events);
+
 					const response = {
-						events: validationResult.events,
+						events: splitEvents,
 						source: 'openai' as const,
 						confidence: Number.isFinite(avgConfidence) ? Number(avgConfidence.toFixed(3)) : 0,
 						preprocessedText: processedText,
@@ -465,7 +469,7 @@ export default {
 							textLength: text.length,
 							warnings,
 							validation: validationResult.stats,
-							openai: { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-4o-mini' }
+							openai: { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-4.1-mini' }
 						}
 					};
 

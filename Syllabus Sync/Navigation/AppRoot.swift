@@ -343,7 +343,7 @@ struct TabNavigationView: View {
                 .presentationCornerRadius(20)
         }
         .fullScreenCover(item: $editingEvent) { event in
-            EventEditView(event: event) { updated in
+            EventEditView(event: event, isCreatingNew: isCreatingNewEvent) { updated in
                 if isCreatingNewEvent {
                     Task { 
                         await eventStore.update(event: updated)

@@ -1,5 +1,5 @@
 ---
-trigger: model_decision
+trigger: always_on
 description: This rule guides the agent when building or editing SwiftUI UI in this repo.
 ---
 

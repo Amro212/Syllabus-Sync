@@ -169,7 +169,8 @@ private struct WeekAtGlanceView: View {
         let endOfWeek = calendar.date(byAdding: .day, value: 7, to: startOfWeek) ?? now
         
         return events.filter { event in
-            event.start >= startOfWeek && event.start < endOfWeek
+            // Only show upcoming events (not past ones), matching RemindersView behavior
+            event.start >= now && event.start < endOfWeek
         }
     }
     

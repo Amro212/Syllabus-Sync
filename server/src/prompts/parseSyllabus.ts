@@ -1,6 +1,6 @@
 /*
  * Prompt builder for OpenAI JSON-mode parsing of syllabi → EventItemDTO[]
- * Optimized for small, JSON-capable models (e.g., gpt-4o-mini).
+ * Optimized for gpt-4.1-mini model.
  */
 
 import eventItemSchema from '../../schemas/eventItem.schema.json';
@@ -83,11 +83,41 @@ You are a specialized AI that extracts academic events from preprocessed syllabu
 - Recurring lectures with proper RRULE.
 - Important administrative dates (drop/add, withdrawal, holidays).
 
-## RECURRENCE RULES
-- Format: "FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=2025-12-12"
+## RECURRENCE RULES - SPLIT MULTI-DAY PATTERNS (CRITICAL)
+⚠️ Multi-day patterns (TuTh, MWF, etc.) MUST be SPLIT into SEPARATE events:
+- "Tue/Thu 2:30 PM" → Create 2 SEPARATE events: "Lecture (Tue)" + "Lecture (Thu)"
+- "MWF 10:00 AM" → Create 3 SEPARATE events: "Lecture (Mon)" + "Lecture (Wed)" + "Lecture (Fri)"
+- Each event has SINGLE day in recurrenceRule: "FREQ=WEEKLY;BYDAY=TU" (NOT BYDAY=TU,TH)
 - Day codes: MO,TU,WE,TH,FR,SA,SU
-- Start/end: first occurrence from termStart
-- If incomplete info: output lecture without recurrenceRule
+- Start date: first occurrence of THAT DAY from termStart
+
+## MULTIPLE SECTIONS (CRITICAL)
+When a course has MULTIPLE SECTIONS with DIFFERENT instructors/times:
+- Create ONE event PER SECTION PER DAY
+- Example: "Section 01: Tue/Thu 4:00 PM" = 2 events (Lecture Section 01 Tue + Lecture Section 01 Thu)
+- Extract the EXACT time for EACH section (do NOT copy times between sections)
+
+## LAB PARSING RULES (CRITICAL)
+Labs appear as **sessions** (attendance) OR **deliverables** (graded work). Parse them SEPARATELY:
+
+### Lab Sessions (Recurring Attendance)
+Look for schedules with Day/Time/Location/Section patterns.
+→ Create ONE recurring event PER SECTION:
+  - title: "Lab - Section [number]" (e.g., "Lab - Section 01")
+  - recurrenceRule: FREQ=WEEKLY;BYDAY=...
+  - notes: If graded deliverables exist, add "See Lab 1-N for graded work"
+
+### Lab Deliverables (Graded Work)
+Look for numbered labs with due dates, weights, or topics (e.g., "Lab 1: Topic", "Lab 2 worth 5%").
+→ Create ONE event PER DELIVERABLE:
+  - title: "Lab 1", "Lab 2", etc. (keep original numbering)
+  - NO recurrenceRule (one-time deadline)
+  - notes: Include weight and topic if available
+
+### Important Distinctions
+- "Section 01, Section 02" in schedule table = SESSIONS (recurring)
+- "Lab 1, Lab 2, Lab 3" with topics/weights = DELIVERABLES (graded)
+- Ungraded labs = Sessions only with notes "Not graded"
 
 ## ADDITIONAL RULES
 - Notes: Max 200 chars, always include weight/submission if present
@@ -137,21 +167,33 @@ Output:
   ]
 }
 
-### Example 3 — Recurring Lecture
+### Example 3 — Recurring Lecture (SPLIT DAYS)
 Text: TuTh 10:00-11:20 AM in Room 204 from Sept 4 to Dec 12.
 Output:
 {
   "events": [
     {
-      "id": "lecture-series",
+      "id": "lecture-tue",
       "courseCode": "CS2750",
       "type": "LECTURE",
-      "title": "Lecture",
+      "title": "Lecture (Tue)",
       "start": "2025-09-04T10:00:00.000-04:00",
       "end": "2025-09-04T11:20:00.000-04:00",
       "allDay": false,
       "location": "Room 204",
-      "recurrenceRule": "FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=2025-12-12",
+      "recurrenceRule": "FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-12-12",
+      "confidence": 0.9
+    },
+    {
+      "id": "lecture-thu",
+      "courseCode": "CS2750",
+      "type": "LECTURE",
+      "title": "Lecture (Thu)",
+      "start": "2025-09-06T10:00:00.000-04:00",
+      "end": "2025-09-06T11:20:00.000-04:00",
+      "allDay": false,
+      "location": "Room 204",
+      "recurrenceRule": "FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-12-12",
       "confidence": 0.9
     }
   ]
@@ -281,15 +323,27 @@ const FEWSHOT = [
     content: JSON.stringify({
       events: [
         {
-          id: 'lecture-series',
+          id: 'lecture-tue',
           courseCode: 'CS2750',
           type: 'LECTURE',
-          title: 'Lecture',
+          title: 'Lecture (Tue)',
           start: '2025-09-04T10:00:00.000-04:00',
           end: '2025-09-04T11:20:00.000-04:00',
           allDay: false,
           location: 'Room 204',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=2025-12-12',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-12-12',
+          confidence: 0.9
+        },
+        {
+          id: 'lecture-thu',
+          courseCode: 'CS2750',
+          type: 'LECTURE',
+          title: 'Lecture (Thu)',
+          start: '2025-09-06T10:00:00.000-04:00',
+          end: '2025-09-06T11:20:00.000-04:00',
+          allDay: false,
+          location: 'Room 204',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-12-12',
           confidence: 0.9
         }
       ]
@@ -335,15 +389,27 @@ const FEWSHOT = [
     content: JSON.stringify({
       events: [
         {
-          id: 'physics-lecture-series',
+          id: 'physics-lecture-tue',
           courseCode: 'PHYS201',
           type: 'LECTURE',
-          title: 'Lecture',
+          title: 'Lecture (Tue)',
           start: '2025-09-04T13:00:00.000-07:00',
           end: '2025-09-04T14:15:00.000-07:00',
           allDay: false,
           location: 'Room 101',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=2025-12-13',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-12-13',
+          confidence: 0.9
+        },
+        {
+          id: 'physics-lecture-thu',
+          courseCode: 'PHYS201',
+          type: 'LECTURE',
+          title: 'Lecture (Thu)',
+          start: '2025-09-06T13:00:00.000-07:00',
+          end: '2025-09-06T14:15:00.000-07:00',
+          allDay: false,
+          location: 'Room 101',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-12-13',
           confidence: 0.9
         }
       ]
@@ -362,16 +428,100 @@ const FEWSHOT = [
     content: JSON.stringify({
       events: [
         {
-          id: 'english-lecture-series',
+          id: 'english-lecture-tue',
           courseCode: 'ENGL102',
           type: 'LECTURE',
-          title: 'Lecture',
+          title: 'Lecture (Tue)',
           start: '2025-08-27T11:00:00.000-05:00',
           end: '2025-08-27T12:15:00.000-05:00',
           allDay: false,
           location: 'Room 205',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU,TH',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU',
           confidence: 0.85
+        },
+        {
+          id: 'english-lecture-thu',
+          courseCode: 'ENGL102',
+          type: 'LECTURE',
+          title: 'Lecture (Thu)',
+          start: '2025-08-29T11:00:00.000-05:00',
+          end: '2025-08-29T12:15:00.000-05:00',
+          allDay: false,
+          location: 'Room 205',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TH',
+          confidence: 0.85
+        }
+      ]
+    })
+  },
+  {
+    role: 'user' as const,
+    content:
+      'Example 6b — MULTIPLE LECTURE SECTIONS with DIFFERENT TIMES (CRITICAL).\\n' +
+      'Context: courseCode=CIS*2750, timezone=America/Toronto, termStart=2025-01-06, termEnd=2025-04-18.\\n' +
+      'Text:\\n' +
+      'Lecture Section 01\\n' +
+      'Instructor: Dr. D. Nikitenko\\n' +
+      'Class Time / Location: Tue/Thu 4:00-5:20 pm | MACN 105\\n\\n' +
+      'Lecture Section 02\\n' +
+      'Instructor: Dr. J. McCuaig\\n' +
+      'Class Time / Location: Tue/Thu 8:30-9:50 am | MACN 105'
+  },
+  {
+    role: 'assistant' as const,
+    content: JSON.stringify({
+      events: [
+        {
+          id: 'lecture-section-01-tue',
+          courseCode: 'CIS*2750',
+          type: 'LECTURE',
+          title: 'Lecture Section 01 (Tue)',
+          start: '2025-01-07T16:00:00.000-05:00',
+          end: '2025-01-07T17:20:00.000-05:00',
+          allDay: false,
+          location: 'MACN 105',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-04-18',
+          notes: 'Instructor: Dr. D. Nikitenko',
+          confidence: 0.95
+        },
+        {
+          id: 'lecture-section-01-thu',
+          courseCode: 'CIS*2750',
+          type: 'LECTURE',
+          title: 'Lecture Section 01 (Thu)',
+          start: '2025-01-09T16:00:00.000-05:00',
+          end: '2025-01-09T17:20:00.000-05:00',
+          allDay: false,
+          location: 'MACN 105',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-04-18',
+          notes: 'Instructor: Dr. D. Nikitenko',
+          confidence: 0.95
+        },
+        {
+          id: 'lecture-section-02-tue',
+          courseCode: 'CIS*2750',
+          type: 'LECTURE',
+          title: 'Lecture Section 02 (Tue)',
+          start: '2025-01-07T08:30:00.000-05:00',
+          end: '2025-01-07T09:50:00.000-05:00',
+          allDay: false,
+          location: 'MACN 105',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-04-18',
+          notes: 'Instructor: Dr. J. McCuaig',
+          confidence: 0.95
+        },
+        {
+          id: 'lecture-section-02-thu',
+          courseCode: 'CIS*2750',
+          type: 'LECTURE',
+          title: 'Lecture Section 02 (Thu)',
+          start: '2025-01-09T08:30:00.000-05:00',
+          end: '2025-01-09T09:50:00.000-05:00',
+          allDay: false,
+          location: 'MACN 105',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-04-18',
+          notes: 'Instructor: Dr. J. McCuaig',
+          confidence: 0.95
         }
       ]
     })
@@ -795,6 +945,118 @@ const FEWSHOT = [
         }
       ]
     })
+  },
+  {
+    role: 'user' as const,
+    content:
+      'Example 13 — Lab Sessions + Graded Deliverables (CRITICAL PATTERN).\n' +
+      'Context: courseCode=ENGG*4540, timezone=America/Toronto, termStart=2025-01-06, termEnd=2025-04-18.\n' +
+      'Text:\n' +
+      'Lab Schedule:\n' +
+      '| Day | Time | Location | Section |\n' +
+      '| Monday | 11:30 AM - 1:20 PM | RICH 2531 | 01 |\n' +
+      '| Monday | 2:30 PM - 4:20 PM | RICH 2531 | 02 |\n' +
+      '| Wednesday | 12:30 PM - 2:20 PM | RICH 2531 | 03 |\n\n' +
+      'Lab Topics: Lab 1: Benchmark, Lab 2: MARS/MIPS, Lab 3: Pipelining, Lab 4: DRAM, Lab 5: Execution\n' +
+      'Labs worth 25% total (5% each).'
+  },
+  {
+    role: 'assistant' as const,
+    content: JSON.stringify({
+      events: [
+        // Lab SESSIONS (recurring per section)
+        {
+          id: 'lab-session-01',
+          courseCode: 'ENGG*4540',
+          type: 'LAB',
+          title: 'Lab - Section 01',
+          start: '2025-01-06T11:30:00.000-05:00',
+          end: '2025-01-06T13:20:00.000-05:00',
+          allDay: false,
+          location: 'RICH 2531',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO;UNTIL=2025-04-18',
+          notes: 'Weekly lab session. See Lab 1-5 for graded work.',
+          confidence: 0.9
+        },
+        {
+          id: 'lab-session-02',
+          courseCode: 'ENGG*4540',
+          type: 'LAB',
+          title: 'Lab - Section 02',
+          start: '2025-01-06T14:30:00.000-05:00',
+          end: '2025-01-06T16:20:00.000-05:00',
+          allDay: false,
+          location: 'RICH 2531',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO;UNTIL=2025-04-18',
+          notes: 'Weekly lab session. See Lab 1-5 for graded work.',
+          confidence: 0.9
+        },
+        {
+          id: 'lab-session-03',
+          courseCode: 'ENGG*4540',
+          type: 'LAB',
+          title: 'Lab - Section 03',
+          start: '2025-01-08T12:30:00.000-05:00',
+          end: '2025-01-08T14:20:00.000-05:00',
+          allDay: false,
+          location: 'RICH 2531',
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=WE;UNTIL=2025-04-18',
+          notes: 'Weekly lab session. See Lab 1-5 for graded work.',
+          confidence: 0.9
+        },
+        // Lab DELIVERABLES (graded, one-time)
+        {
+          id: 'lab-1',
+          courseCode: 'ENGG*4540',
+          type: 'LAB',
+          title: 'Lab 1',
+          start: '2025-01-13T00:00:00.000-05:00',
+          allDay: true,
+          notes: 'Weight: 5%. Topic: Benchmark',
+          confidence: 0.85
+        },
+        {
+          id: 'lab-2',
+          courseCode: 'ENGG*4540',
+          type: 'LAB',
+          title: 'Lab 2',
+          start: '2025-01-20T00:00:00.000-05:00',
+          allDay: true,
+          notes: 'Weight: 5%. Topic: MARS/MIPS',
+          confidence: 0.85
+        },
+        {
+          id: 'lab-3',
+          courseCode: 'ENGG*4540',
+          type: 'LAB',
+          title: 'Lab 3',
+          start: '2025-01-27T00:00:00.000-05:00',
+          allDay: true,
+          notes: 'Weight: 5%. Topic: Pipelining',
+          confidence: 0.85
+        },
+        {
+          id: 'lab-4',
+          courseCode: 'ENGG*4540',
+          type: 'LAB',
+          title: 'Lab 4',
+          start: '2025-02-03T00:00:00.000-05:00',
+          allDay: true,
+          notes: 'Weight: 5%. Topic: DRAM',
+          confidence: 0.85
+        },
+        {
+          id: 'lab-5',
+          courseCode: 'ENGG*4540',
+          type: 'LAB',
+          title: 'Lab 5',
+          start: '2025-02-10T00:00:00.000-05:00',
+          allDay: true,
+          notes: 'Weight: 5%. Topic: Execution',
+          confidence: 0.85
+        }
+      ]
+    })
   }
 ];
 
@@ -807,7 +1069,7 @@ export function buildParseSyllabusRequest(
     termStart,
     termEnd,
     timezone = 'UTC',
-    model = 'gpt-4o-mini'
+    model = 'gpt-4.1-mini'
   } = options;
 
   const system = SYSTEM_PROMPT({ timezone });

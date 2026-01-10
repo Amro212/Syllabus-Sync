@@ -26,13 +26,14 @@ enum AppRoute: Hashable, CaseIterable {
     case reminders
     case importSyllabus
     case preview
+    case calendar
     case courseDetail(course: MockCourse)
     case settings
     case networkingTest
     
     // Static cases for easier iteration (excluding parameterized routes)
     static var allCases: [AppRoute] {
-        return [.launch, .onboarding, .auth, .dashboard, .reminders, .importSyllabus, .preview, .settings]
+        return [.launch, .onboarding, .auth, .dashboard, .reminders, .importSyllabus, .preview, .calendar, .settings]
     }
     
     var title: String {
@@ -44,6 +45,7 @@ enum AppRoute: Hashable, CaseIterable {
         case .reminders: return "Reminders"
         case .importSyllabus: return "Import Syllabus"
         case .preview: return "Preview"
+        case .calendar: return "Calendar"
         case .courseDetail: return "Course Details"
         case .settings: return "Settings"
         case .networkingTest: return "Networking Test"
@@ -59,6 +61,7 @@ enum AppRoute: Hashable, CaseIterable {
         case .reminders: return "bell"
         case .importSyllabus: return "plus.circle"
         case .preview: return "eye"
+        case .calendar: return "calendar"
         case .courseDetail: return "book"
         case .settings: return "gear"
         case .networkingTest: return "network"
@@ -208,6 +211,8 @@ struct AppRoot: View {
             AISyllabusScanModal()
         case .preview:
             PreviewView()
+        case .calendar:
+            CalendarView()
         case .courseDetail(let course):
             CourseDetailView(course: course)
         case .settings:
@@ -251,8 +256,10 @@ struct TabNavigationView: View {
                     DashboardView()
                 case .reminders:
                     RemindersView()
-                case .preview: // Calendar Tab
+                case .preview:
                     PreviewView()
+                case .calendar:
+                    CalendarView()
                 case .settings:
                     SettingsView()
                 default:

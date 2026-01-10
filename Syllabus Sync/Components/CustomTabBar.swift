@@ -58,13 +58,23 @@ struct CustomTabBar: View {
             .offset(y: -24) // Lift it up slightly to break the bar boundary
             .frame(maxWidth: .infinity)
             
-            // Calendar Tab (Preview)
+            // Preview Tab (extraction preview - for debugging)
             TabBarItem(
-                icon: "calendar_month",
-                title: "Calendar",
+                icon: "eye",
+                title: "Preview",
                 isSelected: navigationManager.selectedTabRoute == .preview
             ) {
                 navigationManager.switchTab(to: .preview)
+            }
+            .frame(maxWidth: .infinity)
+            
+            // Calendar Tab (new calendar grid view)
+            TabBarItem(
+                icon: "calendar_month",
+                title: "Calendar",
+                isSelected: navigationManager.selectedTabRoute == .calendar
+            ) {
+                navigationManager.switchTab(to: .calendar)
             }
             .frame(maxWidth: .infinity)
             
@@ -116,6 +126,7 @@ private struct TabBarItem: View {
         switch icon {
         case "dashboard": return "square.grid.2x2" + (isSelected || isFilled ? ".fill" : "")
         case "notifications": return "bell" + (isSelected ? ".fill" : "")
+        case "eye": return "eye" + (isSelected ? ".fill" : "")
         case "calendar_month": return "calendar"
         case "settings": return "gearshape" + (isSelected ? ".fill" : "")
         default: return "questionmark"

@@ -9,8 +9,8 @@ export interface PromptRequest {
   messages: ChatMessage[];
   // When present and type is 'json_schema', we call the Responses API
   response_format?:
-    | { type: 'json_object' }
-    | { type: 'json_schema'; json_schema: { name: string; schema: unknown; strict?: boolean } };
+  | { type: 'json_object' }
+  | { type: 'json_schema'; json_schema: { name: string; schema: unknown; strict?: boolean } };
 }
 
 export interface OpenAIClientOptions {
@@ -135,7 +135,7 @@ export async function callOpenAIParse(
           openaiRequest: { model: body.model, temperature: body.temperature, timeoutMs, retries }
         });
       }
-      
+
       const res = await fetchWithTimeout(url, init, timeoutMs);
       if (!res.ok) {
         const status = res.status;
@@ -246,15 +246,41 @@ export async function callOpenAIParse(
 
 function extractEventsArray(parsed: unknown): unknown[] | null {
   if (Array.isArray(parsed)) {
-    return parsed;
+    return stripTimezoneOffsets(parsed);
   }
   if (parsed && typeof parsed === 'object') {
     const events = (parsed as any).events;
     if (Array.isArray(events)) {
-      return events;
+      return stripTimezoneOffsets(events);
     }
   }
   return null;
+}
+
+/**
+ * Strip timezone offsets from date strings to prevent DST-related display bugs.
+ * Converts "2026-04-18T08:30:00.000-05:00" to "2026-04-18T08:30:00.000"
+ */
+function stripTimezoneOffsets(events: unknown[]): unknown[] {
+  return events.map(event => {
+    if (event && typeof event === 'object') {
+      const eventObj = event as any;
+      const result = { ...eventObj };
+
+      // Strip timezone offset from start
+      if (typeof result.start === 'string') {
+        result.start = result.start.replace(/([+-]\d{2}:\d{2}|Z)$/, '');
+      }
+
+      // Strip timezone offset from end
+      if (typeof result.end === 'string') {
+        result.end = result.end.replace(/([+-]\d{2}:\d{2}|Z)$/, '');
+      }
+
+      return result;
+    }
+    return event;
+  });
 }
 
 function normalizeOpenAIError(error: unknown): Error {

@@ -103,6 +103,30 @@ struct AppColors {
     
     /// Lecture events
     static let eventLecture = Color("EventLecture", bundle: nil)
+    
+    // MARK: - Gradients & Styles
+    
+    /// Gold gradient for selected states and glows
+    /// from-primary via-[#DAA520] to-[#FFD700]
+    static let goldGradient = LinearGradient(
+        gradient: Gradient(colors: [
+            AppColors.accent,
+            Color(hex: "DAA520"),
+            Color(hex: "FFD700")
+        ]),
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+    
+    /// Gold gradient for progress bars (Horizontal)
+    static let goldProgressGradient = LinearGradient(
+        gradient: Gradient(colors: [
+            AppColors.accent,
+            Color(hex: "FFD700")
+        ]),
+        startPoint: .leading,
+        endPoint: .trailing
+    )
 }
 
 // MARK: - Color Extensions

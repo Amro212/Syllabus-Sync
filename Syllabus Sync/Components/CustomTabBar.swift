@@ -68,16 +68,6 @@ struct CustomTabBar: View {
             }
             .frame(maxWidth: .infinity)
             
-            // Calendar Tab (new calendar grid view)
-            TabBarItem(
-                icon: "calendar_month",
-                title: "Calendar",
-                isSelected: navigationManager.selectedTabRoute == .calendar
-            ) {
-                navigationManager.switchTab(to: .calendar)
-            }
-            .frame(maxWidth: .infinity)
-            
             // Settings Tab
             TabBarItem(
                 icon: "settings",

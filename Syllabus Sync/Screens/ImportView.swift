@@ -111,7 +111,7 @@ private struct ImportErrorOverlay: View {
         VStack(spacing: Layout.Spacing.lg) {
             VStack(spacing: Layout.Spacing.sm) {
                 Image(systemName: iconName)
-                    .font(.system(size: 40, weight: .bold))
+                    .font(.lexend(size: 40, weight: .bold))
                     .foregroundColor(AppColors.accent)
 
                 Text(title)
@@ -241,7 +241,7 @@ struct ImportContentView: View {
                         
                         // Upload icon
                         Image(systemName: "doc.badge.plus")
-                            .font(.system(size: 40, weight: .medium))
+                            .font(.lexend(size: 40, weight: .medium))
                             .foregroundColor(AppColors.accent)
                     }
                     .shadow(color: AppColors.accent.opacity(0.2), radius: 20, x: 0, y: 10)
@@ -276,7 +276,7 @@ struct ImportContentView: View {
                 } label: {
                     HStack(spacing: Layout.Spacing.sm) {
                         Image(systemName: "folder.badge.plus")
-                            .font(.system(size: 20, weight: .semibold))
+                            .font(.lexend(size: 20, weight: .semibold))
                         
                         Text("Select PDF Files")
                             .font(.body)
@@ -585,7 +585,7 @@ private struct AnimatedImportIllustration: View {
                     .frame(width: 124, height: 124)
                     .overlay(
                         Image(systemName: "checkmark")
-                            .font(.system(size: 56, weight: .bold))
+                            .font(.lexend(size: 56, weight: .bold))
                             .foregroundColor(.white)
                     )
                     .scaleEffect(completionScale)
@@ -617,11 +617,11 @@ private struct IllustrationSymbol: View {
                 Image(systemName: "doc.fill")
                     .symbolRenderingMode(.palette)
                     .foregroundStyle(AppColors.surface, AppColors.accent)
-                    .font(.system(size: 62, weight: .regular))
+                    .font(.lexend(size: 62, weight: .regular))
                     .shadow(color: AppColors.accent.opacity(0.25), radius: 16, x: 0, y: 10)
 
                 Image(systemName: "sparkles")
-                    .font(.system(size: 26, weight: .medium))
+                    .font(.lexend(size: 26, weight: .medium))
                     .foregroundColor(AppColors.accent)
                     .offset(x: 30, y: -34)
                     .shadow(color: AppColors.accent.opacity(0.4), radius: 12, x: 0, y: 6)
@@ -629,14 +629,14 @@ private struct IllustrationSymbol: View {
         case .scanning:
             ZStack {
                 Image(systemName: "doc.text")
-                    .font(.system(size: 52, weight: .regular))
+                    .font(.lexend(size: 52, weight: .regular))
                     .foregroundColor(AppColors.textSecondary.opacity(0.85))
                     .offset(x: -12, y: 8)
 
                 Image(systemName: "magnifyingglass.circle.fill")
                     .symbolRenderingMode(.palette)
                     .foregroundStyle(AppColors.accent, AppColors.surface)
-                    .font(.system(size: 72, weight: .bold))
+                    .font(.lexend(size: 72, weight: .bold))
                     .shadow(color: AppColors.accent.opacity(0.3), radius: 18, x: 0, y: 12)
                     .offset(x: 28, y: -22)
             }
@@ -644,7 +644,7 @@ private struct IllustrationSymbol: View {
             Image(systemName: "calendar")
                 .symbolRenderingMode(.palette)
                 .foregroundStyle(AppColors.accent, AppColors.surface)
-                .font(.system(size: 74, weight: .semibold))
+                .font(.lexend(size: 74, weight: .semibold))
                 .shadow(color: AppColors.accent.opacity(0.32), radius: 20, x: 0, y: 12)
         }
     }

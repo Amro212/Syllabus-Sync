@@ -50,11 +50,11 @@ struct AuthView: View {
                 // Header
                 VStack(spacing: 4) {
                     Text(isSignInMode ? "Welcome back" : "Create an account")
-                        .font(.system(size: 26, weight: .bold, design: .rounded))
+                        .font(.lexend(size: 26, weight: .bold))
                         .foregroundColor(AuthPalette.textPrimary)
                     
                     Text(isSignInMode ? "Please enter your email to sign in." : "Please enter your details to create an account.")
-                        .font(.system(size: 14, weight: .regular, design: .rounded))
+                        .font(.lexend(size: 14, weight: .regular))
                         .foregroundColor(AuthPalette.textSecondary)
                         .multilineTextAlignment(.center)
                 }
@@ -65,7 +65,7 @@ struct AuthView: View {
                     if !isSignInMode {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Username")
-                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                .font(.lexend(size: 13, weight: .medium))
                                 .foregroundColor(AuthPalette.textSecondary)
                             
                             TextField("Choose a username", text: Binding(
@@ -87,7 +87,7 @@ struct AuthView: View {
                                     validateUsername(filtered)
                                 }
                             ))
-                                .font(.system(size: 15, design: .rounded))
+                                .font(.lexend(size: 15, weight: .regular))
                                 .foregroundColor(AuthPalette.textPrimary)
                                 .focused($focusedField, equals: .username)
                                 .autocapitalization(.none)
@@ -106,11 +106,11 @@ struct AuthView: View {
                             // Error or hint text
                             if let error = usernameError {
                                 Text(error)
-                                    .font(.system(size: 12, design: .rounded))
+                                    .font(.lexend(size: 12, weight: .regular))
                                     .foregroundColor(.red.opacity(0.9))
                             } else if !username.isEmpty {
                                 Text("3-20 characters, letters, numbers, _ and - only")
-                                    .font(.system(size: 12, design: .rounded))
+                                    .font(.lexend(size: 12, weight: .regular))
                                     .foregroundColor(AuthPalette.textSecondary.opacity(0.7))
                             }
                         }
@@ -122,11 +122,11 @@ struct AuthView: View {
                     if !isSignInMode {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Full Name")
-                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                .font(.lexend(size: 13, weight: .medium))
                                 .foregroundColor(AuthPalette.textSecondary)
                             
                             TextField("Enter your full name", text: $fullName)
-                                .font(.system(size: 15, design: .rounded))
+                                .font(.lexend(size: 15, weight: .regular))
                                 .foregroundColor(AuthPalette.textPrimary)
                                 .focused($focusedField, equals: .fullName)
                                 .autocapitalization(.words)
@@ -143,11 +143,11 @@ struct AuthView: View {
                     // Email Field
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Email")
-                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .font(.lexend(size: 13, weight: .medium))
                             .foregroundColor(AuthPalette.textSecondary)
                         
                         TextField("Enter your Email", text: $email)
-                            .font(.system(size: 15, design: .rounded))
+                            .font(.lexend(size: 15, weight: .regular))
                             .foregroundColor(AuthPalette.textPrimary)
                             .keyboardType(.emailAddress)
                             .autocapitalization(.none)
@@ -173,7 +173,7 @@ struct AuthView: View {
                                     .scaleEffect(0.8)
                             } else {
                                 Text(isSignInMode ? "Send sign in code" : "Send email code")
-                                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                                    .font(.lexend(size: 15, weight: .bold))
                             }
                         }
                         .foregroundColor(.white)
@@ -194,7 +194,7 @@ struct AuthView: View {
                             .frame(height: 1)
                         
                         Text("OR")
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .font(.lexend(size: 12, weight: .medium))
                             .foregroundColor(AuthPalette.textSecondary)
                         
                         Rectangle()
@@ -222,11 +222,11 @@ struct AuthView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Text(isSignInMode ? "Don't have an account?" : "Already have an account?")
-                                .font(.system(size: 13, weight: .regular, design: .rounded))
+                                .font(.lexend(size: 13, weight: .regular))
                                 .foregroundColor(AuthPalette.textSecondary)
                             
                             Text(isSignInMode ? "Sign up" : "Sign in")
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .font(.lexend(size: 13, weight: .semibold))
                                 .foregroundColor(AuthPalette.primary)
                                 .underline()
                         }
@@ -415,7 +415,7 @@ struct AppleSignInButton: View {
             action: action
         ) {
             Image(systemName: "applelogo")
-                .font(.system(size: 20, weight: .semibold))
+                .font(.lexend(size: 20, weight: .semibold))
         }
         .disabled(isLoading)
         .animation(.spring(response: 0.35, dampingFraction: 0.7), value: isLoading)
@@ -437,7 +437,7 @@ struct EmailSignInButton: View {
             action: action
         ) {
             Image(systemName: "envelope.fill")
-                .font(.system(size: 20, weight: .medium))
+                .font(.lexend(size: 20, weight: .medium))
                 .foregroundColor(AuthPalette.textSecondary)
         }
     }
@@ -492,7 +492,7 @@ struct AuthButton<Leading: View, Background: ShapeStyle>: View {
                 .frame(width: 24, height: 24)
                 
                 Text(title)
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .font(.lexend(size: 18, weight: .semibold))
                     .foregroundColor(textColor)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
@@ -667,7 +667,7 @@ struct EmailAuthForm: View {
                     onBack()
                 } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.lexend(size: 18, weight: .semibold))
                         .foregroundColor(AuthPalette.textPrimary)
                         .frame(width: 40, height: 40)
                         .background(AuthPalette.formBackground)
@@ -680,11 +680,11 @@ struct EmailAuthForm: View {
             // Title and subtitle
             VStack(spacing: Layout.Spacing.xs) {
                 Text("Syllabus Sync")
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .font(.lexend(size: 32, weight: .bold))
                     .foregroundColor(AuthPalette.textPrimary)
                 
                 Text("Your semester, simplified.")
-                    .font(.system(size: 16, weight: .regular, design: .rounded))
+                    .font(.lexend(size: 16, weight: .regular))
                     .foregroundColor(AuthPalette.textPrimary.opacity(0.9))
             }
             
@@ -700,7 +700,7 @@ struct EmailAuthForm: View {
                     HapticFeedbackManager.shared.lightImpact()
                 } label: {
                     Text("Sign In")
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .font(.lexend(size: 16, weight: .bold))
                         .foregroundColor(!isSignUp ? Color(red: 0.129, green: 0.110, blue: 0.067) : AuthPalette.textPrimary.opacity(0.6))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
@@ -717,7 +717,7 @@ struct EmailAuthForm: View {
                     HapticFeedbackManager.shared.lightImpact()
                 } label: {
                     Text("Sign Up")
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .font(.lexend(size: 16, weight: .bold))
                         .foregroundColor(isSignUp ? Color(red: 0.129, green: 0.110, blue: 0.067) : AuthPalette.textPrimary.opacity(0.6))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
@@ -739,7 +739,7 @@ struct EmailAuthForm: View {
                 // Error Message
                 if let error = formError {
                     Text(error)
-                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .font(.lexend(size: 13, weight: .medium))
                         .foregroundColor(Color(red: 0.851, green: 0.325, blue: 0.310))
                         .padding(.vertical, 10)
                         .padding(.horizontal, 14)
@@ -753,7 +753,7 @@ struct EmailAuthForm: View {
                 
                 // Email Field
                 TextField("Email Address", text: $email)
-                    .font(.system(size: 16, design: .rounded))
+                    .font(.lexend(size: 16, weight: .regular))
                     .foregroundColor(AuthPalette.textPrimary)
                     .keyboardType(.emailAddress)
                     .autocapitalization(.none)
@@ -770,13 +770,13 @@ struct EmailAuthForm: View {
                 HStack {
                     if showPassword {
                         TextField("Password", text: $password)
-                            .font(.system(size: 16, design: .rounded))
+                            .font(.lexend(size: 16, weight: .regular))
                             .foregroundColor(AuthPalette.textPrimary)
                             .autocapitalization(.none)
                             .autocorrectionDisabled()
                     } else {
                         SecureField("Password", text: $password)
-                            .font(.system(size: 16, design: .rounded))
+                            .font(.lexend(size: 16, weight: .regular))
                             .foregroundColor(AuthPalette.textPrimary)
                     }
                     
@@ -785,7 +785,7 @@ struct EmailAuthForm: View {
                         HapticFeedbackManager.shared.lightImpact()
                     } label: {
                         Image(systemName: showPassword ? "eye.fill" : "eye.slash.fill")
-                            .font(.system(size: 16))
+                            .font(.lexend(size: 16, weight: .regular))
                             .foregroundColor(AuthPalette.placeholderText)
                     }
                 }
@@ -802,13 +802,13 @@ struct EmailAuthForm: View {
                     HStack {
                         if showConfirmPassword {
                             TextField("Confirm Password", text: $confirmPassword)
-                                .font(.system(size: 16, design: .rounded))
+                                .font(.lexend(size: 16, weight: .regular))
                                 .foregroundColor(AuthPalette.textPrimary)
                                 .autocapitalization(.none)
                                 .autocorrectionDisabled()
                         } else {
                             SecureField("Confirm Password", text: $confirmPassword)
-                                .font(.system(size: 16, design: .rounded))
+                                .font(.lexend(size: 16, weight: .regular))
                                 .foregroundColor(AuthPalette.textPrimary)
                         }
                         
@@ -817,7 +817,7 @@ struct EmailAuthForm: View {
                             HapticFeedbackManager.shared.lightImpact()
                         } label: {
                             Image(systemName: showConfirmPassword ? "eye.fill" : "eye.slash.fill")
-                                .font(.system(size: 16))
+                                .font(.lexend(size: 16, weight: .regular))
                                 .foregroundColor(AuthPalette.placeholderText)
                         }
                     }
@@ -845,7 +845,7 @@ struct EmailAuthForm: View {
                                 .scaleEffect(0.8)
                         } else {
                             Text(isSignUp ? "Sign Up" : "Sign In")
-                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                                .font(.lexend(size: 16, weight: .bold))
                         }
                     }
                     .foregroundColor(Color(red: 0.129, green: 0.110, blue: 0.067))
@@ -868,7 +868,7 @@ struct EmailAuthForm: View {
                         // TODO: Implement forgot password flow
                     } label: {
                         Text("Forgot Password?")
-                            .font(.system(size: 14, weight: .regular, design: .rounded))
+                            .font(.lexend(size: 14, weight: .regular))
                             .foregroundColor(AuthPalette.primary)
                             .underline()
                     }
@@ -965,7 +965,7 @@ struct PasswordFieldWithToggle: View {
                 HapticFeedbackManager.shared.lightImpact()
             } label: {
                 Image(systemName: isSecure ? "eye.slash.fill" : "eye.fill")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.lexend(size: 16, weight: .medium))
                     .foregroundColor(AuthPalette.textSecondary)
                     .frame(width: 24, height: 24)
             }
@@ -1010,19 +1010,19 @@ struct EmailVerificationView: View {
                 
                 VStack(spacing: Layout.Spacing.lg) {
                     Image(systemName: "envelope.fill")
-                        .font(.system(size: 60))
+                        .font(.lexend(size: 60, weight: .regular))
                         .foregroundColor(AuthPalette.appleGoldDark)
                     
                     Text("Verify Your Email")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .font(.lexend(size: 28, weight: .bold))
                         .foregroundColor(AuthPalette.textPrimary)
                     
                     Text("We sent a 6-digit code to")
-                        .font(.system(size: 16, design: .rounded))
+                        .font(.lexend(size: 16, weight: .regular))
                         .foregroundColor(AuthPalette.textSecondary)
                     
                     Text(email)
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .font(.lexend(size: 16, weight: .semibold))
                         .foregroundColor(AuthPalette.textPrimary)
                     
                     // OTP Input
@@ -1051,7 +1051,7 @@ struct EmailVerificationView: View {
                     }
                 } label: {
                     Text("Verify")
-                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .font(.lexend(size: 18, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 18)
@@ -1191,7 +1191,7 @@ private struct DigitBox: View {
             
             // Digit text
             Text(digit)
-                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .font(.lexend(size: 24, weight: .bold))
                 .foregroundColor(.white)
             
             // Cursor indicator when focused and empty

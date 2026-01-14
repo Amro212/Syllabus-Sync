@@ -257,7 +257,7 @@ struct RemindersView: View {
                         }
                     } label: {
                         Image(systemName: "arrow.up.arrow.down")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.lexend(size: 16, weight: .semibold))
                             .foregroundColor(AppColors.textPrimary)
                             .frame(width: 44, height: 44)
                             .background(AppColors.surface)
@@ -296,7 +296,7 @@ struct RemindersView: View {
             HapticFeedbackManager.shared.lightImpact()
         }) {
             Image(systemName: viewMode == .list ? "calendar" : "list.bullet")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.lexend(size: 16, weight: .semibold))
                 .foregroundColor(viewMode == .calendar ? AppColors.accent : AppColors.textPrimary)
                 .frame(width: 44, height: 44)
                 .background(AppColors.surface)
@@ -320,7 +320,7 @@ struct RemindersView: View {
                                     VStack(spacing: Layout.Spacing.lg) {
                                         Spacer()
                                         Image(systemName: "checklist")
-                                            .font(.system(size: 64))
+                                            .font(.lexend(size: 64, weight: .regular))
                                             .foregroundColor(AppColors.accent.opacity(0.8))
                                         
                                         Text("No reminders yet")
@@ -354,7 +354,7 @@ struct RemindersView: View {
                                     VStack(spacing: Layout.Spacing.lg) {
                                         Spacer()
                                         Image(systemName: "magnifyingglass")
-                                            .font(.system(size: 48))
+                                            .font(.lexend(size: 48, weight: .regular))
                                             .foregroundColor(AppColors.textSecondary.opacity(0.5))
                                         
                                         Text("No reminders found")
@@ -394,7 +394,7 @@ struct RemindersView: View {
                                             }
                                         } header: {
                                             Text(section.rawValue)
-                                                .font(.system(.title2, design: .default, weight: .bold))
+                                                .font(.lexend(.title2, weight: .bold))
                                                 .foregroundColor(AppColors.textPrimary)
                                                 .textCase(nil)
                                                 .padding(.leading, -4)
@@ -535,7 +535,7 @@ private struct ReminderCard: View {
                     // Repeat Badge
                     if event.recurrenceRule != nil {
                         Image(systemName: "repeat")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.lexend(size: 12, weight: .medium))
                             .foregroundColor(AppColors.accent)
                     }
                     
@@ -659,7 +659,7 @@ struct FilterTabButton: View {
         Button(action: action) {
             HStack(spacing: Layout.Spacing.xs) {
                 Image(systemName: filter.icon)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.lexend(size: 14, weight: .medium))
                 
                 Text(filter.rawValue)
                     .font(.captionL)
@@ -702,7 +702,7 @@ struct CourseFilterButton: View {
         Button(action: action) {
             HStack(spacing: Layout.Spacing.xs) {
                 Image(systemName: "book.fill")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.lexend(size: 12, weight: .medium))
                 
                 Text(title)
                     .font(.captionL)

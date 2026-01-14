@@ -50,7 +50,7 @@ struct CustomTabBar: View {
                         .shadow(color: AppColors.accent.opacity(0.4), radius: 8, x: 0, y: 4)
                     
                     Image(systemName: "plus")
-                        .font(.system(size: 32, weight: .light)) // Thin/Light weight matches the design better
+                        .font(.lexend(size: 32, weight: .light)) // Thin/Light weight matches the design better
                         .foregroundColor(.white)
                 }
                 .frame(width: 64, height: 64)
@@ -130,7 +130,7 @@ private struct TabBarItem: View {
         }) {
             VStack(spacing: 4) {
                 Image(systemName: systemImageName)
-                    .font(.system(size: 24))
+                    .font(.lexend(size: 24, weight: .regular))
                 
                 Text(title)
                     .font(.tabLabel)

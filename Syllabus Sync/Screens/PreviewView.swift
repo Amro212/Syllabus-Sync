@@ -51,7 +51,7 @@ struct PreviewView: View {
                         ForEach(PreviewTab.allCases, id: \.self) { tab in
                             HStack(spacing: Layout.Spacing.xs) {
                                 Image(systemName: tab.icon)
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(.lexend(size: 14, weight: .medium))
                                 Text(tab.rawValue)
                                     .font(.body)
                                     .fontWeight(.medium)
@@ -91,7 +91,7 @@ struct PreviewView: View {
                         Spacer()
                         
                         Image(systemName: "person.circle")
-                            .font(.system(size: 28))
+                            .font(.lexend(size: 28, weight: .regular))
                             .foregroundColor(AppColors.textPrimary)
                     }
                     .padding(.horizontal, Layout.Spacing.md)
@@ -201,7 +201,7 @@ struct PreviewView: View {
                 VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
                     HStack(spacing: Layout.Spacing.sm) {
                         Image(systemName: "doc.plaintext")
-                            .font(.system(size: 16, weight: .medium))
+                            .font(.lexend(size: 16, weight: .medium))
                             .foregroundColor(.orange)
 
                         Text("Raw OCR TSV")
@@ -244,7 +244,7 @@ struct PreviewView: View {
                 VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
                     HStack(spacing: Layout.Spacing.sm) {
                         Image(systemName: "eye.trianglebadge.exclamationmark")
-                            .font(.system(size: 16, weight: .medium))
+                            .font(.lexend(size: 16, weight: .medium))
                             .foregroundColor(.blue)
                         
                         Text("OCR TSV Data Sent to AI")
@@ -284,7 +284,7 @@ struct PreviewView: View {
     private var missingOCRState: some View {
         VStack(spacing: Layout.Spacing.md) {
             Image(systemName: "doc.text.viewfinder")
-                .font(.system(size: 48, weight: .medium))
+                .font(.lexend(size: 48, weight: .medium))
                 .foregroundColor(AppColors.textSecondary)
 
             Text("No OCR data available yet")
@@ -449,7 +449,7 @@ struct PreviewEventCard: View {
                 VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
                     HStack(spacing: Layout.Spacing.xs) {
                         Image(systemName: iconName)
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.lexend(size: 14, weight: .medium))
                             .foregroundColor(eventColor)
 
                         Text(event.type.rawValue.capitalized)
@@ -481,7 +481,7 @@ struct PreviewEventCard: View {
                         
                         if event.recurrenceRule != nil {
                             Image(systemName: "repeat")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.lexend(size: 12, weight: .medium))
                                 .foregroundColor(AppColors.accent)
                         }
                     }
@@ -489,7 +489,7 @@ struct PreviewEventCard: View {
                     if let location = event.location, !location.isEmpty {
                         HStack(spacing: Layout.Spacing.xs) {
                             Image(systemName: "mappin.and.ellipse")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.lexend(size: 12, weight: .medium))
                                 .foregroundColor(AppColors.textSecondary)
                             Text(location)
                                 .font(.caption)
@@ -523,7 +523,7 @@ private struct PreviewEmptyStateView: View {
     var body: some View {
         VStack(spacing: Layout.Spacing.md) {
             Image(systemName: "calendar.badge.plus")
-                .font(.system(size: 48, weight: .medium))
+                .font(.lexend(size: 48, weight: .medium))
                 .foregroundColor(AppColors.textSecondary)
 
             Text("No events to show yet")
@@ -569,7 +569,7 @@ private struct AIOutputView: View {
         VStack(alignment: .leading, spacing: Layout.Spacing.md) {
             HStack(spacing: Layout.Spacing.sm) {
                 Image(systemName: "brain")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.lexend(size: 16, weight: .medium))
                     .foregroundColor(.blue)
                 
                 Text("Raw AI Response")
@@ -585,7 +585,7 @@ private struct AIOutputView: View {
                             UIPasteboard.general.string = rawResponse
                         }) {
                             Image(systemName: "doc.on.doc")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.lexend(size: 14, weight: .medium))
                                 .foregroundColor(.blue)
                         }
                     }
@@ -650,7 +650,7 @@ private struct AIOutputEmptyStateView: View {
     var body: some View {
         VStack(spacing: Layout.Spacing.md) {
             Image(systemName: "brain.head.profile")
-                .font(.system(size: 48, weight: .medium))
+                .font(.lexend(size: 48, weight: .medium))
                 .foregroundColor(AppColors.textSecondary)
 
             Text("No AI output yet")

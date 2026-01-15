@@ -119,7 +119,35 @@ extension Font {
             .weight(weight)
     }
     
-    /// Typography variants with semantic naming
+    // MARK: - Lexend Convenience Methods
+    
+    /// Create a Lexend font using a TextStyle for semantic sizing
+    static func lexend(_ style: TextStyle, weight: Weight = .regular) -> Font {
+        let size: CGFloat
+        switch style {
+        case .largeTitle: size = 34
+        case .title: size = 28
+        case .title2: size = 22
+        case .title3: size = 20
+        case .headline: size = 17
+        case .body: size = 17
+        case .callout: size = 16
+        case .subheadline: size = 15
+        case .footnote: size = 13
+        case .caption: size = 12
+        case .caption2: size = 11
+        @unknown default: size = 17
+        }
+        return Font.custom("Lexend", size: size, relativeTo: style).weight(weight)
+    }
+    
+    /// Create a Lexend font with explicit size
+    static func lexend(size: CGFloat, weight: Weight = .regular) -> Font {
+        return Font.custom("Lexend", size: size).weight(weight)
+    }
+    
+    // MARK: - Typography variants with semantic naming
+    
     static var titleXL: Font { AppTypography.titleXL }
     static var titleL: Font { AppTypography.titleL }
     static var titleM: Font { AppTypography.titleM }

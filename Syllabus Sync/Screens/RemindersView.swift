@@ -23,9 +23,16 @@ struct RemindersView: View {
     @State private var selectedFilter: ReminderFilter = .all
     @State private var selectedCourse: String? = nil  // nil means "All"
     
+    // View Mode
+    @State private var viewMode: ViewMode = .list
+    
     // User State
     @AppStorage("hasAddedEvents") private var hasAddedEvents: Bool = false
     @State private var userSpecificHasAddedEvents: Bool = false
+    
+    enum ViewMode {
+        case list, calendar
+    }
 
     enum SortOption {
         case dateAsc, dateDesc, course, type
@@ -200,7 +207,24 @@ struct RemindersView: View {
     }
     
     var groupedEvents: [(TimeSection, [EventItem])] {
-        let sorted = filteredEvents.sorted { effectiveDate(for: $0) < effectiveDate(for: $1) }
+        let sorted: [EventItem]
+        
+        switch sortOption {
+        case .dateAsc:
+            sorted = filteredEvents.sorted { effectiveDate(for: $0) < effectiveDate(for: $1) }
+        case .dateDesc:
+            sorted = filteredEvents.sorted { effectiveDate(for: $0) > effectiveDate(for: $1) }
+        case .type:
+            sorted = filteredEvents.sorted {
+                if $0.type == $1.type {
+                    return effectiveDate(for: $0) < effectiveDate(for: $1)
+                }
+                return $0.type.rawValue < $1.type.rawValue // Alphabetical type sort (Assignment < Exam < Lab < Lecture)
+            }
+        default: // Fallback (Course removed, use date asc)
+             sorted = filteredEvents.sorted { effectiveDate(for: $0) < effectiveDate(for: $1) }
+        }
+        
         var groups: [(TimeSection, [EventItem])] = []
         
         for section in TimeSection.allCases {
@@ -210,213 +234,241 @@ struct RemindersView: View {
             }
         }
         
+        // If sorting by Type, maybe we shouldn't group by TimeSection?
+        // Current design groups by TimeSection (Today, Tomorrow, etc.) regardless of sort.
+        // This is consistent with the UI "Tomorrow", "Later this Week".
+        // The items INSIDE the groups will be sorted by the criterion.
+        
         return groups
+    }
+
+    @ViewBuilder
+    private func toolbar(headerHeight: CGFloat) -> some View {
+        VStack(spacing: Layout.Spacing.xs) {
+            // Course Filter Bar + Toggle Button
+            HStack(spacing: Layout.Spacing.sm) {
+                if viewMode == .list && !eventStore.events.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: Layout.Spacing.sm) {
+                            CourseFilterButton(title: "All", isSelected: selectedCourse == nil) {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    selectedCourse = nil
+                                }
+                                HapticFeedbackManager.shared.lightImpact()
+                            }
+                            
+                            ForEach(availableCourses, id: \.self) { course in
+                                CourseFilterButton(title: course, isSelected: selectedCourse == course) {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                        selectedCourse = course
+                                    }
+                                    HapticFeedbackManager.shared.lightImpact()
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 4)
+                    }
+                } else {
+                     Spacer()
+                }
+                
+                // Toggle Button (Visible in both modes)
+                toggleButton
+            }
+            
+            if viewMode == .list {
+                HStack(spacing: Layout.Spacing.xs) {
+                    // Search
+                    HStack {
+                        Image(systemName: "magnifyingglass").foregroundColor(AppColors.textSecondary)
+                        TextField("Search reminders...", text: $searchText).foregroundColor(AppColors.textPrimary)
+                        if !searchText.isEmpty {
+                            Button(action: { searchText = "" }) {
+                                Image(systemName: "xmark.circle.fill").foregroundColor(AppColors.textSecondary)
+                            }
+                        }
+                    }
+                    .padding(10)
+                    .background(AppColors.surface)
+                    .cornerRadius(10)
+                    
+                    // Sort
+                    Menu {
+                        Picker("Sort By", selection: Binding(get: { sortOption }, set: { newValue in
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { sortOption = newValue }
+                        })) {
+                            Text("Date (Earliest)").tag(SortOption.dateAsc)
+                            Text("Date (Latest)").tag(SortOption.dateDesc)
+                            Text("Type").tag(SortOption.type)
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(AppColors.textPrimary)
+                            .frame(width: 44, height: 44)
+                            .background(AppColors.surface)
+                            .cornerRadius(10)
+                    }
+                }
+                
+                // Filter Bar
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Layout.Spacing.sm) {
+                        ForEach(ReminderFilter.allCases, id: \.self) { filter in
+                            FilterTabButton(filter: filter, isSelected: selectedFilter == filter) {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    selectedFilter = filter
+                                }
+                                HapticFeedbackManager.shared.lightImpact()
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+            }
+        }
+        .padding(.horizontal, Layout.Spacing.md)
+        .padding(.top, headerHeight + 10)
+        .padding(.bottom, Layout.Spacing.md)
+        .background(AppColors.background)
+        .transition(.opacity)
+    }
+    
+    private var toggleButton: some View {
+        Button(action: {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                viewMode = viewMode == .list ? .calendar : .list
+            }
+            HapticFeedbackManager.shared.lightImpact()
+        }) {
+            Image(systemName: viewMode == .list ? "calendar" : "list.bullet")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(viewMode == .calendar ? AppColors.accent : AppColors.textPrimary)
+                .frame(width: 44, height: 44)
+                .background(AppColors.surface)
+                .cornerRadius(10)
+        }
     }
 
     var body: some View {
         NavigationView {
              GeometryReader { geo in
                  let headerHeight = geo.safeAreaInsets.top + 4
+                 let stickyHeaderHeight = headerHeight + 50
                  
                  ZStack(alignment: .top) {
-                     VStack(spacing: 0) {
-                         // Search & Sort Bar
-                         VStack(spacing: Layout.Spacing.xs) {
-                             // Course Filter Bar - only show when events exist
-                             if !eventStore.events.isEmpty {
-                                 ScrollView(.horizontal, showsIndicators: false) {
-                                     HStack(spacing: Layout.Spacing.sm) {
-                                         // "All" pill
-                                         CourseFilterButton(
-                                             title: "All",
-                                             isSelected: selectedCourse == nil
-                                         ) {
-                                             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                                 selectedCourse = nil
-                                             }
-                                             HapticFeedbackManager.shared.lightImpact()
-                                         }
-                                         
-                                         ForEach(availableCourses, id: \.self) { course in
-                                             CourseFilterButton(
-                                                 title: course,
-                                                 isSelected: selectedCourse == course
-                                             ) {
-                                                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                                     selectedCourse = course
-                                                 }
-                                                 HapticFeedbackManager.shared.lightImpact()
-                                             }
-                                         }
-                                     }
-                                     .padding(.horizontal, 4)
-                                 }
-                             }
-                             
-                             HStack(spacing: Layout.Spacing.xs) {
-                                 // Search Field
-                                 HStack {
-                                     Image(systemName: "magnifyingglass")
-                                         .foregroundColor(AppColors.textSecondary)
-                                     TextField("Search reminders...", text: $searchText)
-                                         .foregroundColor(AppColors.textPrimary)
-                                     
-                                     if !searchText.isEmpty {
-                                         Button(action: { searchText = "" }) {
-                                             Image(systemName: "xmark.circle.fill")
-                                                 .foregroundColor(AppColors.textSecondary)
-                                         }
-                                     }
-                                 }
-                                 .padding(10)
-                                 .background(AppColors.surface)
-                                 .cornerRadius(10)
-                                 
-                                 // Sort Menu
-                                 Menu {
-                                     Picker("Sort By", selection: Binding(
-                                         get: { sortOption },
-                                         set: { newValue in
-                                             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                                 sortOption = newValue
-                                             }
-                                         }
-                                     )) {
-                                         Text("Date (Earliest)").tag(SortOption.dateAsc)
-                                         Text("Date (Latest)").tag(SortOption.dateDesc)
-                                         Text("Course").tag(SortOption.course)
-                                         Text("Type").tag(SortOption.type)
-                                     }
-                                 } label: {
-                                     Image(systemName: "arrow.up.arrow.down")
-                                         .font(.system(size: 16, weight: .semibold))
-                                         .foregroundColor(AppColors.textPrimary)
-                                         .frame(width: 44, height: 44)
-                                         .background(AppColors.surface)
-                                         .cornerRadius(10)
-                                 }
-                             }
-                             
-                             // Event Type Filter Bar
-                             ScrollView(.horizontal, showsIndicators: false) {
-                                 HStack(spacing: Layout.Spacing.sm) {
-                                     ForEach(ReminderFilter.allCases, id: \.self) { filter in
-                                         FilterTabButton(
-                                             filter: filter,
-                                             isSelected: selectedFilter == filter
-                                         ) {
-                                             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                                 selectedFilter = filter
-                                             }
-                                             HapticFeedbackManager.shared.lightImpact()
-                                         }
-                                     }
-                                 }
-                                 .padding(.horizontal, 4) // Slight inset for scroll
-                             }
-                         }
-                         .padding(.horizontal, Layout.Spacing.md)
-                         .padding(.top, headerHeight + 10)
-                         .padding(.bottom, Layout.Spacing.md)
-                         .background(AppColors.background)
-                         .zIndex(1)
-                         
-                         // List Content
-                         if groupedEvents.isEmpty {
-                             if !userSpecificHasAddedEvents && searchText.isEmpty && selectedFilter == .all && selectedCourse == nil {
-                                 // "New User" Empty State
-                                 VStack(spacing: Layout.Spacing.lg) {
-                                     Spacer()
-                                     Image(systemName: "checklist")
-                                         .font(.system(size: 64))
-                                         .foregroundColor(AppColors.accent.opacity(0.8))
-                                     
-                                     Text("No reminders yet")
-                                         .font(.title2)
-                                         .fontWeight(.bold)
-                                         .foregroundColor(AppColors.textPrimary)
-                                     
-                                     Text("Import your syllabus to automatically generate reminders for assignments and exams.")
-                                         .font(.body)
-                                         .foregroundColor(AppColors.textSecondary)
-                                         .multilineTextAlignment(.center)
-                                         .padding(.horizontal, Layout.Spacing.xl)
-                                     
-                                     Button {
-                                         showingImportView = true
-                                     } label: {
-                                         Text("Import Syllabus")
-                                             .fontWeight(.semibold)
-                                             .padding(.horizontal, 24)
-                                             .padding(.vertical, 12)
-                                             .background(AppColors.accent)
-                                             .foregroundColor(.white)
-                                             .cornerRadius(Layout.CornerRadius.md)
-                                     }
-                                     Spacer()
-                                 }
-                                 .frame(maxWidth: .infinity)
-                                 
-                             } else {
-                                 // "Filtered/Empty but Existing" State
-                                 VStack(spacing: Layout.Spacing.lg) {
-                                     Spacer()
-                                     Image(systemName: "magnifyingglass")
-                                         .font(.system(size: 48))
-                                         .foregroundColor(AppColors.textSecondary.opacity(0.5))
-                                     
-                                     Text("No reminders found")
-                                         .font(.title3)
-                                         .fontWeight(.semibold)
-                                         .foregroundColor(AppColors.textSecondary)
-                                     Spacer()
-                                 }
-                                 .frame(maxWidth: .infinity)
-                             }
-                         } else {
-                             List {
-                                 ForEach(groupedEvents, id: \.0) { section, events in
-                                     Section {
-                                         ForEach(events) { event in
-                                            ReminderCard(event: event, displayDate: effectiveDate(for: event))
-                                                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                                                 .listRowSeparator(.hidden)
-                                                 .listRowBackground(Color.clear)
-                                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                                     Button(role: .destructive) {
-                                                         deleteEvent(event)
-                                                     } label: {
-                                                         Label("Delete", systemImage: "trash")
-                                                     }
-                                                     
-                                                     Button {
-                                                         editingEvent = event
-                                                     } label: {
-                                                         Label("Edit", systemImage: "pencil")
-                                                     }
-                                                     .tint(.blue)
-                                                 }
-                                                 .swipeActions(edge: .leading) {
-                                                      // Future: Mark Complete logic
-                                                 }
-                                         }
-                                     } header: {
-                                         Text(section.rawValue)
-                                             .font(.system(.title2, design: .default, weight: .bold))
-                                             .foregroundColor(AppColors.textPrimary)
-                                             .textCase(nil)
-                                             .padding(.leading, -4)
-                                     }
-                                     .listSectionSpacing(8)
-                                 }
-                             }
-                             .listStyle(.plain)
-                             .refreshable {
-                                 await eventStore.refresh()
-                             }
-                             .padding(.bottom, 60) // Space for tab bar
-                         }
-                     }
+                    // List & Calendar Content
+                    Group {
+                        if viewMode == .list {
+                            if groupedEvents.isEmpty {
+                                if !userSpecificHasAddedEvents && searchText.isEmpty && selectedFilter == .all && selectedCourse == nil {
+                                    // "New User" Empty State
+                                    VStack(spacing: Layout.Spacing.lg) {
+                                        Spacer()
+                                        Image(systemName: "checklist")
+                                            .font(.system(size: 64))
+                                            .foregroundColor(AppColors.accent.opacity(0.8))
+                                        
+                                        Text("No reminders yet")
+                                            .font(.title2)
+                                            .fontWeight(.bold)
+                                            .foregroundColor(AppColors.textPrimary)
+                                        
+                                        Text("Import your syllabus to automatically generate reminders for assignments and exams.")
+                                            .font(.body)
+                                            .foregroundColor(AppColors.textSecondary)
+                                            .multilineTextAlignment(.center)
+                                            .padding(.horizontal, Layout.Spacing.xl)
+                                        
+                                        Button {
+                                            showingImportView = true
+                                        } label: {
+                                            Text("Import Syllabus")
+                                                .fontWeight(.semibold)
+                                                .padding(.horizontal, 24)
+                                                .padding(.vertical, 12)
+                                                .background(AppColors.accent)
+                                                .foregroundColor(.white)
+                                                .cornerRadius(Layout.CornerRadius.md)
+                                        }
+                                        Spacer()
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    
+                                } else {
+                                    // "Filtered/Empty but Existing" State
+                                    VStack(spacing: Layout.Spacing.lg) {
+                                        Spacer()
+                                        Image(systemName: "magnifyingglass")
+                                            .font(.system(size: 48))
+                                            .foregroundColor(AppColors.textSecondary.opacity(0.5))
+                                        
+                                        Text("No reminders found")
+                                            .font(.title3)
+                                            .fontWeight(.semibold)
+                                            .foregroundColor(AppColors.textSecondary)
+                                        Spacer()
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                }
+                            } else {
+                                List {
+                                    ForEach(groupedEvents, id: \.0) { section, events in
+                                        Section {
+                                            ForEach(events) { event in
+                                                ReminderCard(event: event)
+                                                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                                                    .listRowSeparator(.hidden)
+                                                    .listRowBackground(Color.clear)
+                                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                                        Button(role: .destructive) {
+                                                            deleteEvent(event)
+                                                        } label: {
+                                                            Label("Delete", systemImage: "trash")
+                                                        }
+                                                        
+                                                        Button {
+                                                            editingEvent = event
+                                                        } label: {
+                                                            Label("Edit", systemImage: "pencil")
+                                                        }
+                                                        .tint(.blue)
+                                                    }
+                                                    .swipeActions(edge: .leading) {
+                                                         // Future: Mark Complete logic
+                                                    }
+                                            }
+                                        } header: {
+                                            Text(section.rawValue)
+                                                .font(.system(.title2, design: .default, weight: .bold))
+                                                .foregroundColor(AppColors.textPrimary)
+                                                .textCase(nil)
+                                                .padding(.leading, -4)
+                                        }
+                                        .listSectionSpacing(8)
+                                    }
+                                }
+                                .listStyle(.plain)
+                                .refreshable {
+                                    await eventStore.refresh()
+                                }
+                                .padding(.bottom, 60) // Space for tab bar
+                            }
+                        } else {
+                            // Calendar View
+                            CalendarView()
+
+                                .transition(.opacity)
+                                .environmentObject(navigationManager)
+                                .environmentObject(eventStore)
+                                .environmentObject(importViewModel)
+                        }
+                    }
+
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    toolbar(headerHeight: headerHeight)
+                }
+
                      
                      // Sticky Header
                      VStack(spacing: 0) {
@@ -426,9 +478,7 @@ struct RemindersView: View {
                                  .fontWeight(.bold)
                                  .foregroundColor(AppColors.textPrimary)
                              Spacer()
-                             Image(systemName: "person.circle")
-                                 .font(.system(size: 28))
-                                 .foregroundColor(AppColors.textPrimary)
+
                          }
                          .padding(.horizontal, Layout.Spacing.md)
                          .padding(.bottom, Layout.Spacing.sm)

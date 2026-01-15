@@ -12,7 +12,7 @@ function pad(number: number, length = 2): string {
 }
 
 /**
- * Formats a date using UTC components without a timezone designator ("Z").
+ * Formats a date using local components without a timezone designator.
  *
  * Output example: `2025-09-12T23:59:00.000`
  */
@@ -25,13 +25,7 @@ export function formatUtcDateWithoutTimezone(date: Date): string {
   const seconds = pad(date.getSeconds());
   const milliseconds = pad(date.getMilliseconds(), 3);
 
-  const offsetMinutes = -date.getTimezoneOffset();
-  const sign = offsetMinutes >= 0 ? '+' : '-';
-  const absMinutes = Math.abs(offsetMinutes);
-  const offsetHours = pad(Math.floor(absMinutes / 60));
-  const offsetMins = pad(absMinutes % 60);
-
-  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${milliseconds}${sign}${offsetHours}:${offsetMins}`;
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${milliseconds}`;
 }
 
 /**

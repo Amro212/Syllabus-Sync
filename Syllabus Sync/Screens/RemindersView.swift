@@ -135,29 +135,75 @@ struct RemindersView: View {
     /// Returns the effective date for display/sorting
     /// For recurring events, calculates the next occurrence; otherwise returns the start date
     private func effectiveDate(for event: EventItem) -> Date {
-        // If event has a recurrence rule and the start date is in the past, find next occurrence
-        guard let _ = event.recurrenceRule, event.start < Date() else {
+        guard let recurrenceRule = event.recurrenceRule, event.start < Date() else {
             return event.start
         }
         
-        // For recurring events, calculate next occurrence based on pattern
-        // This is a simplified calculation - assumes weekly recurrence (most common for classes)
         let calendar = Calendar.current
         let now = Date()
-        var nextDate = event.start
+        let timeComponents = calendar.dateComponents([.hour, .minute, .second, .nanosecond], from: event.start)
         
-        // Keep adding weeks until we find a future occurrence
-        // Limit to 52 weeks to prevent infinite loops
-        var weeksAdded = 0
-        while nextDate < now && weeksAdded < 52 {
-            guard let next = calendar.date(byAdding: .weekOfYear, value: 1, to: nextDate) else {
-                break
+        // Find weekdays defined in BYDAY; default to the event's original weekday when absent
+        let recurringWeekdays = weekdays(from: recurrenceRule, calendar: calendar)
+        let targetWeekdays = recurringWeekdays.isEmpty ? [calendar.component(.weekday, from: event.start)] : recurringWeekdays
+        
+        var nextOccurrence: Date?
+        
+        for weekday in targetWeekdays {
+            var components = DateComponents()
+            components.weekday = weekday
+            components.hour = timeComponents.hour
+            components.minute = timeComponents.minute
+            components.second = timeComponents.second
+            components.nanosecond = timeComponents.nanosecond
+            
+            if let candidate = calendar.nextDate(after: now, matching: components, matchingPolicy: .nextTime, direction: .forward) {
+                if let untilDate = recurrenceEndDate(from: recurrenceRule, calendar: calendar), candidate > untilDate {
+                    continue
+                }
+                
+                if nextOccurrence == nil || candidate < nextOccurrence! {
+                    nextOccurrence = candidate
+                }
             }
-            nextDate = next
-            weeksAdded += 1
         }
         
-        return nextDate
+        return nextOccurrence ?? event.start
+    }
+    
+    private func weekdays(from recurrenceRule: String, calendar: Calendar) -> [Int] {
+        guard let range = recurrenceRule.range(of: "BYDAY=") else { return [] }
+        
+        let afterByDay = recurrenceRule[range.upperBound...]
+        let endIndex = afterByDay.firstIndex(of: ";") ?? afterByDay.endIndex
+        let dayCodes = String(afterByDay[..<endIndex]).split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        
+        let mapping: [String: Int] = [
+            "SU": 1, "MO": 2, "TU": 3, "WE": 4,
+            "TH": 5, "FR": 6, "SA": 7
+        ]
+        
+        return dayCodes.compactMap { mapping[$0] }
+    }
+    
+    private func recurrenceEndDate(from recurrenceRule: String, calendar: Calendar) -> Date? {
+        guard let range = recurrenceRule.range(of: "UNTIL=") else { return nil }
+        
+        let afterUntil = recurrenceRule[range.upperBound...]
+        let endIndex = afterUntil.firstIndex(of: ";") ?? afterUntil.endIndex
+        let untilString = String(afterUntil[..<endIndex])
+        
+        // Try common RFC 5545 formats, falling back to simple dates
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withDashSeparatorInDate, .withColonSeparatorInTime]
+        if let date = isoFormatter.date(from: untilString) {
+            return date
+        }
+        
+        let dateFormatter = DateFormatter()
+        dateFormatter.calendar = calendar
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        return dateFormatter.date(from: untilString)
     }
     
     var groupedEvents: [(TimeSection, [EventItem])] {
@@ -506,6 +552,7 @@ struct RemindersView: View {
 // MARK: - Reminder Card
 private struct ReminderCard: View {
     let event: EventItem
+    let displayDate: Date
     
     var eventColor: Color {
         switch event.type {
@@ -595,11 +642,11 @@ private struct ReminderCard: View {
         if event.allDay == true {
             // All-day event: show date only with "All Day"
             formatter.dateFormat = "MMM d"
-            return formatter.string(from: event.start) + ", All Day"
+            return formatter.string(from: displayDate) + ", All Day"
         } else {
             // Regular event: show date and time
             formatter.dateFormat = "MMM d, h:mm a"
-            return formatter.string(from: event.start)
+            return formatter.string(from: displayDate)
         }
     }
 }

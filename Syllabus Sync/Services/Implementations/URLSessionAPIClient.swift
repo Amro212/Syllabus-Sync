@@ -13,14 +13,14 @@ private extension URLSessionAPIClient {
     static let primaryDateFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withFullDate, .withFullTime, .withFractionalSeconds]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        // Don't set timeZone - let it parse the timezone from the string
         return formatter
     }()
 
     static let fallbackDateFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withFullDate, .withFullTime]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        // Don't set timeZone - let it parse the timezone from the string
         return formatter
     }()
 

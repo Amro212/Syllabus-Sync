@@ -243,6 +243,121 @@ struct RemindersView: View {
     }
 
     @ViewBuilder
+    private var newUserEmptyState: some View {
+        VStack(spacing: Layout.Spacing.lg) {
+            Spacer()
+            Image(systemName: "checklist")
+                .font(.system(size: 64))
+                .foregroundColor(AppColors.accent.opacity(0.8))
+            
+            Text("No reminders yet")
+                .font(.title2)
+                .fontWeight(.bold)
+                .foregroundColor(AppColors.textPrimary)
+            
+            Text("Import your syllabus to automatically generate reminders for assignments and exams.")
+                .font(.body)
+                .foregroundColor(AppColors.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, Layout.Spacing.xl)
+            
+            Button {
+                showingImportView = true
+            } label: {
+                Text("Import Syllabus")
+                    .fontWeight(.semibold)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(AppColors.accent)
+                    .foregroundColor(.white)
+                    .cornerRadius(Layout.CornerRadius.md)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+    
+    @ViewBuilder
+    private var filteredEmptyState: some View {
+        VStack(spacing: Layout.Spacing.lg) {
+            Spacer()
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 48))
+                .foregroundColor(AppColors.textSecondary.opacity(0.5))
+            
+            Text("No reminders found")
+                .font(.title3)
+                .fontWeight(.semibold)
+                .foregroundColor(AppColors.textSecondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+    
+    @ViewBuilder
+    private func reminderRow(for event: EventItem) -> some View {
+        ReminderCard(event: event, displayDate: effectiveDate(for: event))
+            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                Button(role: .destructive) {
+                    deleteEvent(event)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                
+                Button {
+                    editingEvent = event
+                } label: {
+                    Label("Edit", systemImage: "pencil")
+                }
+                .tint(.blue)
+            }
+            .swipeActions(edge: .leading) {
+                 // Future: Mark Complete logic
+            }
+    }
+    
+    @ViewBuilder
+    private var remindersList: some View {
+        List {
+            ForEach(groupedEvents, id: \.0) { section, events in
+                Section {
+                    ForEach(events) { event in
+                        reminderRow(for: event)
+                    }
+                } header: {
+                    Text(section.rawValue)
+                        .font(.system(.title2, design: .default, weight: .bold))
+                        .foregroundColor(AppColors.textPrimary)
+                        .textCase(nil)
+                        .padding(.leading, -4)
+                }
+                .listSectionSpacing(8)
+            }
+        }
+        .listStyle(.plain)
+        .refreshable {
+            await eventStore.refresh()
+        }
+        .padding(.bottom, 60)
+    }
+    
+    @ViewBuilder
+    private var listContent: some View {
+        if groupedEvents.isEmpty {
+            if !userSpecificHasAddedEvents && searchText.isEmpty && selectedFilter == .all && selectedCourse == nil {
+                newUserEmptyState
+            } else {
+				filteredEmptyState
+            }
+        } else {
+            remindersList
+        }
+    }
+    
+    @ViewBuilder
     private func toolbar(headerHeight: CGFloat) -> some View {
         VStack(spacing: Layout.Spacing.xs) {
             // Course Filter Bar + Toggle Button
@@ -303,7 +418,7 @@ struct RemindersView: View {
                         }
                     } label: {
                         Image(systemName: "arrow.up.arrow.down")
-                            .font(.lexend(size: 16, weight: .semibold))
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(AppColors.textPrimary)
                             .frame(width: 44, height: 44)
                             .background(AppColors.surface)
@@ -342,7 +457,7 @@ struct RemindersView: View {
             HapticFeedbackManager.shared.lightImpact()
         }) {
             Image(systemName: viewMode == .list ? "calendar" : "list.bullet")
-                .font(.lexend(size: 16, weight: .semibold))
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(viewMode == .calendar ? AppColors.accent : AppColors.textPrimary)
                 .frame(width: 44, height: 44)
                 .background(AppColors.surface)
@@ -360,114 +475,19 @@ struct RemindersView: View {
                     // List & Calendar Content
                     Group {
                         if viewMode == .list {
-                            if groupedEvents.isEmpty {
-                                if !userSpecificHasAddedEvents && searchText.isEmpty && selectedFilter == .all && selectedCourse == nil {
-                                    // "New User" Empty State
-                                    VStack(spacing: Layout.Spacing.lg) {
-                                        Spacer()
-                                        Image(systemName: "checklist")
-                                            .font(.lexend(size: 64, weight: .regular))
-                                            .foregroundColor(AppColors.accent.opacity(0.8))
-                                        
-                                        Text("No reminders yet")
-                                            .font(.title2)
-                                            .fontWeight(.bold)
-                                            .foregroundColor(AppColors.textPrimary)
-                                        
-                                        Text("Import your syllabus to automatically generate reminders for assignments and exams.")
-                                            .font(.body)
-                                            .foregroundColor(AppColors.textSecondary)
-                                            .multilineTextAlignment(.center)
-                                            .padding(.horizontal, Layout.Spacing.xl)
-                                        
-                                        Button {
-                                            showingImportView = true
-                                        } label: {
-                                            Text("Import Syllabus")
-                                                .fontWeight(.semibold)
-                                                .padding(.horizontal, 24)
-                                                .padding(.vertical, 12)
-                                                .background(AppColors.accent)
-                                                .foregroundColor(.white)
-                                                .cornerRadius(Layout.CornerRadius.md)
-                                        }
-                                        Spacer()
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    
-                                } else {
-                                    // "Filtered/Empty but Existing" State
-                                    VStack(spacing: Layout.Spacing.lg) {
-                                        Spacer()
-                                        Image(systemName: "magnifyingglass")
-                                            .font(.lexend(size: 48, weight: .regular))
-                                            .foregroundColor(AppColors.textSecondary.opacity(0.5))
-                                        
-                                        Text("No reminders found")
-                                            .font(.title3)
-                                            .fontWeight(.semibold)
-                                            .foregroundColor(AppColors.textSecondary)
-                                        Spacer()
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                }
-                            } else {
-                                List {
-                                    ForEach(groupedEvents, id: \.0) { section, events in
-                                        Section {
-                                            ForEach(events) { event in
-                                                ReminderCard(event: event)
-                                                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                                                    .listRowSeparator(.hidden)
-                                                    .listRowBackground(Color.clear)
-                                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                                        Button(role: .destructive) {
-                                                            deleteEvent(event)
-                                                        } label: {
-                                                            Label("Delete", systemImage: "trash")
-                                                        }
-                                                        
-                                                        Button {
-                                                            editingEvent = event
-                                                        } label: {
-                                                            Label("Edit", systemImage: "pencil")
-                                                        }
-                                                        .tint(.blue)
-                                                    }
-                                                    .swipeActions(edge: .leading) {
-                                                         // Future: Mark Complete logic
-                                                    }
-                                            }
-                                        } header: {
-                                            Text(section.rawValue)
-                                                .font(.lexend(.title2, weight: .bold))
-                                                .foregroundColor(AppColors.textPrimary)
-                                                .textCase(nil)
-                                                .padding(.leading, -4)
-                                        }
-                                        .listSectionSpacing(8)
-                                    }
-                                }
-                                .listStyle(.plain)
-                                .refreshable {
-                                    await eventStore.refresh()
-                                }
-                                .padding(.bottom, 60) // Space for tab bar
-                            }
+                            listContent
                         } else {
                             // Calendar View
                             CalendarView()
-
                                 .transition(.opacity)
                                 .environmentObject(navigationManager)
                                 .environmentObject(eventStore)
                                 .environmentObject(importViewModel)
                         }
                     }
-
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    toolbar(headerHeight: headerHeight)
-                }
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        toolbar(headerHeight: headerHeight)
+                    }
 
                      
                      // Sticky Header
@@ -582,7 +602,7 @@ private struct ReminderCard: View {
                     // Repeat Badge
                     if event.recurrenceRule != nil {
                         Image(systemName: "repeat")
-                            .font(.lexend(size: 12, weight: .medium))
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundColor(AppColors.accent)
                     }
                     
@@ -706,7 +726,7 @@ struct FilterTabButton: View {
         Button(action: action) {
             HStack(spacing: Layout.Spacing.xs) {
                 Image(systemName: filter.icon)
-                    .font(.lexend(size: 14, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                 
                 Text(filter.rawValue)
                     .font(.captionL)
@@ -749,7 +769,7 @@ struct CourseFilterButton: View {
         Button(action: action) {
             HStack(spacing: Layout.Spacing.xs) {
                 Image(systemName: "book.fill")
-                    .font(.lexend(size: 12, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                 
                 Text(title)
                     .font(.captionL)

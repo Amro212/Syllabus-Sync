@@ -106,7 +106,7 @@ struct EventEditView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button { cancelEdit() } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.lexend(size: 14, weight: .medium))
                             .foregroundColor(AppColors.textPrimary)
                             .frame(width: 32, height: 32)
                             .background(AppColors.surface)
@@ -183,7 +183,7 @@ struct EventEditView: View {
                                 }
                             } label: {
                                 Image(systemName: "chevron.down.circle.fill")
-                                    .font(.system(size: 20))
+                                    .font(.lexend(size: 20, weight: .regular))
                                     .foregroundColor(AppColors.accent)
                             }
                             .menuIndicator(.hidden)

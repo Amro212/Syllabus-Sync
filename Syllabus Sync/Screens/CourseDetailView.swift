@@ -145,7 +145,7 @@ struct CourseHeaderView: View {
                         dismiss()
                     } label: {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(.lexend(size: 18, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(width: 32, height: 32)
                             .background(Color.black.opacity(0.2))
@@ -159,7 +159,7 @@ struct CourseHeaderView: View {
                         HapticFeedbackManager.shared.lightImpact()
                     } label: {
                         Image(systemName: "ellipsis")
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(.lexend(size: 18, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(width: 32, height: 32)
                             .background(Color.black.opacity(0.2))
@@ -228,7 +228,7 @@ struct StatCard: View {
     var body: some View {
         VStack(spacing: Layout.Spacing.xs) {
             Image(systemName: icon)
-                .font(.system(size: 16, weight: .medium))
+                .font(.lexend(size: 16, weight: .medium))
                 .foregroundColor(.white.opacity(0.8))
             
             Text(value)
@@ -256,7 +256,7 @@ struct CourseTabButton: View {
         Button(action: action) {
             HStack(spacing: Layout.Spacing.xs) {
                 Image(systemName: tab.icon)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.lexend(size: 14, weight: .medium))
                 
                 Text(tab.rawValue)
                     .font(.captionL)
@@ -314,7 +314,7 @@ struct CourseEventCard: View {
                 HStack {
                     HStack(spacing: Layout.Spacing.xs) {
                         Image(systemName: event.type.icon)
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.lexend(size: 14, weight: .medium))
                             .foregroundColor(event.type.color)
                         
                         Text(event.type.rawValue)
@@ -351,7 +351,7 @@ struct CourseEventCard: View {
                 if let location = event.location {
                     HStack(spacing: Layout.Spacing.xs) {
                         Image(systemName: "location")
-                            .font(.system(size: 12))
+                            .font(.lexend(size: 12, weight: .regular))
                             .foregroundColor(AppColors.textTertiary)
                         
                         Text(location)
@@ -364,7 +364,7 @@ struct CourseEventCard: View {
                 if event.isCompleted {
                     HStack(spacing: Layout.Spacing.xs) {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 12))
+                            .font(.lexend(size: 12, weight: .regular))
                             .foregroundColor(.green)
                         
                         Text("Completed")
@@ -375,7 +375,7 @@ struct CourseEventCard: View {
                 } else if event.date < Date() {
                     HStack(spacing: Layout.Spacing.xs) {
                         Image(systemName: "exclamationmark.circle.fill")
-                            .font(.system(size: 12))
+                            .font(.lexend(size: 12, weight: .regular))
                             .foregroundColor(.orange)
                         
                         Text("Overdue")
@@ -511,7 +511,7 @@ struct ColorSelectionButton: View {
                         .frame(width: 40, height: 40)
                     
                     Image(systemName: "checkmark")
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.lexend(size: 16, weight: .bold))
                         .foregroundColor(.white)
                 }
             }

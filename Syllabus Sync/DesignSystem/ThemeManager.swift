@@ -171,7 +171,7 @@ private struct ThemeButton: View {
             action()
         }) {
             Image(systemName: theme.icon)
-                .font(.system(size: 20, weight: .medium))
+                .font(.lexend(size: 20, weight: .medium))
                 .foregroundColor(isSelected ? .white : AppColors.textSecondary)
                 .frame(width: 44, height: 44)
                 .background(
@@ -211,7 +211,7 @@ struct SimpleThemeToggle: View {
         }) {
             HStack(spacing: Layout.Spacing.sm) {
                 Image(systemName: isDark ? "moon.fill" : "sun.max.fill")
-                    .font(.system(size: 18, weight: .medium))
+                    .font(.lexend(size: 18, weight: .medium))
                     .foregroundColor(AppColors.accent)
                     .rotationEffect(.degrees(isDark ? 0 : 180))
                     .animation(.spring(response: 0.6, dampingFraction: 0.8), value: isDark)

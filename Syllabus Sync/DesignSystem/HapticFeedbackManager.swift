@@ -247,7 +247,7 @@ struct HapticPrimaryCTAButton: View {
                         .scaleEffect(0.8)
                 } else if let icon = icon {
                     Image(systemName: icon)
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.lexend(size: 16, weight: .medium))
                 }
                 
                 Text(title)
@@ -321,7 +321,7 @@ struct HapticSecondaryButton: View {
             HStack(spacing: Layout.Spacing.sm) {
                 if let icon = icon {
                     Image(systemName: icon)
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.lexend(size: 16, weight: .medium))
                 }
                 
                 Text(title)

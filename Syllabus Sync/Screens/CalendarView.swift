@@ -577,7 +577,7 @@ struct CalendarEmptyStateView: View {
     var body: some View {
         VStack(spacing: Layout.Spacing.md) {
             Image(systemName: "calendar")
-                .font(.system(size: 40))
+                .font(.lexend(size: 40, weight: .regular))
                 .foregroundColor(AppColors.textTertiary)
             
             Text("You're up to date!")
@@ -661,7 +661,7 @@ struct MotivationalMessageView: View {
     var body: some View {
         VStack(spacing: Layout.Spacing.sm) {
             Text("😊")
-                .font(.system(size: 32))
+                .font(.lexend(size: 32, weight: .regular))
             
             Text("More deadlines this week!")
                 .font(.lexend(size: 16, weight: .medium))

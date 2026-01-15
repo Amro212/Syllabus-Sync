@@ -88,7 +88,7 @@ struct AISyllabusScanModal: View {
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "doc.fill")
-                        .font(.system(size: 18, weight: .medium))
+                        .font(.lexend(size: 18, weight: .medium))
                     
                     Text("Upload Syllabus PDF")
                         .font(.body)
@@ -260,7 +260,7 @@ private struct AILoadingView: View {
                 
                 // Center AI icon
                 Image(systemName: "sparkles")
-                    .font(.system(size: 18, weight: .medium))
+                    .font(.lexend(size: 18, weight: .medium))
                     .foregroundColor(AppColors.accent)
                     .scaleEffect(pulseScale * 0.9)
                 
@@ -294,7 +294,7 @@ private struct AILoadingView: View {
             
             // Progress percentage
             Text("\(Int(progress * 100))%")
-                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .font(.lexend(size: 24, weight: .bold))
                 .foregroundColor(AppColors.accent)
             
             Spacer()

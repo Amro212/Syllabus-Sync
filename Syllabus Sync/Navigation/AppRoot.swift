@@ -413,7 +413,7 @@ private struct FABOption: View {
             HStack(spacing: Layout.Spacing.sm) {
                 // Icon
                 Image(systemName: icon)
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.lexend(size: 16, weight: .medium))
                     .foregroundColor(AppColors.textPrimary)
                     .frame(width: 20)
                 
@@ -447,7 +447,7 @@ struct CalendarPlaceholderView: View {
             VStack {
                 Spacer()
                 Text("📅")
-                    .font(.system(size: 80))
+                    .font(.lexend(size: 80, weight: .regular))
                 Text("Calendar View")
                     .font(.titleL)
                     .fontWeight(.bold)
@@ -471,7 +471,7 @@ struct RemindersPlaceholderView: View {
             VStack {
                 Spacer()
                 Text("🔔")
-                    .font(.system(size: 80))
+                    .font(.lexend(size: 80, weight: .regular))
                 Text("Reminders View")
                     .font(.titleL)
                     .fontWeight(.bold)
@@ -898,7 +898,7 @@ struct SettingsView: View {
                         Spacer()
                         
                         Image(systemName: "person.circle")
-                            .font(.system(size: 28))
+                            .font(.lexend(size: 28, weight: .regular))
                             .foregroundColor(AppColors.textPrimary)
                     }
                     .padding(.horizontal, Layout.Spacing.md)
@@ -1027,7 +1027,7 @@ struct SettingsSection<Content: View>: View {
         VStack(alignment: .leading, spacing: Layout.Spacing.lg) {
             HStack(spacing: Layout.Spacing.sm) {
                 Image(systemName: icon)
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.lexend(size: 16, weight: .medium))
                     .foregroundColor(AppColors.accent)
                 
                 Text(title)
@@ -1064,7 +1064,7 @@ struct SettingsRow<Accessory: View>: View {
     var body: some View {
         HStack(spacing: Layout.Spacing.md) {
             Image(systemName: icon)
-                .font(.system(size: 18, weight: .medium))
+                .font(.lexend(size: 18, weight: .medium))
                 .foregroundColor(AppColors.accent)
                 .frame(width: 24)
             
@@ -1129,7 +1129,7 @@ struct SettingsActionRow: View {
         Button(action: action) {
             HStack(spacing: Layout.Spacing.md) {
                 Image(systemName: icon)
-                    .font(.system(size: 18, weight: .medium))
+                    .font(.lexend(size: 18, weight: .medium))
                     .foregroundColor(isDestructive ? .red : AppColors.accent)
                     .frame(width: 24)
                 
@@ -1149,7 +1149,7 @@ struct SettingsActionRow: View {
                 Spacer()
                 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.lexend(size: 12, weight: .medium))
                     .foregroundColor(AppColors.textTertiary)
             }
         }

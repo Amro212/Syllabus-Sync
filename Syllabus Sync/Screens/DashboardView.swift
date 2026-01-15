@@ -71,7 +71,7 @@ struct DashboardView: View {
                         Spacer()
                         
                         Image(systemName: "person.circle")
-                            .font(.system(size: 28))
+                            .font(.lexend(size: 28, weight: .regular))
                             .foregroundColor(AppColors.textPrimary)
                     }
                     .padding(.horizontal, Layout.Spacing.md)
@@ -214,7 +214,7 @@ private struct WeekAtGlanceView: View {
                 // Empty State Card
                 VStack(spacing: Layout.Spacing.md) {
                     Image(systemName: isNewUser ? "text.book.closed.fill" : "checkmark.circle.fill")
-                        .font(.system(size: 48))
+                        .font(.lexend(size: 48, weight: .regular))
                         .foregroundColor(AppColors.accent.opacity(0.8))
                         .padding(.top, Layout.Spacing.lg)
                     
@@ -260,7 +260,7 @@ private struct GlanceStatCard: View {
         VStack(alignment: .leading, spacing: 0) {
             // Icon container at top-left
             Image(systemName: icon)
-                .font(.system(size: 22, weight: .medium))
+                .font(.lexend(size: 22, weight: .medium))
                 .foregroundColor(AppColors.accent)
                 .frame(width: 44, height: 44)
                 .background(
@@ -272,7 +272,7 @@ private struct GlanceStatCard: View {
             
             // Count and Label at bottom
             Text("\(count)")
-                .font(.system(size: 42, weight: .bold))
+                .font(.lexend(size: 42, weight: .bold))
                 .foregroundColor(AppColors.textPrimary)
             
             Text(label)
@@ -315,7 +315,7 @@ private struct UpcomingDeadlinesView: View {
             if upcomingEvents.isEmpty {
                 VStack(spacing: Layout.Spacing.md) {
                     Image(systemName: isNewUser ? "calendar.badge.plus" : "calendar.badge.checkmark")
-                        .font(.system(size: 40))
+                        .font(.lexend(size: 40, weight: .regular))
                         .foregroundColor(AppColors.textSecondary)
                         .padding(.top, Layout.Spacing.md)
                     
@@ -379,7 +379,7 @@ private struct DeadlineRow: View {
             HStack(spacing: Layout.Spacing.md) {
                 // Color-coded icon
                 Image(systemName: icon)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.lexend(size: 20, weight: .semibold))
                     .foregroundColor(iconColor)
                     .frame(width: 48, height: 48)
                     .background(
@@ -496,7 +496,7 @@ private struct QuickInsightCardView: View {
             HStack(alignment: .top, spacing: Layout.Spacing.md) {
                 // Dynamic icon
                 Image(systemName: insight.icon)
-                    .font(.system(size: 24))
+                    .font(.lexend(size: 24, weight: .regular))
                     .foregroundColor(.white)
                     .frame(width: 48, height: 48)
                     .background(
@@ -620,7 +620,7 @@ private struct StatPill: View {
     var body: some View {
         HStack(spacing: Layout.Spacing.xs) {
             Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.lexend(size: 12, weight: .semibold))
             Text("\(count) \(label)")
                 .font(.caption)
                 .fontWeight(.medium)
@@ -899,7 +899,7 @@ private struct HighlightCard: View {
             HStack(spacing: Layout.Spacing.md) {
                 // Icon
                 Image(systemName: icon)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.lexend(size: 20, weight: .semibold))
                     .foregroundColor(AppColors.accent)
                     .frame(width: 40, height: 40)
                     .background(
@@ -935,7 +935,7 @@ private struct HighlightCard: View {
                 
                 // Chevron
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.lexend(size: 14, weight: .semibold))
                     .foregroundColor(AppColors.textSecondary)
             }
             .padding(Layout.Spacing.md)
@@ -1020,7 +1020,7 @@ private struct InsightCard: View {
     var body: some View {
         HStack(spacing: Layout.Spacing.md) {
             Image(systemName: icon)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.lexend(size: 18, weight: .semibold))
                 .foregroundColor(accentColor)
                 .frame(width: 36, height: 36)
                 .background(

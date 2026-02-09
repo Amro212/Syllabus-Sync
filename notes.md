@@ -1,13 +1,16 @@
-# Personal App Notes
+# Todo List
 
-## Consider changing the dashboard layout, with more relevant tab bar buttons (e.g. calendar button, view syllabus button, etc.)
+## Urgent
+- [ ] 
 
-## Profile icon on the top right for easy access
+## UI/UX Improvements
+- [ ] 
 
-## Fix theme toggle (text is all squashed up)
+## Bug Fixes
+- [ ] 
 
-## Make sure the loading bar is actually loading, along with the icon
+## Feature Requests
+- [ ] 
 
-# URGENT CHANGES
-
-## AI is giving us back the wrong date (one day before the expected date)
+## Notes
+- 

@@ -383,16 +383,12 @@ struct RemindersView: View {
                         }
                         .padding(.horizontal, 4)
                     }
-                } else {
-                     Spacer()
                 }
-                
-                // Toggle Button (Visible in both modes)
-                toggleButton
             }
             
-            if viewMode == .list {
-                HStack(spacing: Layout.Spacing.xs) {
+            // Search, Sort, and Toggle Row (Toggle always visible, Search/Sort only in list mode)
+            HStack(spacing: Layout.Spacing.xs) {
+                if viewMode == .list {
                     // Search
                     HStack {
                         Image(systemName: "magnifyingglass").foregroundColor(AppColors.textSecondary)
@@ -424,9 +420,16 @@ struct RemindersView: View {
                             .background(AppColors.surface)
                             .cornerRadius(10)
                     }
+                } else {
+                    Spacer()
                 }
                 
-                // Filter Bar
+                // Calendar/List Toggle (always visible)
+                toggleButton
+            }
+            
+            // Filter Bar (only in list mode)
+            if viewMode == .list {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: Layout.Spacing.sm) {
                         ForEach(ReminderFilter.allCases, id: \.self) { filter in

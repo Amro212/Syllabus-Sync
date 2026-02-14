@@ -42,16 +42,14 @@ struct CalendarView: View {
     }
     
     var body: some View {
-        GeometryReader { geo in
-            let safeAreaTop = geo.safeAreaInsets.top
-            
+        GeometryReader { _ in
             ZStack(alignment: .top) {
                 // Background
                 AppColors.background.ignoresSafeArea()
                 
                 VStack(spacing: 0) {
                     // Header Section
-                    VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
+                    VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
                         // Month Title
                         Text(monthYearString)
                             .font(.lexend(.title2, weight: .bold)) // 28px in wireframe ~ title2/title
@@ -62,12 +60,12 @@ struct CalendarView: View {
                         CalendarViewModeToggle(selectedMode: $viewMode)
                     }
                     .padding(.horizontal, Layout.Spacing.md)
-                    .padding(.bottom, Layout.Spacing.md)
+                    .padding(.bottom, Layout.Spacing.sm)
                     .background(AppColors.background) // Sticky header background
                     
                     // Shared Scrollable Content (Grid + Events)
                     ScrollView {
-                        VStack(spacing: Layout.Spacing.lg) {
+                        VStack(spacing: Layout.Spacing.md) {
                             // Calendar Grid (Week or Month)
                             if viewMode == .week {
                                 WeekStripView(
@@ -109,7 +107,7 @@ struct CalendarView: View {
                             .padding(.horizontal, Layout.Spacing.md)
                             .padding(.bottom, 100)
                         }
-                        .padding(.top, Layout.Spacing.sm)
+                        .padding(.top, 4)
                     }
                 }
             }
@@ -234,7 +232,7 @@ struct MonthCalendarView: View {
     private let weekdaySymbols = ["S", "M", "T", "W", "T", "F", "S"]
     
     var body: some View {
-        VStack(spacing: Layout.Spacing.md) {
+        VStack(spacing: Layout.Spacing.xs) {
             // Weekday headers
             HStack(spacing: 0) {
                 ForEach(weekdaySymbols, id: \.self) { day in
@@ -246,23 +244,19 @@ struct MonthCalendarView: View {
             }
             
             // Calendar grid
-            LazyVGrid(columns: columns, spacing: Layout.Spacing.sm) {
+            LazyVGrid(columns: columns, spacing: 0) {
                 ForEach(daysInMonth, id: \.self) { date in
-                    if let date = date {
-                        DayCell(
-                            date: date,
-                            isSelected: calendar.isDate(date, inSameDayAs: selectedDate),
-                            isToday: calendar.isDateInToday(date),
-                            hasEvents: hasEvents(on: date),
-                            isCurrentMonth: calendar.isDate(date, equalTo: currentMonth, toGranularity: .month)
-                        ) {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedDate = date
-                            }
-                            HapticFeedbackManager.shared.lightImpact()
+                    DayCell(
+                        date: date,
+                        isSelected: calendar.isDate(date, inSameDayAs: selectedDate),
+                        isToday: calendar.isDateInToday(date),
+                        hasEvents: hasEvents(on: date),
+                        isCurrentMonth: calendar.isDate(date, equalTo: currentMonth, toGranularity: .month)
+                    ) {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            selectedDate = date
                         }
-                    } else {
-                        Color.clear.frame(height: 44)
+                        HapticFeedbackManager.shared.lightImpact()
                     }
                 }
             }
@@ -287,16 +281,17 @@ struct MonthCalendarView: View {
         }
     }
     
-    private var daysInMonth: [Date?] {
-        var days: [Date?] = []
+    private var daysInMonth: [Date] {
+        var days: [Date] = []
         guard let monthInterval = calendar.dateInterval(of: .month, for: currentMonth),
-              let firstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start) else { return days }
+              let firstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start),
+              let lastDayOfMonth = calendar.date(byAdding: .day, value: -1, to: monthInterval.end),
+              let lastWeek = calendar.dateInterval(of: .weekOfMonth, for: lastDayOfMonth) else { return days }
         
         var currentDate = firstWeek.start
-        
-        // Ensure we cover 6 weeks to be safe or just enough for the month
-        // Logic: 42 days grid usually covers all
-        for _ in 0..<42 {
+
+        // Render only the needed visible weeks for the active month.
+        while currentDate < lastWeek.end {
             days.append(currentDate)
             currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate)!
         }

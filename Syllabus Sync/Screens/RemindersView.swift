@@ -357,25 +357,82 @@ struct RemindersView: View {
         }
     }
     
+    private var sectionSpacing: CGFloat { Layout.Spacing.xs }
+    private var headerToToolbarSpacing: CGFloat { 8 }
+    private var toolbarToContentSpacing: CGFloat { 8 }
+    private var toolbarTopSpacing: CGFloat { viewMode == .list ? 10 : 8 }
+    private var toolbarBottomSpacing: CGFloat { viewMode == .list ? sectionSpacing : 4 }
+
     @ViewBuilder
-    private func toolbar(headerHeight: CGFloat) -> some View {
-        VStack(spacing: Layout.Spacing.xs) {
-            // Course Filter Bar + Toggle Button
-            HStack(spacing: Layout.Spacing.sm) {
-                if viewMode == .list && !eventStore.events.isEmpty {
+    private var toolbar: some View {
+        Group {
+            if viewMode == .list {
+                VStack(spacing: sectionSpacing) {
+                    if !eventStore.events.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: Layout.Spacing.sm) {
+                                CourseFilterButton(title: "All", isSelected: selectedCourse == nil) {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                        selectedCourse = nil
+                                    }
+                                    HapticFeedbackManager.shared.lightImpact()
+                                }
+
+                                ForEach(availableCourses, id: \.self) { course in
+                                    CourseFilterButton(title: course, isSelected: selectedCourse == course) {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                            selectedCourse = course
+                                        }
+                                        HapticFeedbackManager.shared.lightImpact()
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 4)
+                        }
+                    }
+
+                    HStack(spacing: Layout.Spacing.xs) {
+                        HStack {
+                            Image(systemName: "magnifyingglass").foregroundColor(AppColors.textSecondary)
+                            TextField("Search reminders...", text: $searchText).foregroundColor(AppColors.textPrimary)
+                            if !searchText.isEmpty {
+                                Button(action: { searchText = "" }) {
+                                    Image(systemName: "xmark.circle.fill").foregroundColor(AppColors.textSecondary)
+                                }
+                            }
+                        }
+                        .padding(10)
+                        .background(AppColors.surface)
+                        .cornerRadius(10)
+
+                        Menu {
+                            Picker("Sort By", selection: Binding(get: { sortOption }, set: { newValue in
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    sortOption = newValue
+                                }
+                            })) {
+                                Text("Date (Earliest)").tag(SortOption.dateAsc)
+                                Text("Date (Latest)").tag(SortOption.dateDesc)
+                                Text("Type").tag(SortOption.type)
+                            }
+                        } label: {
+                            Image(systemName: "arrow.up.arrow.down")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(AppColors.textPrimary)
+                                .frame(width: 44, height: 44)
+                                .background(AppColors.surface)
+                                .cornerRadius(10)
+                        }
+
+                    toggleButton
+                    }
+
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: Layout.Spacing.sm) {
-                            CourseFilterButton(title: "All", isSelected: selectedCourse == nil) {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                    selectedCourse = nil
-                                }
-                                HapticFeedbackManager.shared.lightImpact()
-                            }
-                            
-                            ForEach(availableCourses, id: \.self) { course in
-                                CourseFilterButton(title: course, isSelected: selectedCourse == course) {
+                            ForEach(ReminderFilter.allCases, id: \.self) { filter in
+                                FilterTabButton(filter: filter, isSelected: selectedFilter == filter) {
                                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                        selectedCourse = course
+                                        selectedFilter = filter
                                     }
                                     HapticFeedbackManager.shared.lightImpact()
                                 }
@@ -384,72 +441,34 @@ struct RemindersView: View {
                         .padding(.horizontal, 4)
                     }
                 }
-            }
-            
-            // Search, Sort, and Toggle Row (Toggle always visible, Search/Sort only in list mode)
-            HStack(spacing: Layout.Spacing.xs) {
-                if viewMode == .list {
-                    // Search
-                    HStack {
-                        Image(systemName: "magnifyingglass").foregroundColor(AppColors.textSecondary)
-                        TextField("Search reminders...", text: $searchText).foregroundColor(AppColors.textPrimary)
-                        if !searchText.isEmpty {
-                            Button(action: { searchText = "" }) {
-                                Image(systemName: "xmark.circle.fill").foregroundColor(AppColors.textSecondary)
-                            }
-                        }
-                    }
-                    .padding(10)
-                    .background(AppColors.surface)
-                    .cornerRadius(10)
-                    
-                    // Sort
-                    Menu {
-                        Picker("Sort By", selection: Binding(get: { sortOption }, set: { newValue in
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { sortOption = newValue }
-                        })) {
-                            Text("Date (Earliest)").tag(SortOption.dateAsc)
-                            Text("Date (Latest)").tag(SortOption.dateDesc)
-                            Text("Type").tag(SortOption.type)
-                        }
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(AppColors.textPrimary)
-                            .frame(width: 44, height: 44)
-                            .background(AppColors.surface)
-                            .cornerRadius(10)
-                    }
-                } else {
+            } else {
+                HStack {
                     Spacer()
+                    toggleButton
                 }
-                
-                // Calendar/List Toggle (always visible)
-                toggleButton
-            }
-            
-            // Filter Bar (only in list mode)
-            if viewMode == .list {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Layout.Spacing.sm) {
-                        ForEach(ReminderFilter.allCases, id: \.self) { filter in
-                            FilterTabButton(filter: filter, isSelected: selectedFilter == filter) {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                    selectedFilter = filter
-                                }
-                                HapticFeedbackManager.shared.lightImpact()
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 4)
-                }
+                .frame(height: 44)
             }
         }
         .padding(.horizontal, Layout.Spacing.md)
-        .padding(.top, headerHeight + 10)
-        .padding(.bottom, Layout.Spacing.md)
+        .padding(.top, toolbarTopSpacing)
+        .padding(.bottom, toolbarBottomSpacing)
         .background(AppColors.background)
         .transition(.opacity)
+    }
+
+    private func header(topInset: CGFloat) -> some View {
+        HStack {
+            Text("Reminders")
+                .font(.titleL)
+                .fontWeight(.bold)
+                .foregroundColor(AppColors.textPrimary)
+            Spacer()
+        }
+        .padding(.horizontal, Layout.Spacing.md)
+        .padding(.top, topInset)
+        .padding(.bottom, Layout.Spacing.sm)
+        .background(AppColors.background.opacity(0.95))
+        .overlay(alignment: .bottom) { Divider().opacity(0.5) }
     }
     
     private var toggleButton: some View {
@@ -470,17 +489,17 @@ struct RemindersView: View {
 
     var body: some View {
         NavigationView {
-             GeometryReader { geo in
-                 let headerHeight = geo.safeAreaInsets.top + 4
-                 let stickyHeaderHeight = headerHeight + 50
-                 
-                 ZStack(alignment: .top) {
-                    // List & Calendar Content
+            GeometryReader { geo in
+                VStack(spacing: 0) {
+                    header(topInset: geo.safeAreaInsets.top)
+                    Spacer().frame(height: headerToToolbarSpacing)
+                    toolbar
+                    Spacer().frame(height: toolbarToContentSpacing)
+
                     Group {
                         if viewMode == .list {
                             listContent
                         } else {
-                            // Calendar View
                             CalendarView()
                                 .transition(.opacity)
                                 .environmentObject(navigationManager)
@@ -488,35 +507,12 @@ struct RemindersView: View {
                                 .environmentObject(importViewModel)
                         }
                     }
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        toolbar(headerHeight: headerHeight)
-                    }
-
-                     
-                     // Sticky Header
-                     VStack(spacing: 0) {
-                         HStack {
-                             Text("Reminders")
-                                 .font(.titleL)
-                                 .fontWeight(.bold)
-                                 .foregroundColor(AppColors.textPrimary)
-                             Spacer()
-
-                         }
-                         .padding(.horizontal, Layout.Spacing.md)
-                         .padding(.bottom, Layout.Spacing.sm)
-                         .padding(.top, geo.safeAreaInsets.top)
-                         .background(AppColors.background.opacity(0.95))
-                         .overlay(alignment: .bottom) { Divider().opacity(0.5) }
-                         Spacer()
-                     }
-                     .frame(height: headerHeight + 50)
-                     .ignoresSafeArea(edges: .top)
-                     .zIndex(2)
-                 }
-                 .background(AppColors.background)
-             }
-             .navigationBarHidden(true)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                }
+                .background(AppColors.background)
+                .ignoresSafeArea(edges: .top)
+            }
+            .navigationBarHidden(true)
         }
         .navigationViewStyle(StackNavigationViewStyle())
         .sheet(isPresented: $showingImportView) {

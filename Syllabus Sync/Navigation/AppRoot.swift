@@ -244,6 +244,7 @@ struct TabNavigationView: View {
     
     @State private var showingImportSheet = false
     @State private var fabExpanded = false
+    @State private var showFabActions = false
     @State private var editingEvent: EventItem?
     @State private var isCreatingNewEvent = false
 
@@ -278,6 +279,7 @@ struct TabNavigationView: View {
                     .onTapGesture {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                             fabExpanded = false
+                            showFabActions = false
                         }
                     }
                     .transition(.opacity)
@@ -286,15 +288,19 @@ struct TabNavigationView: View {
             
             // FAB Menu Options (positioned above the tab bar)
             if fabExpanded {
-                VStack(spacing: 4) {
+                VStack(spacing: 2) {
                     // Add Reminder option
                     FABOption(
                         icon: "calendar.badge.plus",
                         label: "Add Reminder",
+                        emphasized: true,
+                        isVisible: showFabActions,
+                        rowDelay: 0.0,
                         action: {
                             HapticFeedbackManager.shared.mediumImpact()
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                                 fabExpanded = false
+                                showFabActions = false
                             }
                             // Small delay to allow menu closing animation to start
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -307,10 +313,14 @@ struct TabNavigationView: View {
                     FABOption(
                         icon: "sparkles",
                         label: "AI Syllabus Scan",
+                        emphasized: false,
+                        isVisible: showFabActions,
+                        rowDelay: 0.03,
                         action: {
                             HapticFeedbackManager.shared.mediumImpact()
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                                 fabExpanded = false
+                                showFabActions = false
                             }
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                 showingImportSheet = true
@@ -318,19 +328,20 @@ struct TabNavigationView: View {
                         }
                     )
                 }
-                .padding(8)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 6)
                 .background(
-                    RoundedRectangle(cornerRadius: Layout.CornerRadius.xl)
-                        .fill(AppColors.surface)
+                    RoundedRectangle(cornerRadius: Layout.CornerRadius.xl + 2)
+                        .fill(AppColors.surface.opacity(0.95))
                         .overlay(
-                            RoundedRectangle(cornerRadius: Layout.CornerRadius.xl)
-                                .stroke(AppColors.border.opacity(0.5), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: Layout.CornerRadius.xl + 2)
+                                .stroke(AppColors.border.opacity(0.42), lineWidth: 1)
                         )
-                        .shadow(color: AppColors.shadow.opacity(0.2), radius: 16, x: 0, y: 8)
+                        .shadow(color: AppColors.shadow.opacity(0.22), radius: 14, x: 0, y: 8)
                 )
                 .fixedSize()
-                .padding(.bottom, 100) // Lift above the tab bar (adjust as needed)
-                .transition(.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity).combined(with: .move(edge: .bottom)))
+                .padding(.bottom, 108)
+                .transition(.scale(scale: 0.92, anchor: .bottom).combined(with: .opacity).combined(with: .move(edge: .bottom)))
                 .zIndex(11) // Above backdrop
             }
             
@@ -338,8 +349,9 @@ struct TabNavigationView: View {
             CustomTabBar(onFabTapped: {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                     fabExpanded.toggle()
+                    showFabActions = fabExpanded
                 }
-            })
+            }, isFabExpanded: fabExpanded)
             .zIndex(12) // Topmost to ensure button clicks work
         }
         .ignoresSafeArea(.keyboard) 
@@ -369,6 +381,7 @@ struct TabNavigationView: View {
             HapticFeedbackManager.shared.selection()
             // Close FAB if tab changes
             fabExpanded = false
+            showFabActions = false
         }
     }
     
@@ -398,6 +411,9 @@ struct TabNavigationView: View {
 private struct FABOption: View {
     let icon: String
     let label: String
+    let emphasized: Bool
+    let isVisible: Bool
+    let rowDelay: Double
     let action: () -> Void
     
     @State private var isPressed = false
@@ -420,20 +436,23 @@ private struct FABOption: View {
                 // Label - single line, no wrapping
                 Text(label)
                     .font(.subheadline)
-                    .fontWeight(.medium)
+                    .fontWeight(emphasized ? .semibold : .medium)
                     .foregroundColor(AppColors.textPrimary)
                     .lineLimit(1)
                     .fixedSize()
             }
-            .padding(.horizontal, Layout.Spacing.md)
-            .padding(.vertical, 10)
+            .padding(.horizontal, Layout.Spacing.sm + 2)
+            .padding(.vertical, 9)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                    .fill(AppColors.surface)
+                    .fill(AppColors.surface.opacity(0.95))
             )
         }
         .scaleEffect(isPressed ? 0.95 : 1.0)
+        .opacity(isVisible ? 1 : 0)
+        .offset(y: isVisible ? 0 : 6)
+        .animation(.spring(response: 0.22, dampingFraction: 0.84).delay(rowDelay), value: isVisible)
         .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isPressed)
     }
 }

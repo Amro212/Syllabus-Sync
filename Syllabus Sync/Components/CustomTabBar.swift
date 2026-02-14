@@ -13,6 +13,7 @@ struct CustomTabBar: View {
     
     // Action handler for the center FAB
     var onFabTapped: () -> Void
+    var isFabExpanded: Bool = false
     
     var body: some View {
         HStack(spacing: 0) {
@@ -47,14 +48,23 @@ struct CustomTabBar: View {
                 ZStack {
                     Circle()
                         .fill(AppColors.accent)
-                        .shadow(color: AppColors.accent.opacity(0.4), radius: 8, x: 0, y: 4)
+                        .shadow(
+                            color: AppColors.accent.opacity(isFabExpanded ? 0.28 : 0.38),
+                            radius: isFabExpanded ? 6 : 10,
+                            x: 0,
+                            y: isFabExpanded ? 2 : 5
+                        )
                     
                     Image(systemName: "plus")
                         .font(.lexend(size: 32, weight: .light)) // Thin/Light weight matches the design better
                         .foregroundColor(.white)
+                        .rotationEffect(.degrees(isFabExpanded ? 45 : 0))
+                        .animation(.spring(response: 0.22, dampingFraction: 0.82), value: isFabExpanded)
                 }
                 .frame(width: 64, height: 64)
             }
+            .contentShape(Circle())
+            .accessibilityLabel(isFabExpanded ? "Close quick actions" : "Open quick actions")
             .offset(y: -24) // Lift it up slightly to break the bar boundary
             .frame(maxWidth: .infinity)
             

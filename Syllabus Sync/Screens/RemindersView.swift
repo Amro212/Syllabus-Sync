@@ -18,7 +18,7 @@ struct RemindersView: View {
     @State private var showingImportView = false
     @State private var editingEvent: EventItem?
     @State private var showingSocialHub = false
-    @State private var showingProfile = false
+    @State private var showingAdminDebug = false
     
     // Filtering & Sorting
     @State private var searchText = ""
@@ -479,11 +479,11 @@ struct RemindersView: View {
 
                 Button {
                     HapticFeedbackManager.shared.lightImpact()
-                    showingProfile = true
+                    showingAdminDebug = true
                 } label: {
-                    Image(systemName: "person.circle")
-                        .font(.lexend(size: 28, weight: .regular))
-                        .foregroundColor(AppColors.textPrimary)
+                    Image(systemName: "wrench.and.screwdriver.fill")
+                        .font(.lexend(size: 22, weight: .regular))
+                        .foregroundColor(.orange)
                 }
             }
         }
@@ -564,10 +564,10 @@ struct RemindersView: View {
                 .presentationCornerRadius(20)
                 .presentationBackground(.ultraThinMaterial)
         }
-        .sheet(isPresented: $showingProfile) {
-            ProfileView()
+        .sheet(isPresented: $showingAdminDebug) {
+            AdminDebugView()
                 .environmentObject(eventStore)
-                .environmentObject(themeManager)
+                .environmentObject(navigationManager)
                 .presentationDetents([.fraction(0.93)])
                 .presentationDragIndicator(.hidden)
                 .presentationCornerRadius(20)

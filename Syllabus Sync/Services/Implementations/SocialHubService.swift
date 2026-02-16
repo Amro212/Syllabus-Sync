@@ -409,7 +409,10 @@ final class SocialHubService {
 
     /// Fetch a friend's events (read-only). Only works for accepted friends.
     func fetchFriendEvents(friendUserId: String) async -> [EventItem] {
-        guard currentUserId != nil else { return [] }
+        guard currentUserId != nil else {
+            print("⚠️ Not authenticated")
+            return []
+        }
 
         // Verify friendship exists
         let friendIds = await fetchFriendUserIds()
@@ -418,6 +421,41 @@ final class SocialHubService {
             return []
         }
 
+        // Check friend's schedule visibility setting
+        do {
+            struct UserVisibility: Codable {
+                let scheduleVisibility: String?
+
+                enum CodingKeys: String, CodingKey {
+                    case scheduleVisibility = "schedule_visibility"
+                }
+            }
+
+            let visibilityRows: [UserVisibility] = try await supabase
+                .from("users")
+                .select("schedule_visibility")
+                .eq("id", value: friendUserId)
+                .limit(1)
+                .execute()
+                .value
+
+            if let visibility = visibilityRows.first?.scheduleVisibility {
+                // If friend has set their schedule to private, don't show it
+                if visibility == "private" {
+                    print("⚠️ Friend has set schedule to private")
+                    return []
+                }
+                print("✅ Friend's schedule visibility: \(visibility), fetching events...")
+            } else {
+                print("⚠️ Could not fetch friend's schedule visibility setting, defaulting to friends_only")
+            }
+
+        } catch {
+            print("⚠️ Failed to check schedule visibility: \(error)")
+            // Continue anyway - if we can't check, assume friends_only
+        }
+
+        // Fetch friend's events
         do {
             let rows: [SupabaseEvent] = try await supabase
                 .from("events")
@@ -427,9 +465,11 @@ final class SocialHubService {
                 .execute()
                 .value
 
+            print("✅ Fetched \(rows.count) events for friend \(friendUserId)")
             return rows.map { $0.toDomain() }
         } catch {
             print("⚠️ Fetch friend events failed: \(error)")
+            print("   Error details: \(error.localizedDescription)")
             return []
         }
     }

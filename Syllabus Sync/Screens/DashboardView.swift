@@ -11,12 +11,14 @@ struct DashboardView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
     @EnvironmentObject var eventStore: EventStore
     @EnvironmentObject var importViewModel: ImportViewModel
+    @EnvironmentObject var themeManager: ThemeManager
     @StateObject private var errorHandler = ErrorHandler()
     @State private var isRefreshing = false
     @State private var showShimmer = false
     @State private var buttonScale: CGFloat = 1.0
     @State private var showingImportView = false
     @State private var showingSocialHub = false
+    @State private var showingProfile = false
     
     // Track if the user has ever added events to distinguish "New User" from "Caught Up"
     // We scope this to the specific user ID to prevent state leaking between accounts
@@ -81,9 +83,14 @@ struct DashboardView: View {
                                     .foregroundColor(AppColors.textPrimary)
                             }
 
-                            Image(systemName: "person.circle")
-                                .font(.lexend(size: 28, weight: .regular))
-                                .foregroundColor(AppColors.textPrimary)
+                            Button {
+                                HapticFeedbackManager.shared.lightImpact()
+                                showingProfile = true
+                            } label: {
+                                Image(systemName: "person.circle")
+                                    .font(.lexend(size: 28, weight: .regular))
+                                    .foregroundColor(AppColors.textPrimary)
+                            }
                         }
                     }
                     .padding(.horizontal, Layout.Spacing.md)
@@ -128,6 +135,15 @@ struct DashboardView: View {
         }
         .sheet(isPresented: $showingSocialHub) {
             SocialHubView()
+                .presentationDetents([.fraction(0.93)])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(20)
+                .presentationBackground(.ultraThinMaterial)
+        }
+        .sheet(isPresented: $showingProfile) {
+            ProfileView()
+                .environmentObject(eventStore)
+                .environmentObject(themeManager)
                 .presentationDetents([.fraction(0.93)])
                 .presentationDragIndicator(.hidden)
                 .presentationCornerRadius(20)

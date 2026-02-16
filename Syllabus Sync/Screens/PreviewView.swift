@@ -9,9 +9,11 @@ import UIKit
 struct PreviewView: View {
     @EnvironmentObject var importViewModel: ImportViewModel
     @EnvironmentObject var eventStore: EventStore
+    @EnvironmentObject var themeManager: ThemeManager
     @State private var selectedTab: PreviewTab = .events
     @State private var editingEvent: EventItem?
     @State private var showingSocialHub = false
+    @State private var showingProfile = false
 
     private var events: [EventItem] {
         let parsed = importViewModel.events
@@ -101,9 +103,14 @@ struct PreviewView: View {
                                     .foregroundColor(AppColors.textPrimary)
                             }
 
-                            Image(systemName: "person.circle")
-                                .font(.lexend(size: 28, weight: .regular))
-                                .foregroundColor(AppColors.textPrimary)
+                            Button {
+                                HapticFeedbackManager.shared.lightImpact()
+                                showingProfile = true
+                            } label: {
+                                Image(systemName: "person.circle")
+                                    .font(.lexend(size: 28, weight: .regular))
+                                    .foregroundColor(AppColors.textPrimary)
+                            }
                         }
                     }
                     .padding(.horizontal, Layout.Spacing.md)
@@ -134,6 +141,15 @@ struct PreviewView: View {
         }
         .sheet(isPresented: $showingSocialHub) {
             SocialHubView()
+                .presentationDetents([.fraction(0.93)])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(20)
+                .presentationBackground(.ultraThinMaterial)
+        }
+        .sheet(isPresented: $showingProfile) {
+            ProfileView()
+                .environmentObject(eventStore)
+                .environmentObject(themeManager)
                 .presentationDetents([.fraction(0.93)])
                 .presentationDragIndicator(.hidden)
                 .presentationCornerRadius(20)

@@ -3,7 +3,8 @@
 //  Syllabus Sync
 //
 //  Read-only schedule viewer for a selected friend.
-//  Shows events grouped by day, with week/month toggle.
+//  Reuses the same calendar components (DayCell, MonthCalendarView,
+//  WeekStripView, CalendarViewModeToggle) for visual consistency.
 //
 
 import SwiftUI
@@ -14,6 +15,13 @@ struct FriendScheduleView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedDate: Date = Date()
+    @State private var currentMonth: Date = Date()
+    @State private var viewMode: CalendarViewMode = .week
+
+    /// Wrap friend events into CalendarEvent so we can share the same calendar components.
+    private var calendarEvents: [CalendarEvent] {
+        CalendarEvent.make(from: viewModel.friendEvents)
+    }
 
     private var eventsForSelectedDate: [EventItem] {
         viewModel.friendEvents
@@ -24,7 +32,7 @@ struct FriendScheduleView: View {
     private var monthYearString: String {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMMM yyyy"
-        return formatter.string(from: selectedDate)
+        return formatter.string(from: currentMonth)
     }
 
     var body: some View {
@@ -44,6 +52,9 @@ struct FriendScheduleView: View {
                     scheduleContent
                 }
             }
+        }
+        .onAppear {
+            currentMonth = selectedDate
         }
     }
 
@@ -83,115 +94,67 @@ struct FriendScheduleView: View {
 
     private var scheduleContent: some View {
         VStack(spacing: 0) {
-            // Month/Year label
-            Text(monthYearString)
-                .font(.lexend(size: 16, weight: .semibold))
-                .foregroundColor(AppColors.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, Layout.Spacing.lg)
-                .padding(.top, Layout.Spacing.md)
+            // Month title + View mode toggle (same as CalendarView)
+            VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
+                Text(monthYearString)
+                    .font(.lexend(.title2, weight: .bold))
+                    .foregroundColor(AppColors.textPrimary)
+                    .padding(.leading, Layout.Spacing.sm)
 
-            // Date strip
-            dateStrip
-                .padding(.top, Layout.Spacing.sm)
+                CalendarViewModeToggle(selectedMode: $viewMode)
+            }
+            .padding(.horizontal, Layout.Spacing.md)
+            .padding(.top, Layout.Spacing.md)
+            .padding(.bottom, Layout.Spacing.sm)
 
-            Divider()
-                .overlay(AppColors.surfaceSecondary)
-                .padding(.horizontal, Layout.Spacing.lg)
-                .padding(.top, Layout.Spacing.sm)
-
-            // Events list
+            // Calendar Grid (reuse same components)
             ScrollView {
-                if eventsForSelectedDate.isEmpty {
-                    VStack(spacing: Layout.Spacing.md) {
-                        Image(systemName: "calendar")
-                            .font(.lexend(size: 28, weight: .regular))
-                            .foregroundColor(AppColors.textTertiary)
-
-                        Text("No events on this day")
-                            .font(.lexend(size: 14, weight: .medium))
-                            .foregroundColor(AppColors.textSecondary)
+                VStack(spacing: Layout.Spacing.md) {
+                    if viewMode == .week {
+                        WeekStripView(
+                            selectedDate: $selectedDate,
+                            currentMonth: $currentMonth,
+                            events: calendarEvents
+                        )
+                    } else {
+                        MonthCalendarView(
+                            currentMonth: $currentMonth,
+                            selectedDate: $selectedDate,
+                            events: calendarEvents
+                        )
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, Layout.Spacing.xxl)
-                } else {
-                    LazyVStack(spacing: Layout.Spacing.sm) {
-                        ForEach(eventsForSelectedDate) { event in
-                            friendEventCard(event)
+
+                    // Separator
+                    Divider()
+                        .overlay(AppColors.surfaceSecondary)
+                        .padding(.horizontal, Layout.Spacing.lg)
+
+                    // Events list
+                    VStack(spacing: Layout.Spacing.md) {
+                        if eventsForSelectedDate.isEmpty {
+                            VStack(spacing: Layout.Spacing.md) {
+                                Image(systemName: "calendar")
+                                    .font(.lexend(size: 28, weight: .regular))
+                                    .foregroundColor(AppColors.textTertiary)
+
+                                Text("No events on this day")
+                                    .font(.lexend(size: 14, weight: .medium))
+                                    .foregroundColor(AppColors.textSecondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, Layout.Spacing.xl)
+                        } else {
+                            ForEach(eventsForSelectedDate) { event in
+                                friendEventCard(event)
+                            }
                         }
                     }
-                    .padding(.horizontal, Layout.Spacing.lg)
-                    .padding(.top, Layout.Spacing.md)
+                    .padding(.horizontal, Layout.Spacing.md)
+                    .padding(.bottom, 100)
                 }
-
-                Spacer(minLength: Layout.Spacing.massive)
+                .padding(.top, 4)
             }
         }
-    }
-
-    // MARK: - Month Calendar Grid
-
-    private var dateStrip: some View {
-        let days = daysForMonth()
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
-
-        return LazyVGrid(columns: columns, spacing: 8) {
-            ForEach(days, id: \.self) { day in
-                dayCell(day)
-            }
-        }
-        .padding(.horizontal, Layout.Spacing.lg)
-    }
-
-    private func dayCell(_ date: Date) -> some View {
-        let isSelected = Calendar.current.isDate(date, inSameDayAs: selectedDate)
-        let isToday = Calendar.current.isDateInToday(date)
-        let hasEvents = viewModel.friendEvents.contains { Calendar.current.isDate($0.start, inSameDayAs: date) }
-
-        let dayNumber: String = {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "d"
-            return formatter.string(from: date)
-        }()
-
-        return Button {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                selectedDate = date
-            }
-            HapticFeedbackManager.shared.lightImpact()
-        } label: {
-            VStack(spacing: 4) {
-                Text(dayNumber)
-                    .font(.lexend(size: 14, weight: isSelected ? .bold : .medium))
-                    .foregroundColor(isSelected ? .white : isToday ? AppColors.accent : AppColors.textPrimary)
-
-                Circle()
-                    .fill(hasEvents ? AppColors.accent : Color.clear)
-                    .frame(width: 4, height: 4)
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 50)
-            .background(
-                RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
-                    .fill(isSelected
-                        ? LinearGradient(
-                            colors: [
-                                Color(red: 0.886, green: 0.714, blue: 0.275),
-                                Color(red: 0.816, green: 0.612, blue: 0.118)
-                            ],
-                            startPoint: .top, endPoint: .bottom)
-                        : LinearGradient(colors: [Color.clear], startPoint: .top, endPoint: .bottom))
-            )
-        }
-    }
-
-    private func daysForMonth() -> [Date] {
-        let calendar = Calendar.current
-        guard let range = calendar.range(of: .day, in: .month, for: selectedDate),
-              let firstOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: selectedDate)) else {
-            return []
-        }
-        return range.compactMap { calendar.date(byAdding: .day, value: $0 - 1, to: firstOfMonth) }
     }
 
     // MARK: - Event Card

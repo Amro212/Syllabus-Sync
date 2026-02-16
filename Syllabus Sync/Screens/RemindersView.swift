@@ -11,12 +11,14 @@ struct RemindersView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
     @EnvironmentObject var eventStore: EventStore
     @EnvironmentObject var importViewModel: ImportViewModel
-    
+    @EnvironmentObject var themeManager: ThemeManager
+
     // UI State
     @State private var isRefreshing = false
     @State private var showingImportView = false
     @State private var editingEvent: EventItem?
     @State private var showingSocialHub = false
+    @State private var showingProfile = false
     
     // Filtering & Sorting
     @State private var searchText = ""
@@ -475,9 +477,14 @@ struct RemindersView: View {
                         .foregroundColor(AppColors.textPrimary)
                 }
 
-                Image(systemName: "person.circle")
-                    .font(.lexend(size: 28, weight: .regular))
-                    .foregroundColor(AppColors.textPrimary)
+                Button {
+                    HapticFeedbackManager.shared.lightImpact()
+                    showingProfile = true
+                } label: {
+                    Image(systemName: "person.circle")
+                        .font(.lexend(size: 28, weight: .regular))
+                        .foregroundColor(AppColors.textPrimary)
+                }
             }
         }
         .padding(.horizontal, Layout.Spacing.md)
@@ -552,6 +559,15 @@ struct RemindersView: View {
         }
         .sheet(isPresented: $showingSocialHub) {
             SocialHubView()
+                .presentationDetents([.fraction(0.93)])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(20)
+                .presentationBackground(.ultraThinMaterial)
+        }
+        .sheet(isPresented: $showingProfile) {
+            ProfileView()
+                .environmentObject(eventStore)
+                .environmentObject(themeManager)
                 .presentationDetents([.fraction(0.93)])
                 .presentationDragIndicator(.hidden)
                 .presentationCornerRadius(20)

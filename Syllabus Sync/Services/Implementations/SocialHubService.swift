@@ -433,4 +433,248 @@ final class SocialHubService {
             return []
         }
     }
+
+    // MARK: - Profile Management
+
+    /// Update user's display name in users table
+    func updateDisplayName(_ displayName: String?) async -> String? {
+        guard let uid = currentUserId else { return "Not authenticated" }
+
+        do {
+            try await supabase
+                .from("users")
+                .update([
+                    "display_name": displayName ?? "",
+                    "updated_at": ISO8601DateFormatter().string(from: Date())
+                ])
+                .eq("id", value: uid)
+                .execute()
+
+            print("✅ Display name updated")
+            return nil
+        } catch {
+            print("⚠️ Update display name failed: \(error)")
+            return "Failed to update display name"
+        }
+    }
+
+    /// Update user's bio in users table
+    func updateBio(_ bio: String?) async -> String? {
+        guard let uid = currentUserId else { return "Not authenticated" }
+
+        do {
+            try await supabase
+                .from("users")
+                .update([
+                    "bio": bio ?? "",
+                    "updated_at": ISO8601DateFormatter().string(from: Date())
+                ])
+                .eq("id", value: uid)
+                .execute()
+
+            print("✅ Bio updated")
+            return nil
+        } catch {
+            print("⚠️ Update bio failed: \(error)")
+            return "Failed to update bio"
+        }
+    }
+
+    /// Update schedule visibility preference
+    func updateScheduleVisibility(_ visibility: ScheduleVisibility) async -> String? {
+        guard let uid = currentUserId else { return "Not authenticated" }
+
+        do {
+            try await supabase
+                .from("users")
+                .update([
+                    "schedule_visibility": visibility.rawValue,
+                    "updated_at": ISO8601DateFormatter().string(from: Date())
+                ])
+                .eq("id", value: uid)
+                .execute()
+
+            print("✅ Schedule visibility updated to \(visibility.rawValue)")
+            return nil
+        } catch {
+            print("⚠️ Update visibility failed: \(error)")
+            return "Failed to update schedule visibility"
+        }
+    }
+
+    // MARK: - Blocking
+
+    /// Block a user
+    func blockUser(_ userId: String) async -> String? {
+        guard let uid = currentUserId else { return "Not authenticated" }
+
+        // Cannot block yourself
+        if userId == uid { return "You cannot block yourself" }
+
+        do {
+            // Check if already blocked
+            let existing: [BlockRow] = try await supabase
+                .from("blocked_users")
+                .select()
+                .eq("blocker_id", value: uid)
+                .eq("blocked_id", value: userId)
+                .execute()
+                .value
+
+            if !existing.isEmpty {
+                return "User is already blocked"
+            }
+
+            // Insert block record
+            let insert = BlockInsert(
+                id: UUID().uuidString,
+                blockerId: uid,
+                blockedId: userId
+            )
+            try await supabase
+                .from("blocked_users")
+                .insert(insert)
+                .execute()
+
+            // Remove friendship if exists
+            try await supabase
+                .from("friends")
+                .delete()
+                .or("and(user_a_id.eq.\(uid),user_b_id.eq.\(userId)),and(user_a_id.eq.\(userId),user_b_id.eq.\(uid))")
+                .execute()
+
+            print("✅ User blocked")
+            return nil
+        } catch {
+            print("⚠️ Block user failed: \(error)")
+            return "Failed to block user"
+        }
+    }
+
+    /// Unblock a user
+    func unblockUser(_ userId: String) async -> String? {
+        guard let uid = currentUserId else { return "Not authenticated" }
+
+        do {
+            try await supabase
+                .from("blocked_users")
+                .delete()
+                .eq("blocker_id", value: uid)
+                .eq("blocked_id", value: userId)
+                .execute()
+
+            print("✅ User unblocked")
+            return nil
+        } catch {
+            print("⚠️ Unblock user failed: \(error)")
+            return "Failed to unblock user"
+        }
+    }
+
+    /// Fetch blocked users
+    func fetchBlockedUsers() async -> [BlockedUser] {
+        guard let uid = currentUserId else { return [] }
+
+        do {
+            let blocks: [BlockRow] = try await supabase
+                .from("blocked_users")
+                .select("id, blocked_id, created_at")
+                .eq("blocker_id", value: uid)
+                .order("created_at", ascending: false)
+                .execute()
+                .value
+
+            if blocks.isEmpty { return [] }
+
+            // Fetch user profiles for blocked users
+            let blockedIds = blocks.map(\.blockedId)
+            let profiles: [UserProfile] = try await supabase
+                .from("users")
+                .select("id, username, updated_at")
+                .in("id", values: blockedIds)
+                .execute()
+                .value
+
+            let profileMap = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
+
+            return blocks.compactMap { block in
+                guard let profile = profileMap[block.blockedId],
+                      let username = profile.username,
+                      let date = ISO8601DateFormatter().date(from: block.createdAt) else {
+                    return nil
+                }
+                return BlockedUser(
+                    id: block.id,
+                    userId: block.blockedId,
+                    username: username,
+                    blockedAt: date
+                )
+            }
+        } catch {
+            print("⚠️ Fetch blocked users failed: \(error)")
+            return []
+        }
+    }
+
+    // MARK: - Friend Management
+
+    /// Remove a friend
+    func removeFriend(friendshipId: String) async -> String? {
+        guard currentUserId != nil else { return "Not authenticated" }
+
+        do {
+            try await supabase
+                .from("friends")
+                .delete()
+                .eq("id", value: friendshipId)
+                .execute()
+
+            print("✅ Friend removed")
+            return nil
+        } catch {
+            print("⚠️ Remove friend failed: \(error)")
+            return "Failed to remove friend"
+        }
+    }
+
+    // MARK: - Preferences
+
+    /// Fetch user preferences
+    func fetchUserPreferences() async -> UserPreferences? {
+        guard let uid = currentUserId else { return nil }
+
+        do {
+            let prefs: [UserPreferences] = try await supabase
+                .from("user_preferences")
+                .select()
+                .eq("user_id", value: uid)
+                .limit(1)
+                .execute()
+                .value
+
+ return prefs.first
+        } catch {
+            print("⚠️ Fetch user preferences failed: \(error)")
+            return nil
+        }
+    }
+
+    /// Update user preferences
+    func updateUserPreferences(_ prefs: UserPreferences) async -> String? {
+        guard let uid = currentUserId else { return "Not authenticated" }
+
+        do {
+            // Upsert preferences - use the UserPreferences struct directly
+            try await supabase
+                .from("user_preferences")
+                .upsert(prefs)
+                .execute()
+
+            print("✅ User preferences updated")
+            return nil
+        } catch {
+            print("⚠️ Update user preferences failed: \(error)")
+            return "Failed to update preferences"
+        }
+    }
 }

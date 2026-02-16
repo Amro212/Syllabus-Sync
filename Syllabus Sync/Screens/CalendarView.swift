@@ -25,6 +25,7 @@ struct CalendarView: View {
     @State private var selectedDate: Date = Date()
     @State private var currentMonth: Date = Date()
     @State private var viewMode: CalendarViewMode = .week // Default to week as shown in wireframe
+    @State private var showingSocialHub = false
     
     private var events: [CalendarEvent] {
         CalendarEvent.make(from: eventStore.events)
@@ -48,6 +49,34 @@ struct CalendarView: View {
                 AppColors.background.ignoresSafeArea()
                 
                 VStack(spacing: 0) {
+                    // Title with Profile and Social Hub buttons
+                    HStack {
+                        Text("Calendar")
+                            .font(.titleL)
+                            .fontWeight(.bold)
+                            .foregroundColor(AppColors.textPrimary)
+                        Spacer()
+
+                        HStack(spacing: Layout.Spacing.md) {
+                            Button {
+                                HapticFeedbackManager.shared.lightImpact()
+                                showingSocialHub = true
+                            } label: {
+                                Image(systemName: "person.2.fill")
+                                    .font(.lexend(size: 22, weight: .regular))
+                                    .foregroundColor(AppColors.textPrimary)
+                            }
+
+                            Image(systemName: "person.circle")
+                                .font(.lexend(size: 28, weight: .regular))
+                                .foregroundColor(AppColors.textPrimary)
+                        }
+                    }
+                    .padding(.horizontal, Layout.Spacing.md)
+                    .padding(.top, Layout.Spacing.md)
+                    .padding(.bottom, Layout.Spacing.sm)
+                    .background(AppColors.background.opacity(0.95))
+
                     // Header Section
                     VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
                         // Month Title
@@ -114,6 +143,13 @@ struct CalendarView: View {
         }
         .onAppear {
             currentMonth = selectedDate
+        }
+        .sheet(isPresented: $showingSocialHub) {
+            SocialHubView()
+                .presentationDetents([.fraction(0.93)])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(20)
+                .presentationBackground(.ultraThinMaterial)
         }
     }
 }

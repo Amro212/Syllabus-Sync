@@ -79,9 +79,16 @@ class SupabaseAuthService: NSObject, AuthService {
             )
             
             self.currentUser = user
-            
+
+            // Auto-generate username for OAuth users if they don't have one
+            let existingUsername = await fetchUsername(userId: session.user.id.uuidString)
+            if existingUsername == nil || existingUsername?.isEmpty == true {
+                let generated = generateUsername(from: user.displayName, email: user.email)
+                await storeUsernameInDatabase(userId: session.user.id.uuidString, username: generated)
+            }
+
             return .success(user: user)
-            
+
         } catch {
             print("🔴 Google Sign-In Error: \(error)")
             
@@ -280,24 +287,62 @@ class SupabaseAuthService: NSObject, AuthService {
         }
     }
     
-    /// Store username in profiles table for uniqueness and querying
-    private func storeUsernameInDatabase(userId: String, username: String) async {
+    /// Store username in users table for uniqueness and querying
+    func storeUsernameInDatabase(userId: String, username: String) async {
         do {
-            // Insert or update username in profiles table
             try await supabase
-                .from("profiles")
+                .from("users")
                 .upsert([
                     "id": userId,
                     "username": username,
                     "updated_at": ISO8601DateFormatter().string(from: Date())
                 ])
                 .execute()
-            
             print("✅ Username '\(username)' stored in database")
         } catch {
             print("⚠️ Failed to store username in database: \(error)")
-            // Don't fail auth if database storage fails - username is in metadata
         }
+    }
+
+    /// Fetch the current user's username from the users table
+    func fetchUsername(userId: String) async -> String? {
+        do {
+            struct UserRow: Decodable {
+                let username: String?
+            }
+            let rows: [UserRow] = try await supabase
+                .from("users")
+                .select("username")
+                .eq("id", value: userId)
+                .limit(1)
+                .execute()
+                .value
+            return rows.first?.username
+        } catch {
+            print("⚠️ Failed to fetch username: \(error)")
+            return nil
+        }
+    }
+
+    /// Generate a unique username from display name or email
+    func generateUsername(from displayName: String?, email: String?) -> String {
+        let base: String
+        if let name = displayName, !name.isEmpty {
+            base = name
+                .lowercased()
+                .components(separatedBy: .whitespaces)
+                .joined()
+                .filter { $0.isLetter || $0.isNumber || $0 == "_" }
+        } else if let email = email, let local = email.split(separator: "@").first {
+            base = String(local)
+                .lowercased()
+                .filter { $0.isLetter || $0.isNumber || $0 == "_" }
+        } else {
+            base = "user"
+        }
+        let trimmed = String(base.prefix(14))
+        let suffix = String(Int.random(in: 100...9999))
+        return "\(trimmed)_\(suffix)"
     }
     
     // MARK: - Sign Out

@@ -11,6 +11,7 @@ struct PreviewView: View {
     @EnvironmentObject var eventStore: EventStore
     @State private var selectedTab: PreviewTab = .events
     @State private var editingEvent: EventItem?
+    @State private var showingSocialHub = false
 
     private var events: [EventItem] {
         let parsed = importViewModel.events
@@ -87,12 +88,23 @@ struct PreviewView: View {
                             .font(.titleL)
                             .fontWeight(.bold)
                             .foregroundColor(AppColors.textPrimary)
-                        
+
                         Spacer()
-                        
-                        Image(systemName: "person.circle")
-                            .font(.lexend(size: 28, weight: .regular))
-                            .foregroundColor(AppColors.textPrimary)
+
+                        HStack(spacing: Layout.Spacing.md) {
+                            Button {
+                                HapticFeedbackManager.shared.lightImpact()
+                                showingSocialHub = true
+                            } label: {
+                                Image(systemName: "person.2.fill")
+                                    .font(.lexend(size: 22, weight: .regular))
+                                    .foregroundColor(AppColors.textPrimary)
+                            }
+
+                            Image(systemName: "person.circle")
+                                .font(.lexend(size: 28, weight: .regular))
+                                .foregroundColor(AppColors.textPrimary)
+                        }
                     }
                     .padding(.horizontal, Layout.Spacing.md)
                     .padding(.bottom, Layout.Spacing.sm)
@@ -119,6 +131,13 @@ struct PreviewView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(20)
+        }
+        .sheet(isPresented: $showingSocialHub) {
+            SocialHubView()
+                .presentationDetents([.fraction(0.93)])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(20)
+                .presentationBackground(.ultraThinMaterial)
         }
     }
 

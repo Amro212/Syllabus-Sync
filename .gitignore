@@ -160,6 +160,7 @@ worker/
 .idea/
 *.swp
 *.swo
+/images/*
 
 # OS
 .DS_Store

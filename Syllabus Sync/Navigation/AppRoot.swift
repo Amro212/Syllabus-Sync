@@ -963,14 +963,20 @@ struct LaunchScreenView: View {
             withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
                 showLogo = true
             }
-            
+
             // Trigger haptic feedback
             HapticFeedbackManager.shared.mediumImpact()
-            
-            // Navigate to auth after delay
+
+            // Check authentication state and navigate accordingly
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 withAnimation(.spring(response: 0.7, dampingFraction: 0.8)) {
-                    navigationManager.setRoot(to: .auth)
+                    if SupabaseAuthService.shared.isAuthenticated {
+                        // User is logged in, go directly to dashboard
+                        navigationManager.setRoot(to: .dashboard)
+                    } else {
+                        // User is not logged in, show auth screen
+                        navigationManager.setRoot(to: .auth)
+                    }
                 }
             }
         }

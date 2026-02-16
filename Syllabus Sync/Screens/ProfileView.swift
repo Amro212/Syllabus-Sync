@@ -11,6 +11,7 @@ struct ProfileView: View {
     @StateObject private var viewModel = ProfileViewModel()
     @EnvironmentObject var eventStore: EventStore
     @EnvironmentObject var themeManager: ThemeManager
+    @EnvironmentObject var navigationManager: AppNavigationManager
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -168,6 +169,7 @@ struct ProfileView: View {
         .task {
             viewModel.eventStore = eventStore
             viewModel.themeManager = themeManager
+            viewModel.navigationManager = navigationManager
             await viewModel.loadProfileData()
         }
         .onChange(of: viewModel.showToast) { _, show in

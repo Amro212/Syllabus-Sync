@@ -206,8 +206,7 @@ struct AdminDebugView: View {
                     color: .red
                 ) {
                     Task {
-                        try? await SupabaseAuthService.shared.signOut()
-                        dismiss()
+                        await performSignOut()
                     }
                 }
             }
@@ -277,20 +276,40 @@ struct AdminDebugView: View {
     }
 
     private func resetAppData() {
-        // Clear UserDefaults
+        Task {
+            await performSignOut()
+        }
+    }
+
+    private func performSignOut() async {
+        // CRITICAL: Clear all local data before signing out
+
+        // 1. Clear Event Store
+        await MainActor.run {
+            eventStore.clearEvents()
+        }
+        print("✅ EventStore cleared")
+
+        // 2. Clear UserDefaults
         if let bundleId = Bundle.main.bundleIdentifier {
             UserDefaults.standard.removePersistentDomain(forName: bundleId)
+            print("✅ UserDefaults cleared")
         }
 
-        // Clear event store
-        eventStore.clearEvents()
-
-        // Sign out
-        Task {
-            try? await SupabaseAuthService.shared.signOut()
+        // 3. Sign out from Supabase
+        do {
+            try await SupabaseAuthService.shared.signOut()
+            print("✅ Signed out from Supabase")
+        } catch {
+            print("⚠️ Sign out error: \(error)")
         }
 
-        dismiss()
+        // 4. Navigate to auth screen
+        await MainActor.run {
+            dismiss()
+            navigationManager.setRoot(to: .auth)
+            print("✅ Navigated to auth screen")
+        }
     }
 
     private func showToastMessage(_ message: String) {

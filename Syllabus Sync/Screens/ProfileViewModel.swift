@@ -66,6 +66,7 @@ final class ProfileViewModel: ObservableObject {
     private let socialHubService = SocialHubService.shared
     var eventStore: EventStore?
     var themeManager: ThemeManager?
+   var navigationManager: AppNavigationManager?
 
     // MARK: - Data Loading
 
@@ -336,10 +337,39 @@ final class ProfileViewModel: ObservableObject {
 
     func signOut() async {
         do {
+            // CRITICAL: Clear all local data before signing out
+
+            // 1. Clear Event Store
+            if let store = eventStore {
+                await MainActor.run {
+                    store.clearEvents()
+                }
+                print("✅ EventStore cleared")
+            }
+
+            // 2. Clear UserDefaults
+            if let bundleId = Bundle.main.bundleIdentifier {
+                UserDefaults.standard.removePersistentDomain(forName: bundleId)
+                print("✅ UserDefaults cleared")
+            }
+
+            // 3. Sign out from Supabase
             try await authService.signOut()
-            HapticFeedbackManager.shared.success()
+            print("✅ Signed out from Supabase")
+
+            // 4. Navigate to auth screen
+            await MainActor.run {
+                if let navManager = navigationManager {
+                    navManager.setRoot(to: .auth)
+                    print("✅ Navigated to auth screen")
+                }
+                HapticFeedbackManager.shared.success()
+            }
+
         } catch {
-            showToastMessage("Failed to sign out")
+            await MainActor.run {
+                showToastMessage("Failed to sign out: \(error.localizedDescription)")
+            }
         }
     }
 

@@ -167,6 +167,9 @@ struct AppRoot: View {
                 await eventStore.fetchEvents()
             }
         }
+        .onAppear {
+            print("🏠 AppRoot appeared, currentRoute: \(navigationManager.currentRoute)")
+        }
     }
     
     @ViewBuilder
@@ -967,14 +970,20 @@ struct LaunchScreenView: View {
             // Trigger haptic feedback
             HapticFeedbackManager.shared.mediumImpact()
 
+            print("🚀 LaunchScreenView appeared")
+            print("🔐 isAuthenticated: \(SupabaseAuthService.shared.isAuthenticated)")
+
             // Check authentication state and navigate accordingly
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                print("⏰ 2 second delay complete, navigating...")
                 withAnimation(.spring(response: 0.7, dampingFraction: 0.8)) {
                     if SupabaseAuthService.shared.isAuthenticated {
                         // User is logged in, go directly to dashboard
+                        print("✅ Navigating to dashboard")
                         navigationManager.setRoot(to: .dashboard)
                     } else {
                         // User is not logged in, show auth screen
+                        print("🔓 Navigating to auth")
                         navigationManager.setRoot(to: .auth)
                     }
                 }

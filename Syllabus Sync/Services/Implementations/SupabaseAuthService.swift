@@ -79,9 +79,16 @@ class SupabaseAuthService: NSObject, AuthService {
             )
             
             self.currentUser = user
-            
+
+            // Auto-generate username for OAuth users if they don't have one
+            let existingUsername = await fetchUsername(userId: session.user.id.uuidString)
+            if existingUsername == nil || existingUsername?.isEmpty == true {
+                let generated = generateUsername(from: user.displayName, email: user.email)
+                await storeUsernameInDatabase(userId: session.user.id.uuidString, username: generated)
+            }
+
             return .success(user: user)
-            
+
         } catch {
             print("🔴 Google Sign-In Error: \(error)")
             
@@ -114,9 +121,37 @@ class SupabaseAuthService: NSObject, AuthService {
         return .failure(error: .unknownError("Use native Apple Sign-In"))
     }
     
+    // MARK: - Email/Password Sign Up
+    
+    /// Creates a new account with email + password. Supabase will send a confirmation OTP
+    /// because email confirmations are enabled in the Supabase dashboard.
+    func signUpWithPassword(email: String, password: String, username: String, fullName: String) async -> Result<Void, AuthError> {
+        do {
+            let metadata: [String: AnyJSON] = [
+                "username": .string(username),
+                "full_name": .string(fullName)
+            ]
+            
+            let response = try await supabase.auth.signUp(
+                email: email,
+                password: password,
+                data: metadata
+            )
+            
+            print("✅ Sign-up initiated for \(email), confirmation email sent")
+            return .success(())
+            
+        } catch {
+            print("❌ Sign-up failed: \(error)")
+            let mappedError = AuthErrorHandler.mapError(error.localizedDescription)
+            return .failure(mappedError)
+        }
+    }
+    
     // MARK: - Email/Password Sign In
     
-    func signInWithEmail(email: String, password: String) async -> AuthResult {
+    /// Direct sign-in with email + password. No OTP required.
+    func signInWithPassword(email: String, password: String) async -> AuthResult {
         do {
             let session = try await supabase.auth.signIn(email: email, password: password)
             
@@ -133,8 +168,15 @@ class SupabaseAuthService: NSObject, AuthService {
             return .success(user: user)
             
         } catch {
-            return .failure(error: .invalidCredentials)
+            print("❌ Sign-in failed: \(error)")
+            let mappedError = AuthErrorHandler.mapError(error.localizedDescription)
+            return .failure(error: mappedError)
         }
+    }
+    
+    /// Legacy email/password method — delegates to signInWithPassword
+    func signInWithEmail(email: String, password: String) async -> AuthResult {
+        return await signInWithPassword(email: email, password: password)
     }
     
     // MARK: - User Provider Check
@@ -280,24 +322,90 @@ class SupabaseAuthService: NSObject, AuthService {
         }
     }
     
-    /// Store username in profiles table for uniqueness and querying
-    private func storeUsernameInDatabase(userId: String, username: String) async {
+    /// Resend OTP code to the user's email
+    func resendOTP(email: String) async -> AuthResult {
         do {
-            // Insert or update username in profiles table
+            // Supabase doesn't have a dedicated resend endpoint
+            // We need to trigger a new sign-in flow which will send a new OTP
+            let _ = try await supabase.auth.signInWithOTP(
+                email: email
+            )
+            
+            print("✅ New OTP sent to \(email)")
+            
+            // Return success (no user object yet since they haven't verified)
+            let dummyUser = AuthUser(
+                id: "",
+                email: email,
+                displayName: nil,
+                photoURL: nil,
+                provider: .email
+            )
+            return .success(user: dummyUser)
+            
+        } catch {
+            print("❌ Failed to resend OTP: \(error)")
+            let mappedError = AuthErrorHandler.mapError(error.localizedDescription)
+            return .failure(error: mappedError)
+        }
+    }
+    
+    /// Store username in users table for uniqueness and querying
+    func storeUsernameInDatabase(userId: String, username: String) async {
+        do {
             try await supabase
-                .from("profiles")
+                .from("users")
                 .upsert([
                     "id": userId,
                     "username": username,
                     "updated_at": ISO8601DateFormatter().string(from: Date())
                 ])
                 .execute()
-            
             print("✅ Username '\(username)' stored in database")
         } catch {
             print("⚠️ Failed to store username in database: \(error)")
-            // Don't fail auth if database storage fails - username is in metadata
         }
+    }
+
+    /// Fetch the current user's username from the users table
+    func fetchUsername(userId: String) async -> String? {
+        do {
+            struct UserRow: Decodable {
+                let username: String?
+            }
+            let rows: [UserRow] = try await supabase
+                .from("users")
+                .select("username")
+                .eq("id", value: userId)
+                .limit(1)
+                .execute()
+                .value
+            return rows.first?.username
+        } catch {
+            print("⚠️ Failed to fetch username: \(error)")
+            return nil
+        }
+    }
+
+    /// Generate a unique username from display name or email
+    func generateUsername(from displayName: String?, email: String?) -> String {
+        let base: String
+        if let name = displayName, !name.isEmpty {
+            base = name
+                .lowercased()
+                .components(separatedBy: .whitespaces)
+                .joined()
+                .filter { $0.isLetter || $0.isNumber || $0 == "_" }
+        } else if let email = email, let local = email.split(separator: "@").first {
+            base = String(local)
+                .lowercased()
+                .filter { $0.isLetter || $0.isNumber || $0 == "_" }
+        } else {
+            base = "user"
+        }
+        let trimmed = String(base.prefix(14))
+        let suffix = String(Int.random(in: 100...9999))
+        return "\(trimmed)_\(suffix)"
     }
     
     // MARK: - Sign Out
@@ -340,23 +448,21 @@ class SupabaseAuthService: NSObject, AuthService {
     private func restoreSession() async {
         // Supabase SDK automatically handles session restoration
         // Just check if there's a current session and update our user
-        do {
-            if let session = try? await supabase.auth.session {
-                let user = AuthUser(
-                    id: session.user.id.uuidString,
-                    email: session.user.email,
-                    displayName: session.user.userMetadata["full_name"]?.value as? String,
-                    photoURL: {
-                        if let urlString = session.user.userMetadata["avatar_url"]?.value as? String {
-                            return URL(string: urlString)
-                        }
-                        return nil
-                    }(),
-                    provider: session.user.appMetadata["provider"]?.value as? String == "google" ? .google : .email
-                )
-                self.currentUser = user
-            }
-        } catch {
+        if let session = try? await supabase.auth.session {
+            let user = AuthUser(
+                id: session.user.id.uuidString,
+                email: session.user.email,
+                displayName: session.user.userMetadata["full_name"]?.value as? String,
+                photoURL: {
+                    if let urlString = session.user.userMetadata["avatar_url"]?.value as? String {
+                        return URL(string: urlString)
+                    }
+                    return nil
+                }(),
+                provider: session.user.appMetadata["provider"]?.value as? String == "google" ? .google : .email
+            )
+            self.currentUser = user
+        } else {
             // No session to restore
             self.currentUser = nil
         }

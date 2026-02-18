@@ -5,6 +5,8 @@
 ## User settings
 xcuserdata/
 notes.md
+/.agents
+/.agent
 
 ## compatibility with Xcode 8 and earlier (ignoring not required starting Xcode 9)
 *.xcscmblueprint
@@ -160,6 +162,7 @@ worker/
 .idea/
 *.swp
 *.swo
+/images/*
 
 # OS
 .DS_Store

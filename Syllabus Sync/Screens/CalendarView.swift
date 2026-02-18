@@ -21,32 +21,32 @@ struct CalendarView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var eventStore: EventStore
-    
+
     @State private var selectedDate: Date = Date()
     @State private var currentMonth: Date = Date()
     @State private var viewMode: CalendarViewMode = .week // Default to week as shown in wireframe
-    
+
     private var events: [CalendarEvent] {
         CalendarEvent.make(from: eventStore.events)
     }
-    
+
     private var eventsForSelectedDate: [CalendarEvent] {
         events.filter { Calendar.current.isDate($0.date, inSameDayAs: selectedDate) }
             .sorted { $0.date < $1.date }
     }
-    
+
     private var monthYearString: String {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMMM yyyy"
         return formatter.string(from: currentMonth)
     }
-    
+
     var body: some View {
         GeometryReader { _ in
             ZStack(alignment: .top) {
                 // Background
                 AppColors.background.ignoresSafeArea()
-                
+
                 VStack(spacing: 0) {
                     // Header Section
                     VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
@@ -55,11 +55,12 @@ struct CalendarView: View {
                             .font(.lexend(.title2, weight: .bold)) // 28px in wireframe ~ title2/title
                             .foregroundColor(AppColors.textPrimary)
                             .padding(.leading, Layout.Spacing.sm)
-                        
+
                         // Toggle
                         CalendarViewModeToggle(selectedMode: $viewMode)
                     }
                     .padding(.horizontal, Layout.Spacing.md)
+                    .padding(.top, Layout.Spacing.md)
                     .padding(.bottom, Layout.Spacing.sm)
                     .background(AppColors.background) // Sticky header background
                     

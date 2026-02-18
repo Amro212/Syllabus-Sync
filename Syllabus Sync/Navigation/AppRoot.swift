@@ -28,12 +28,12 @@ enum AppRoute: Hashable, CaseIterable {
     case preview
     case calendar
     case courseDetail(course: MockCourse)
-    case settings
+    case profile
     case networkingTest
     
     // Static cases for easier iteration (excluding parameterized routes)
     static var allCases: [AppRoute] {
-        return [.launch, .onboarding, .auth, .dashboard, .reminders, .importSyllabus, .preview, .calendar, .settings]
+        return [.launch, .onboarding, .auth, .dashboard, .reminders, .importSyllabus, .preview, .calendar, .profile]
     }
     
     var title: String {
@@ -47,7 +47,7 @@ enum AppRoute: Hashable, CaseIterable {
         case .preview: return "Preview"
         case .calendar: return "Calendar"
         case .courseDetail: return "Course Details"
-        case .settings: return "Settings"
+        case .profile: return "Profile"
         case .networkingTest: return "Networking Test"
         }
     }
@@ -63,7 +63,7 @@ enum AppRoute: Hashable, CaseIterable {
         case .preview: return "eye"
         case .calendar: return "calendar"
         case .courseDetail: return "book"
-        case .settings: return "gear"
+        case .profile: return "person.crop.circle"
         case .networkingTest: return "network"
         }
     }
@@ -106,7 +106,7 @@ class AppNavigationManager: ObservableObject {
         navigationPath = NavigationPath()
         
         // Show tab bar for main app sections
-        isTabBarVisible = [.dashboard, .reminders, .importSyllabus, .settings].contains(route)
+        isTabBarVisible = [.dashboard, .reminders, .importSyllabus, .profile].contains(route)
         
         HapticFeedbackManager.shared.mediumImpact()
     }
@@ -167,6 +167,9 @@ struct AppRoot: View {
                 await eventStore.fetchEvents()
             }
         }
+        .onAppear {
+            print("🏠 AppRoot appeared, currentRoute: \(navigationManager.currentRoute)")
+        }
     }
     
     @ViewBuilder
@@ -182,7 +185,7 @@ struct AppRoot: View {
             case .auth:
                 AuthView()
                     .transition(.dissolve)
-            case .dashboard, .reminders, .importSyllabus, .settings:
+            case .dashboard, .reminders, .importSyllabus, .profile:
                 TabNavigationView()
                     .transition(.slide)
             default:
@@ -215,8 +218,8 @@ struct AppRoot: View {
             CalendarView()
         case .courseDetail(let course):
             CourseDetailView(course: course)
-        case .settings:
-            SettingsView()
+        case .profile:
+            ProfileView()
         case .networkingTest:
             NetworkingTestView()
         }
@@ -261,8 +264,8 @@ struct TabNavigationView: View {
                     PreviewView()
                 case .calendar:
                     CalendarView()
-                case .settings:
-                    SettingsView()
+                case .profile:
+                    ProfileView()
                 default:
                     DashboardView()
                 }
@@ -743,439 +746,6 @@ struct CourseDetailPlaceholderView: View {
     }
 }
 
-/// Real Settings View
-struct SettingsView: View {
-    @EnvironmentObject var themeManager: ThemeManager
-    @EnvironmentObject var navigationManager: AppNavigationManager
-    @EnvironmentObject var eventStore: EventStore
-    
-    @State private var showingResetAlert = false
-    @State private var showingDeleteCloudDataAlert = false
-    @State private var showingSignOutAlert = false
-    @State private var notificationsEnabled = true
-    @State private var hapticEnabled = true
-    
-    var body: some View {
-        GeometryReader { geo in
-            let headerHeight = geo.safeAreaInsets.top + 4
-            
-            ZStack(alignment: .top) {
-                ScrollView {
-                    VStack(spacing: Layout.Spacing.xl) {
-                        // App Info Section
-                        VStack(spacing: Layout.Spacing.lg) {
-                            AppIcon("graduationcap.circle.fill", size: .xlarge, style: .filled)
-                            
-                            VStack(spacing: Layout.Spacing.md) {
-                                Text("Syllabus Sync")
-                                    .font(.titleL)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(AppColors.textPrimary)
-                                
-                                Text("Version 1.0 (Beta)")
-                                    .font(.body)
-                                    .foregroundColor(AppColors.textSecondary)
-                            }
-                        }
-                        
-                        // Appearance Section
-                        SettingsSection(title: "Appearance", icon: "paintbrush") {
-                            VStack(spacing: Layout.Spacing.lg) {
-                                SettingsRow(
-                                    title: "Theme",
-                                    subtitle: "Choose your preferred theme",
-                                    icon: "circle.lefthalf.filled"
-                                ) {
-                                    ThemeToggle()
-                                }
-                            }
-                        }
-                        
-                        // Preferences Section
-                        SettingsSection(title: "Preferences", icon: "slider.horizontal.3") {
-                            VStack(spacing: Layout.Spacing.lg) {
-                                SettingsToggleRow(
-                                    title: "Notifications",
-                                    subtitle: "Get notified about upcoming events",
-                                    icon: "bell",
-                                    isOn: $notificationsEnabled
-                                )
-                                
-                                SettingsToggleRow(
-                                    title: "Haptic Feedback",
-                                    subtitle: "Feel interactions with haptic feedback",
-                                    icon: "iphone.radiowaves.left.and.right",
-                                    isOn: $hapticEnabled
-                                )
-                            }
-                        }
-                        
-                        // Testing Section
-                        SettingsSection(title: "Testing", icon: "wrench.and.screwdriver") {
-                            VStack(spacing: Layout.Spacing.lg) {
-                                SettingsActionRow(
-                                    title: "Test Haptic Feedback",
-                                    subtitle: "Try different haptic patterns",
-                                    icon: "hand.tap"
-                                ) {
-                                    testHapticFeedback()
-                                }
-                                
-                                SettingsActionRow(
-                                    title: "Test Networking",
-                                    subtitle: "Test API client and parsing functionality",
-                                    icon: "network"
-                                ) {
-                                    navigationManager.navigate(to: .networkingTest)
-                                }
-                                
-                                SettingsActionRow(
-                                    title: "Reset to Empty State",
-                                    subtitle: "Clear all data and return to onboarding",
-                                    icon: "trash",
-                                    isDestructive: true
-                                ) {
-                                    showingResetAlert = true
-                                }
-                            }
-                        }
-                        
-                        // Data Management Section
-                        SettingsSection(title: "Data Management", icon: "icloud") {
-                            VStack(spacing: Layout.Spacing.lg) {
-                                SettingsActionRow(
-                                    title: "Delete Cloud Backup",
-                                    subtitle: "Delete all data from Core Data and iCloud",
-                                    icon: "icloud.slash",
-                                    isDestructive: true
-                                ) {
-                                    showingDeleteCloudDataAlert = true
-                                }
-                            }
-                        }
-                        
-                        // Account Section
-                        SettingsSection(title: "Account", icon: "person.circle") {
-                            VStack(spacing: Layout.Spacing.lg) {
-                                SettingsActionRow(
-                                    title: "Sign Out",
-                                    subtitle: "Sign out of your account",
-                                    icon: "arrow.right.square",
-                                    isDestructive: true
-                                ) {
-                                    showingSignOutAlert = true
-                                }
-                            }
-                        }
-                        
-                        // About Section
-                        SettingsSection(title: "About", icon: "info.circle") {
-                            VStack(spacing: Layout.Spacing.lg) {
-                                SettingsActionRow(
-                                    title: "Privacy Policy",
-                                    subtitle: "View our privacy policy",
-                                    icon: "hand.raised"
-                                ) {
-                                    // Open privacy policy (mock)
-                                    HapticFeedbackManager.shared.lightImpact()
-                                }
-                                
-                                SettingsActionRow(
-                                    title: "Terms of Service",
-                                    subtitle: "View terms and conditions",
-                                    icon: "doc.text"
-                                ) {
-                                    // Open terms (mock)
-                                    HapticFeedbackManager.shared.lightImpact()
-                                }
-                                
-                                SettingsActionRow(
-                                    title: "Contact Support",
-                                    subtitle: "Get help with your account",
-                                    icon: "envelope"
-                                ) {
-                                    // Contact support (mock)
-                                    HapticFeedbackManager.shared.lightImpact()
-                                }
-                            }
-                        }
-                    }
-                    .padding(Layout.Spacing.lg)
-                    .padding(.top, 60)
-                    .padding(.bottom, 80) // Add bottom padding for tab bar
-                }
-                .background(AppColors.background)
-                
-                // Custom Top Bar (Sticky)
-                VStack(spacing: 0) {
-                    HStack {
-                        Text("Settings")
-                            .font(.titleL)
-                            .fontWeight(.bold)
-                            .foregroundColor(AppColors.textPrimary)
-                        
-                        Spacer()
-                        
-                        Image(systemName: "person.circle")
-                            .font(.lexend(size: 28, weight: .regular))
-                            .foregroundColor(AppColors.textPrimary)
-                    }
-                    .padding(.horizontal, Layout.Spacing.md)
-                    .padding(.bottom, Layout.Spacing.sm)
-                    .padding(.top, geo.safeAreaInsets.top)
-                    .background(AppColors.background.opacity(0.95))
-                    .overlay(alignment: .bottom) {
-                        Divider().opacity(0.5)
-                    }
-                    
-                    Spacer()
-                }
-                .frame(height: headerHeight + 50)
-                .ignoresSafeArea(edges: .top)
-            }
-            .background(AppColors.background)
-        }
-        .alert("Reset App Data", isPresented: $showingResetAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Reset", role: .destructive) {
-                resetAppData()
-            }
-        } message: {
-            Text("This will delete all your courses and events, and return the app to its initial state. This action cannot be undone.")
-        }
-        .alert("Delete Cloud Backup", isPresented: $showingDeleteCloudDataAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete", role: .destructive) {
-                deleteCloudData()
-            }
-        } message: {
-            Text("This will permanently delete all your courses, events, and preferences from Supabase. This action cannot be undone.")
-        }
-        .alert("Sign Out", isPresented: $showingSignOutAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Sign Out", role: .destructive) {
-                Task {
-                    await signOut()
-                }
-            }
-        } message: {
-            Text("Are you sure you want to sign out? Your data will remain saved in the cloud.")
-        }
-    }
-    
-    private func testHapticFeedback() {
-        let patterns: [(String, () -> Void)] = [
-            ("Light Impact", { HapticFeedbackManager.shared.lightImpact() }),
-            ("Medium Impact", { HapticFeedbackManager.shared.mediumImpact() }),
-            ("Heavy Impact", { HapticFeedbackManager.shared.heavyImpact() }),
-            ("Success", { HapticFeedbackManager.shared.success() }),
-            ("Warning", { HapticFeedbackManager.shared.warning() }),
-            ("Error", { HapticFeedbackManager.shared.error() }),
-            ("Selection", { HapticFeedbackManager.shared.selection() })
-        ]
-        
-        // Cycle through patterns with delays
-        for (index, (_, action)) in patterns.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.3) {
-                action()
-            }
-        }
-    }
-    
-    private func resetAppData() {
-        HapticFeedbackManager.shared.success()
-        Task {
-            await eventStore.deleteAllEvents()
-            navigationManager.currentRoute = .launch
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                navigationManager.currentRoute = .onboarding
-            }
-        }
-    }
-    
-    private func deleteCloudData() {
-        HapticFeedbackManager.shared.warning()
-        Task {
-            // Delete all data from Supabase
-            let result = await SupabaseDataService.shared.deleteAllData()
-            
-            switch result {
-            case .success:
-                // Refresh the event store
-                await eventStore.refresh()
-                
-                // Show success feedback
-                await MainActor.run {
-                    HapticFeedbackManager.shared.success()
-                }
-                
-                print("✅ All Supabase data deleted successfully")
-            case .failure(let error):
-                print("⚠️ Failed to delete cloud data: \(error)")
-                await MainActor.run {
-                    HapticFeedbackManager.shared.error()
-                }
-            }
-        }
-    }
-    
-    private func signOut() async {
-        // Clear local event store
-        await MainActor.run {
-            eventStore.clearEvents()
-        }
-        
-        // Sign out from Supabase
-        try? await SupabaseAuthService.shared.signOut()
-        
-        // Navigate to auth screen
-        await MainActor.run {
-            navigationManager.setRoot(to: .auth)
-        }
-    }
-}
-
-// MARK: - Settings Components
-
-struct SettingsSection<Content: View>: View {
-    let title: String
-    let icon: String
-    @ViewBuilder let content: Content
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: Layout.Spacing.lg) {
-            HStack(spacing: Layout.Spacing.sm) {
-                Image(systemName: icon)
-                    .font(.lexend(size: 16, weight: .medium))
-                    .foregroundColor(AppColors.accent)
-                
-                Text(title)
-                    .font(.titleS)
-                    .fontWeight(.semibold)
-                    .foregroundColor(AppColors.textPrimary)
-            }
-            
-            CardView(style: .elevated) {
-                content
-            }
-        }
-    }
-}
-
-struct SettingsRow<Accessory: View>: View {
-    let title: String
-    let subtitle: String?
-    let icon: String
-    @ViewBuilder let accessory: Accessory
-    
-    init(
-        title: String,
-        subtitle: String? = nil,
-        icon: String,
-        @ViewBuilder accessory: () -> Accessory
-    ) {
-        self.title = title
-        self.subtitle = subtitle
-        self.icon = icon
-        self.accessory = accessory()
-    }
-    
-    var body: some View {
-        HStack(spacing: Layout.Spacing.md) {
-            Image(systemName: icon)
-                .font(.lexend(size: 18, weight: .medium))
-                .foregroundColor(AppColors.accent)
-                .frame(width: 24)
-            
-            VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
-                Text(title)
-                    .font(.body)
-                    .fontWeight(.medium)
-                    .foregroundColor(AppColors.textPrimary)
-                
-                if let subtitle = subtitle {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundColor(AppColors.textSecondary)
-                }
-            }
-            
-            Spacer()
-            
-            accessory
-        }
-    }
-}
-
-struct SettingsToggleRow: View {
-    let title: String
-    let subtitle: String?
-    let icon: String
-    @Binding var isOn: Bool
-    
-    var body: some View {
-        SettingsRow(title: title, subtitle: subtitle, icon: icon) {
-            Toggle("", isOn: $isOn)
-                .onChange(of: isOn) {
-                    HapticFeedbackManager.shared.lightImpact()
-                }
-        }
-    }
-}
-
-struct SettingsActionRow: View {
-    let title: String
-    let subtitle: String?
-    let icon: String
-    let isDestructive: Bool
-    let action: () -> Void
-    
-    init(
-        title: String,
-        subtitle: String? = nil,
-        icon: String,
-        isDestructive: Bool = false,
-        action: @escaping () -> Void
-    ) {
-        self.title = title
-        self.subtitle = subtitle
-        self.icon = icon
-        self.isDestructive = isDestructive
-        self.action = action
-    }
-    
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: Layout.Spacing.md) {
-                Image(systemName: icon)
-                    .font(.lexend(size: 18, weight: .medium))
-                    .foregroundColor(isDestructive ? .red : AppColors.accent)
-                    .frame(width: 24)
-                
-                VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
-                    Text(title)
-                        .font(.body)
-                        .fontWeight(.medium)
-                        .foregroundColor(isDestructive ? .red : AppColors.textPrimary)
-                    
-                    if let subtitle = subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundColor(AppColors.textSecondary)
-                    }
-                }
-                
-                Spacer()
-                
-                Image(systemName: "chevron.right")
-                    .font(.lexend(size: 12, weight: .medium))
-                    .foregroundColor(AppColors.textTertiary)
-            }
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-}
-
 // MARK: - Test Components
 
 /// Quick actions grid for dashboard testing
@@ -1241,14 +811,14 @@ struct QuickActionsGrid: View {
                 )
             }
             
-            // Settings - switches tabs
+            // Profile - switches tabs
             CardView(style: .elevated) {
                 Button(action: {
-                    navigationManager.switchTab(to: .settings)
+                    navigationManager.switchTab(to: .profile)
                 }) {
                     VStack(spacing: Layout.Spacing.sm) {
-                        AppIcon("gear", size: .medium, style: .filled)
-                        Text("Settings")
+                        AppIcon("person.crop.circle", size: .medium, style: .filled)
+                        Text("Profile")
                             .font(.captionL)
                             .foregroundColor(AppColors.textPrimary)
                             .multilineTextAlignment(.center)
@@ -1396,14 +966,26 @@ struct LaunchScreenView: View {
             withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
                 showLogo = true
             }
-            
+
             // Trigger haptic feedback
             HapticFeedbackManager.shared.mediumImpact()
-            
-            // Navigate to auth after delay
+
+            print("🚀 LaunchScreenView appeared")
+            print("🔐 isAuthenticated: \(SupabaseAuthService.shared.isAuthenticated)")
+
+            // Check authentication state and navigate accordingly
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                print("⏰ 2 second delay complete, navigating...")
                 withAnimation(.spring(response: 0.7, dampingFraction: 0.8)) {
-                    navigationManager.setRoot(to: .auth)
+                    if SupabaseAuthService.shared.isAuthenticated {
+                        // User is logged in, go directly to dashboard
+                        print("✅ Navigating to dashboard")
+                        navigationManager.setRoot(to: .dashboard)
+                    } else {
+                        // User is not logged in, show auth screen
+                        print("🔓 Navigating to auth")
+                        navigationManager.setRoot(to: .auth)
+                    }
                 }
             }
         }

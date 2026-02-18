@@ -10,21 +10,30 @@ import SwiftUI
 struct AuthView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
     @State private var isLoading = false
-    @State private var isSignInMode = false // Toggle between sign-up and sign-in
+    @State private var isSignInMode = true // Default to sign-in
     @State private var errorMessage: String?
     @State private var showError = false
     @State private var username = ""
     @State private var usernameError: String?
     @State private var fullName = ""
     @State private var email = ""
+    @State private var password = ""
+    @State private var passwordError: String?
+    @State private var confirmPassword = ""
+    @State private var confirmPasswordError: String?
+    @State private var showPassword = false
+    @State private var showConfirmPassword = false
     @State private var showEmailVerification = false
     @State private var verificationEmail = ""
+    @State private var showForgotPassword = false
     @FocusState private var focusedField: AuthField?
     
     enum AuthField {
         case username
         case fullName
         case email
+        case password
+        case confirmPassword
     }
     
     private let authService = SupabaseAuthService.shared
@@ -36,16 +45,17 @@ struct AuthView: View {
             Color(red: 0.129, green: 0.110, blue: 0.067) // #211c11
                 .ignoresSafeArea()
             
-            VStack(spacing: 16) {
-                Spacer()
-                    .frame(minHeight: 8, maxHeight: 24)
-                
-                // App Icon
-                Image("AppIconNewestBorders")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 125, height: 125)
-                    .shadow(color: AuthPalette.primary.opacity(0.3), radius: 12, x: 0, y: 4)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 16) {
+                    Spacer()
+                        .frame(minHeight: 8, maxHeight: 24)
+                    
+                    // App Icon
+                    Image("AppIconNewestBorders")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 125, height: 125)
+                        .shadow(color: AuthPalette.primary.opacity(0.3), radius: 12, x: 0, y: 4)
                 
                 // Header
                 VStack(spacing: 4) {
@@ -161,10 +171,149 @@ struct AuthView: View {
                             )
                     }
                     
-                    // Send Email Code Button
+                    // Password Field
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Password")
+                            .font(.lexend(size: 13, weight: .medium))
+                            .foregroundColor(AuthPalette.textSecondary)
+                        
+                        HStack {
+                            if showPassword {
+                                TextField("Enter your password", text: Binding(
+                                    get: { password },
+                                    set: { newValue in
+                                        password = newValue
+                                        if !isSignInMode {
+                                            validatePassword(newValue)
+                                        }
+                                    }
+                                ))
+                                    .font(.lexend(size: 15, weight: .regular))
+                                    .foregroundColor(AuthPalette.textPrimary)
+                                    .autocapitalization(.none)
+                                    .autocorrectionDisabled()
+                            } else {
+                                SecureField("Enter your password", text: Binding(
+                                    get: { password },
+                                    set: { newValue in
+                                        password = newValue
+                                        if !isSignInMode {
+                                            validatePassword(newValue)
+                                        }
+                                    }
+                                ))
+                                    .font(.lexend(size: 15, weight: .regular))
+                                    .foregroundColor(AuthPalette.textPrimary)
+                            }
+                            
+                            Button {
+                                showPassword.toggle()
+                                HapticFeedbackManager.shared.lightImpact()
+                            } label: {
+                                Image(systemName: showPassword ? "eye.fill" : "eye.slash.fill")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(AuthPalette.placeholderText)
+                            }
+                        }
+                        .focused($focusedField, equals: .password)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(AuthPalette.inputBackground)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .stroke(passwordError != nil && !isSignInMode ? Color.red.opacity(0.6) : Color.clear, lineWidth: 1)
+                                )
+                        )
+                        
+                        // Password requirements (sign-up only)
+                        if !isSignInMode && !password.isEmpty {
+                            if let error = passwordError {
+                                Text(error)
+                                    .font(.lexend(size: 12, weight: .regular))
+                                    .foregroundColor(.red.opacity(0.9))
+                            } else {
+                                Text("✓ Password meets all requirements")
+                                    .font(.lexend(size: 12, weight: .regular))
+                                    .foregroundColor(.green.opacity(0.9))
+                            }
+                        }
+                    }
+                    
+                    // Confirm Password Field (sign-up only)
+                    if !isSignInMode {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Confirm Password")
+                                .font(.lexend(size: 13, weight: .medium))
+                                .foregroundColor(AuthPalette.textSecondary)
+                            
+                            HStack {
+                                if showConfirmPassword {
+                                    TextField("Confirm your password", text: Binding(
+                                        get: { confirmPassword },
+                                        set: { newValue in
+                                            confirmPassword = newValue
+                                            validateConfirmPassword(newValue)
+                                        }
+                                    ))
+                                        .font(.lexend(size: 15, weight: .regular))
+                                        .foregroundColor(AuthPalette.textPrimary)
+                                        .autocapitalization(.none)
+                                        .autocorrectionDisabled()
+                                } else {
+                                    SecureField("Confirm your password", text: Binding(
+                                        get: { confirmPassword },
+                                        set: { newValue in
+                                            confirmPassword = newValue
+                                            validateConfirmPassword(newValue)
+                                        }
+                                    ))
+                                        .font(.lexend(size: 15, weight: .regular))
+                                        .foregroundColor(AuthPalette.textPrimary)
+                                }
+                                
+                                Button {
+                                    showConfirmPassword.toggle()
+                                    HapticFeedbackManager.shared.lightImpact()
+                                } label: {
+                                    Image(systemName: showConfirmPassword ? "eye.fill" : "eye.slash.fill")
+                                        .font(.system(size: 16, weight: .medium))
+                                        .foregroundColor(AuthPalette.placeholderText)
+                                }
+                            }
+                            .focused($focusedField, equals: .confirmPassword)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(AuthPalette.inputBackground)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 14)
+                                            .stroke(confirmPasswordError != nil ? Color.red.opacity(0.6) : Color.clear, lineWidth: 1)
+                                    )
+                            )
+                            
+                            // Confirm password validation
+                            if !confirmPassword.isEmpty {
+                                if let error = confirmPasswordError {
+                                    Text(error)
+                                        .font(.lexend(size: 12, weight: .regular))
+                                        .foregroundColor(.red.opacity(0.9))
+                                } else if password == confirmPassword {
+                                    Text("✓ Passwords match")
+                                        .font(.lexend(size: 12, weight: .regular))
+                                        .foregroundColor(.green.opacity(0.9))
+                                }
+                            }
+                        }
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                    
+                    // Submit Button
                     Button {
                         HapticFeedbackManager.shared.mediumImpact()
-                        handleSendEmailCode()
+                        handleSubmit()
                     } label: {
                         HStack {
                             if isLoading {
@@ -172,7 +321,7 @@ struct AuthView: View {
                                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
                                     .scaleEffect(0.8)
                             } else {
-                                Text(isSignInMode ? "Send sign in code" : "Send email code")
+                                Text(isSignInMode ? "Sign In" : "Create Account")
                                     .font(.lexend(size: 15, weight: .bold))
                             }
                         }
@@ -181,11 +330,24 @@ struct AuthView: View {
                         .padding(.vertical, 14)
                         .background(
                             RoundedRectangle(cornerRadius: 28)
-                                .fill(AuthPalette.formBackground)
+                                .fill(isFormValid ? AuthPalette.primary : AuthPalette.formBackground)
                         )
                     }
-                    .disabled(isLoading || email.isEmpty || (!isSignInMode && (username.isEmpty || fullName.isEmpty)))
-                    .opacity((email.isEmpty || (!isSignInMode && (username.isEmpty || fullName.isEmpty))) ? 0.5 : 1.0)
+                    .disabled(isLoading || !isFormValid)
+                    .opacity(isFormValid ? 1.0 : 0.5)
+                    
+                    // Forgot Password (sign-in only)
+                    if isSignInMode {
+                        Button {
+                            HapticFeedbackManager.shared.lightImpact()
+                            showForgotPassword = true
+                        } label: {
+                            Text("Forgot Password?")
+                                .font(.lexend(size: 13, weight: .regular))
+                                .foregroundColor(AuthPalette.primary)
+                                .underline()
+                        }
+                    }
                     
                     // OR Divider
                     HStack(spacing: 12) {
@@ -219,6 +381,12 @@ struct AuthView: View {
                             isSignInMode.toggle()
                         }
                         HapticFeedbackManager.shared.lightImpact()
+                        
+                        // Clear validation errors when switching modes
+                        passwordError = nil
+                        confirmPasswordError = nil
+                        usernameError = nil
+                        confirmPassword = ""
                     } label: {
                         HStack(spacing: 4) {
                             Text(isSignInMode ? "Don't have an account?" : "Already have an account?")
@@ -240,12 +408,17 @@ struct AuthView: View {
             }
             .frame(maxWidth: 500)
             .frame(maxWidth: .infinity)
+            }
         }
         .navigationBarHidden(true)
-        .alert("Authentication Error", isPresented: $showError) {
+        .onTapGesture {
+            // Dismiss keyboard when tapping outside
+            focusedField = nil
+        }
+        .alert(isSignInMode ? "Sign In Failed" : "Sign Up Failed", isPresented: $showError) {
             Button("OK", role: .cancel) { }
         } message: {
-            Text(errorMessage ?? "An unknown error occurred")
+            Text(errorMessage ?? "Something went wrong. Please try again.")
         }
         .sheet(isPresented: $showEmailVerification) {
             EmailVerificationView(
@@ -258,6 +431,13 @@ struct AuthView: View {
                 },
                 onDismiss: {
                     showEmailVerification = false
+                }
+            )
+        }
+        .sheet(isPresented: $showForgotPassword) {
+            ForgotPasswordView(
+                onDismiss: {
+                    showForgotPassword = false
                 }
             )
         }
@@ -281,31 +461,27 @@ struct AuthView: View {
     
     
     
-    private func handleSendEmailCode() {
+    // MARK: - Form Validation
+    
+    private var isFormValid: Bool {
+        guard !email.isEmpty, !password.isEmpty else { return false }
+        
+        if isSignInMode {
+            return true
+        } else {
+            return !username.isEmpty &&
+                   !fullName.isEmpty &&
+                   usernameError == nil &&
+                   passwordError == nil &&
+                   confirmPasswordError == nil &&
+                   password == confirmPassword
+        }
+    }
+    
+    // MARK: - Submit Handler
+    
+    private func handleSubmit() {
         guard !isLoading else { return }
-        
-        // Validate inputs
-        if !isSignInMode && (username.isEmpty || fullName.isEmpty) {
-            errorMessage = "Please fill in all fields"
-            showError = true
-            HapticFeedbackManager.shared.error()
-            return
-        }
-        
-        // Check username validity
-        if !isSignInMode && usernameError != nil {
-            errorMessage = usernameError
-            showError = true
-            HapticFeedbackManager.shared.error()
-            return
-        }
-        
-        if email.isEmpty {
-            errorMessage = "Please enter your email"
-            showError = true
-            HapticFeedbackManager.shared.error()
-            return
-        }
         
         // Basic email format validation
         let emailRegex = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
@@ -316,32 +492,123 @@ struct AuthView: View {
             return
         }
         
+        if isSignInMode {
+            handleSignIn()
+        } else {
+            handleSignUp()
+        }
+    }
+    
+    // MARK: - Sign In (Password)
+    
+    private func handleSignIn() {
         isLoading = true
-        verificationEmail = email
         
         Task {
-            // For sign-in mode, check if user exists and their auth provider
-            if isSignInMode {
-                let providerResult = await authService.checkUserProvider(email: email)
-                if case .success(let info) = providerResult {
-                    // If user exists and used OAuth (Google/Apple), prompt them to use that method
-                    if info.exists, let provider = info.provider, provider != .email {
-                        await MainActor.run {
-                            isLoading = false
-                            HapticFeedbackManager.shared.error()
-                            errorMessage = AuthError.oauthUserAttemptingEmail(provider: provider).localizedDescription
-                            showError = true
-                        }
-                        return
+            // Check if user signed up with OAuth
+            let providerResult = await authService.checkUserProvider(email: email)
+            if case .success(let info) = providerResult {
+                if info.exists, let provider = info.provider, provider != .email {
+                    await MainActor.run {
+                        isLoading = false
+                        HapticFeedbackManager.shared.error()
+                        errorMessage = AuthError.oauthUserAttemptingEmail(provider: provider).localizedDescription
+                        showError = true
                     }
+                    return
                 }
             }
             
-            let result = await authService.sendOTP(
+            let result = await authService.signInWithPassword(email: email, password: password)
+            
+            await MainActor.run {
+                isLoading = false
+                
+                switch result {
+                case .success:
+                    HapticFeedbackManager.shared.success()
+                    withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) {
+                        navigationManager.setRoot(to: .dashboard)
+                    }
+                    
+                case .failure(let error):
+                    HapticFeedbackManager.shared.error()
+                    errorMessage = error.localizedDescription
+                    showError = true
+                }
+            }
+        }
+    }
+    
+    // MARK: - Sign Up (Password + OTP Confirmation)
+    
+    private func handleSignUp() {
+        // Validate sign-up fields
+        if username.isEmpty || fullName.isEmpty {
+            errorMessage = "Please fill in all fields"
+            showError = true
+            HapticFeedbackManager.shared.error()
+            return
+        }
+        
+        if usernameError != nil {
+            errorMessage = usernameError
+            showError = true
+            HapticFeedbackManager.shared.error()
+            return
+        }
+        
+        if passwordError != nil {
+            errorMessage = passwordError
+            showError = true
+            HapticFeedbackManager.shared.error()
+            return
+        }
+        
+        if confirmPasswordError != nil {
+            errorMessage = confirmPasswordError
+            showError = true
+            HapticFeedbackManager.shared.error()
+            return
+        }
+        
+        isLoading = true
+        
+        Task {
+            // First check if user already exists
+            print("🔍 Checking if email exists: \(email)")
+            let providerResult = await authService.checkUserProvider(email: email)
+            print("🔍 Provider check result: \(providerResult)")
+            
+            if case .success(let info) = providerResult {
+                print("🔍 User exists: \(info.exists), Provider: \(String(describing: info.provider))")
+                if info.exists {
+                    print("⛔️ Email already exists - blocking signup")
+                    await MainActor.run {
+                        isLoading = false
+                        HapticFeedbackManager.shared.error()
+                        
+                        // If user exists with OAuth, show specific message
+                        if let provider = info.provider, provider != .email {
+                            errorMessage = AuthError.oauthUserAttemptingEmail(provider: provider).localizedDescription
+                        } else {
+                            // User exists with email - show appropriate error
+                            errorMessage = AuthError.emailAlreadyInUse.localizedDescription
+                        }
+                        showError = true
+                    }
+                    return
+                }
+            }
+            
+            print("✅ Email doesn't exist - proceeding with signup")
+            
+            // User doesn't exist, proceed with signup
+            let result = await authService.signUpWithPassword(
                 email: email,
-                shouldCreateUser: !isSignInMode,
-                username: isSignInMode ? nil : username,
-                fullName: isSignInMode ? nil : fullName
+                password: password,
+                username: username,
+                fullName: fullName
             )
             
             await MainActor.run {
@@ -350,11 +617,13 @@ struct AuthView: View {
                 switch result {
                 case .success:
                     HapticFeedbackManager.shared.success()
+                    // Set email for verification screen
+                    verificationEmail = email
+                    // Show OTP verification sheet for email confirmation
                     showEmailVerification = true
                     
                 case .failure(let error):
                     HapticFeedbackManager.shared.error()
-                    // Error is already mapped to user-friendly message via AuthErrorHandler
                     errorMessage = error.localizedDescription
                     showError = true
                 }
@@ -1000,8 +1269,12 @@ struct EmailVerificationView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showError = false
+    @State private var timeRemaining = 3000 // 50 minutes in seconds
+    @State private var canResend = false
+    @State private var isResending = false
     
     private let authService = SupabaseAuthService.shared
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     
     var body: some View {
         NavigationView {
@@ -1025,6 +1298,19 @@ struct EmailVerificationView: View {
                         .font(.lexend(size: 16, weight: .semibold))
                         .foregroundColor(AuthPalette.textPrimary)
                     
+                    // Countdown Timer
+                    if timeRemaining > 0 {
+                        Text("Code expires in \(formattedTime)")
+                            .font(.lexend(size: 14, weight: .medium))
+                            .foregroundColor(timeRemaining < 300 ? .red.opacity(0.9) : AuthPalette.textSecondary)
+                            .padding(.top, 4)
+                    } else {
+                        Text("Code expired")
+                            .font(.lexend(size: 14, weight: .medium))
+                            .foregroundColor(.red.opacity(0.9))
+                            .padding(.top, 4)
+                    }
+                    
                     // OTP Input
                     OTPInputView(code: $verificationCode)
                         .padding(.top, Layout.Spacing.lg)
@@ -1035,6 +1321,30 @@ struct EmailVerificationView: View {
                                 }
                             }
                         }
+                    
+                    // Resend OTP Button
+                    Button {
+                        HapticFeedbackManager.shared.lightImpact()
+                        Task {
+                            await resendOTP()
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if isResending {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                    .tint(AuthPalette.primary)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 13, weight: .medium))
+                            }
+                            Text(isResending ? "Sending..." : "Resend Code")
+                                .font(.lexend(size: 14, weight: .semibold))
+                        }
+                        .foregroundColor(canResend ? AuthPalette.primary : AuthPalette.textSecondary.opacity(0.5))
+                    }
+                    .disabled(!canResend || isResending)
+                    .padding(.top, 8)
                     
                     if isLoading {
                         ProgressView()
@@ -1065,8 +1375,8 @@ struct EmailVerificationView: View {
                         .cornerRadius(28)
                         .shadow(color: AuthPalette.appleShadow.opacity(0.28), radius: 18, x: 0, y: 14)
                 }
-                .disabled(isLoading || verificationCode.count != 6)
-                .opacity(verificationCode.count == 6 ? 1.0 : 0.6)
+                .disabled(isLoading || verificationCode.count != 6 || timeRemaining <= 0)
+                .opacity((verificationCode.count == 6 && timeRemaining > 0) ? 1.0 : 0.6)
                 .padding(.horizontal, Layout.Spacing.xxl)
                 .padding(.bottom, Layout.Spacing.xl)
             }
@@ -1080,13 +1390,57 @@ struct EmailVerificationView: View {
                     .foregroundColor(AuthPalette.textPrimary)
                 }
             }
-            .alert("Verification Error", isPresented: $showError) {
+            .alert("Verification Failed", isPresented: $showError) {
                 Button("OK", role: .cancel) { }
             } message: {
-                Text(errorMessage ?? "Invalid verification code")
+                Text(errorMessage ?? "Unable to verify code. Please try again.")
+            }
+            .onReceive(timer) { _ in
+                if timeRemaining > 0 {
+                    timeRemaining -= 1
+                }
+                // Allow resending after 60 seconds
+                if timeRemaining <= 2940 && !canResend {
+                    canResend = true
+                }
             }
             .onAppear {
                 // Focus will be handled by OTPInputView
+            }
+        }
+    }
+    
+    private var formattedTime: String {
+        let minutes = timeRemaining / 60
+        let seconds = timeRemaining % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+    
+    private func resendOTP() async {
+        guard !isResending else { return }
+        
+        await MainActor.run {
+            isResending = true
+        }
+        
+        // Call resend OTP service
+        let result = await authService.resendOTP(email: email)
+        
+        await MainActor.run {
+            isResending = false
+            
+            switch result {
+            case .success:
+                HapticFeedbackManager.shared.success()
+                // Reset timer
+                timeRemaining = 3000
+                canResend = false
+                verificationCode = ""
+                
+            case .failure(let error):
+                HapticFeedbackManager.shared.error()
+                errorMessage = error.localizedDescription
+                showError = true
             }
         }
     }
@@ -1225,6 +1579,188 @@ private struct DigitBox: View {
         .environmentObject(ThemeManager())
 }
 
+// MARK: - Forgot Password View
+
+struct ForgotPasswordView: View {
+    let onDismiss: () -> Void
+    
+    @State private var email = ""
+    @State private var isLoading = false
+    @State private var isSent = false
+    @State private var errorMessage: String?
+    @State private var showError = false
+    
+    private let authService = SupabaseAuthService.shared
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: Layout.Spacing.xl) {
+                Spacer()
+                
+                VStack(spacing: Layout.Spacing.lg) {
+                    Image(systemName: "lock.rotation")
+                        .font(.system(size: 60, weight: .regular))
+                        .foregroundColor(AuthPalette.appleGoldDark)
+                    
+                    Text("Reset Password")
+                        .font(.lexend(size: 28, weight: .bold))
+                        .foregroundColor(AuthPalette.textPrimary)
+                    
+                    if isSent {
+                        // Success state
+                        VStack(spacing: Layout.Spacing.md) {
+                            Text("Check your email")
+                                .font(.lexend(size: 16, weight: .medium))
+                                .foregroundColor(AuthPalette.textPrimary)
+                            
+                            Text("We sent a password reset link to")
+                                .font(.lexend(size: 14, weight: .regular))
+                                .foregroundColor(AuthPalette.textSecondary)
+                            
+                            Text(email)
+                                .font(.lexend(size: 14, weight: .semibold))
+                                .foregroundColor(AuthPalette.primary)
+                            
+                            Text("Follow the link in the email to set a new password.")
+                                .font(.lexend(size: 14, weight: .regular))
+                                .foregroundColor(AuthPalette.textSecondary)
+                                .multilineTextAlignment(.center)
+                        }
+                    } else {
+                        // Input state
+                        VStack(spacing: Layout.Spacing.md) {
+                            Text("Enter the email address associated with your account and we'll send you a link to reset your password.")
+                                .font(.lexend(size: 14, weight: .regular))
+                                .foregroundColor(AuthPalette.textSecondary)
+                                .multilineTextAlignment(.center)
+                            
+                            TextField("Email Address", text: $email)
+                                .font(.lexend(size: 15, weight: .regular))
+                                .foregroundColor(AuthPalette.textPrimary)
+                                .keyboardType(.emailAddress)
+                                .autocapitalization(.none)
+                                .autocorrectionDisabled()
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .fill(AuthPalette.inputBackground)
+                                )
+                                .padding(.top, Layout.Spacing.sm)
+                        }
+                    }
+                }
+                .padding(.horizontal, Layout.Spacing.xxl)
+                
+                Spacer()
+                
+                if isSent {
+                    Button {
+                        onDismiss()
+                    } label: {
+                        Text("Back to Sign In")
+                            .font(.lexend(size: 18, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 18)
+                            .background(
+                                LinearGradient(
+                                    colors: [AuthPalette.appleGoldLight, AuthPalette.appleGoldDark],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .cornerRadius(28)
+                            .shadow(color: AuthPalette.appleShadow.opacity(0.28), radius: 18, x: 0, y: 14)
+                    }
+                    .padding(.horizontal, Layout.Spacing.xxl)
+                    .padding(.bottom, Layout.Spacing.xl)
+                } else {
+                    Button {
+                        handleResetPassword()
+                    } label: {
+                        HStack {
+                            if isLoading {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .scaleEffect(0.8)
+                            } else {
+                                Text("Send Reset Link")
+                                    .font(.lexend(size: 18, weight: .semibold))
+                            }
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 18)
+                        .background(
+                            LinearGradient(
+                                colors: [AuthPalette.appleGoldLight, AuthPalette.appleGoldDark],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .cornerRadius(28)
+                        .shadow(color: AuthPalette.appleShadow.opacity(0.28), radius: 18, x: 0, y: 14)
+                    }
+                    .disabled(isLoading || email.isEmpty)
+                    .opacity(email.isEmpty ? 0.6 : 1.0)
+                    .padding(.horizontal, Layout.Spacing.xxl)
+                    .padding(.bottom, Layout.Spacing.xl)
+                }
+            }
+            .background(WarmGradientBackground().ignoresSafeArea())
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        onDismiss()
+                    }
+                    .foregroundColor(AuthPalette.textPrimary)
+                }
+            }
+            .alert("Reset Failed", isPresented: $showError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(errorMessage ?? "Unable to send reset link. Please try again.")
+            }
+        }
+    }
+    
+    private func handleResetPassword() {
+        guard !isLoading else { return }
+        
+        let emailRegex = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
+        guard email.range(of: emailRegex, options: .regularExpression) != nil else {
+            errorMessage = "Please enter a valid email address"
+            showError = true
+            HapticFeedbackManager.shared.error()
+            return
+        }
+        
+        isLoading = true
+        
+        Task {
+            do {
+                try await authService.resetPassword(email: email)
+                await MainActor.run {
+                    isLoading = false
+                    HapticFeedbackManager.shared.success()
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        isSent = true
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isLoading = false
+                    HapticFeedbackManager.shared.error()
+                    errorMessage = "Failed to send reset email. Please try again."
+                    showError = true
+                }
+            }
+        }
+    }
+}
+
 // Username validation function
 extension AuthView {
     func validateUsername(_ value: String) {
@@ -1250,5 +1786,56 @@ extension AuthView {
         }
         
         usernameError = nil
+    }
+    
+    func validatePassword(_ value: String) {
+        if value.isEmpty {
+            passwordError = nil
+            return
+        }
+        
+        // Minimum 6 characters (as per Supabase config)
+        if value.count < 6 {
+            passwordError = "Password must be at least 6 characters"
+            return
+        }
+        
+        // Check for lowercase letter
+        let hasLowercase = value.rangeOfCharacter(from: CharacterSet.lowercaseLetters) != nil
+        if !hasLowercase {
+            passwordError = "Password must contain a lowercase letter"
+            return
+        }
+        
+        // Check for uppercase letter
+        let hasUppercase = value.rangeOfCharacter(from: CharacterSet.uppercaseLetters) != nil
+        if !hasUppercase {
+            passwordError = "Password must contain an uppercase letter"
+            return
+        }
+        
+        // Check for digit
+        let hasDigit = value.rangeOfCharacter(from: CharacterSet.decimalDigits) != nil
+        if !hasDigit {
+            passwordError = "Password must contain a digit"
+            return
+        }
+        
+        // All requirements met
+        passwordError = nil
+    }
+    
+    func validateConfirmPassword(_ value: String) {
+        if value.isEmpty {
+            confirmPasswordError = nil
+            return
+        }
+        
+        if value != password {
+            confirmPasswordError = "Passwords do not match"
+            return
+        }
+        
+        confirmPasswordError = nil
     }
 }

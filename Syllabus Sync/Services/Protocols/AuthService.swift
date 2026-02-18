@@ -43,32 +43,41 @@ enum AuthError: LocalizedError {
     case otpExpired
     case rateLimitExceeded
     case oauthUserAttemptingEmail(provider: AuthProvider)
+    case weakPassword
+    case emailAlreadyInUse
+    case emailNotConfirmed
     
     var errorDescription: String? {
         switch self {
         case .cancelled:
             return "Authentication was cancelled"
         case .invalidCredentials:
-            return "Invalid email or password"
+            return "Incorrect email or password. Please try again."
         case .networkError:
             return "Unable to connect. Please check your internet connection."
         case .unknownError(let message):
             return message
         case .notAuthenticated:
-            return "User is not authenticated"
+            return "You are not signed in. Please sign in to continue."
         case .tokenExpired:
-            return "Session expired. Please sign in again."
+            return "Your session has expired. Please sign in again."
         case .userNotFound:
             return "No account found with this email. Please sign up first."
         case .invalidOTP:
-            return "Incorrect code. Please check and try again."
+            return "Incorrect verification code. Please check and try again."
         case .otpExpired:
-            return "This code has expired. Please request a new one."
+            return "This verification code has expired. Please request a new one."
         case .rateLimitExceeded:
             return "Too many attempts. Please wait a moment and try again."
         case .oauthUserAttemptingEmail(let provider):
             let providerName = provider.rawValue.capitalized
             return "This email uses \(providerName) Sign In. Please tap 'Continue with \(providerName)' below."
+        case .weakPassword:
+            return "Password must be at least 6 characters and contain uppercase, lowercase, and digits."
+        case .emailAlreadyInUse:
+            return "An account with this email already exists. Please sign in instead."
+        case .emailNotConfirmed:
+            return "Please verify your email before signing in."
         }
     }
 }
@@ -88,18 +97,13 @@ enum AuthErrorHandler {
     static func mapError(_ rawMessage: String) -> AuthError {
         let lowercased = rawMessage.lowercased()
         
-        // Check for invalid/wrong OTP FIRST (before expired)
-        // Supabase returns: "The code you provided is invalid" or "Invalid OTP"
-        if lowercased.contains("invalid") ||
-           lowercased.contains("wrong") ||
-           lowercased.contains("incorrect") {
-            return .invalidOTP
-        }
-        
-        // Check for expired OTP SECOND
-        // Supabase returns: "The token has expired"
-        if lowercased.contains("expired") {
-            return .otpExpired
+        // Check for invalid credentials FIRST (password auth)
+        // Supabase returns: "Invalid login credentials", "Invalid password", "Email not confirmed"
+        if lowercased.contains("invalid login") ||
+           lowercased.contains("invalid credentials") ||
+           lowercased.contains("invalid password") ||
+           lowercased.contains("invalid email or password") {
+            return .invalidCredentials
         }
         
         // User doesn't exist
@@ -107,6 +111,25 @@ enum AuthErrorHandler {
            lowercased.contains("user not found") ||
            lowercased.contains("no user found") {
             return .userNotFound
+        }
+        
+        // Email not confirmed
+        if lowercased.contains("email not confirmed") ||
+           lowercased.contains("confirm your email") {
+            return .emailNotConfirmed
+        }
+        
+        // Check for invalid/wrong OTP (for verification codes)
+        // This must come AFTER invalid credentials check
+        if (lowercased.contains("invalid") && (lowercased.contains("code") || lowercased.contains("otp") || lowercased.contains("token"))) ||
+           lowercased.contains("wrong code") ||
+           lowercased.contains("incorrect code") {
+            return .invalidOTP
+        }
+        
+        // Check for expired OTP/token
+        if lowercased.contains("expired") && (lowercased.contains("token") || lowercased.contains("code") || lowercased.contains("otp")) {
+            return .otpExpired
         }
         
         // Rate limiting
@@ -124,11 +147,19 @@ enum AuthErrorHandler {
             return .networkError
         }
         
-        // Invalid credentials (for password auth)
-        if lowercased.contains("invalid login") ||
-           lowercased.contains("invalid credentials") ||
-           lowercased.contains("invalid password") {
-            return .invalidCredentials
+        // Weak password
+        if lowercased.contains("weak password") ||
+           lowercased.contains("password should be") ||
+           (lowercased.contains("password") && lowercased.contains("at least") && lowercased.contains("characters")) {
+            return .weakPassword
+        }
+        
+        // Email already registered
+        if lowercased.contains("already registered") ||
+           lowercased.contains("already been registered") ||
+           lowercased.contains("user already registered") ||
+           lowercased.contains("already exists") {
+            return .emailAlreadyInUse
         }
         
         // Fallback - use a generic user-friendly message instead of raw error
@@ -158,10 +189,16 @@ protocol AuthService {
     /// Sign in with Apple
     func signInWithApple() async -> AuthResult
     
+    /// Sign up with email and password (triggers email confirmation OTP)
+    func signUpWithPassword(email: String, password: String, username: String, fullName: String) async -> Result<Void, AuthError>
+    
+    /// Sign in with email and password (direct login, no OTP)
+    func signInWithPassword(email: String, password: String) async -> AuthResult
+    
     /// Send OTP code to email for passwordless authentication
     func sendOTP(email: String, shouldCreateUser: Bool, username: String?, fullName: String?) async -> Result<Void, AuthError>
     
-    /// Verify OTP code and complete authentication
+    /// Verify OTP code and complete sign-up authentication
     func verifyOTP(email: String, token: String) async -> AuthResult
     
     /// Sign out current user

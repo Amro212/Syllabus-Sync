@@ -11,11 +11,14 @@ struct DashboardView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
     @EnvironmentObject var eventStore: EventStore
     @EnvironmentObject var importViewModel: ImportViewModel
+    @EnvironmentObject var themeManager: ThemeManager
     @StateObject private var errorHandler = ErrorHandler()
     @State private var isRefreshing = false
     @State private var showShimmer = false
     @State private var buttonScale: CGFloat = 1.0
     @State private var showingImportView = false
+    @State private var showingSocialHub = false
+    @State private var showingAdminDebug = false
     
     // Track if the user has ever added events to distinguish "New User" from "Caught Up"
     // We scope this to the specific user ID to prevent state leaking between accounts
@@ -69,10 +72,26 @@ struct DashboardView: View {
                             .foregroundColor(AppColors.textPrimary)
                         
                         Spacer()
-                        
-                        Image(systemName: "person.circle")
-                            .font(.lexend(size: 28, weight: .regular))
-                            .foregroundColor(AppColors.textPrimary)
+
+                        HStack(spacing: Layout.Spacing.md) {
+                            Button {
+                                HapticFeedbackManager.shared.lightImpact()
+                                showingSocialHub = true
+                            } label: {
+                                Image(systemName: "person.2.fill")
+                                    .font(.lexend(size: 22, weight: .regular))
+                                    .foregroundColor(AppColors.textPrimary)
+                            }
+
+                            Button {
+                                HapticFeedbackManager.shared.lightImpact()
+                                showingAdminDebug = true
+                            } label: {
+                                Image(systemName: "wrench.and.screwdriver.fill")
+                                    .font(.lexend(size: 22, weight: .regular))
+                                    .foregroundColor(.orange)
+                            }
+                        }
                     }
                     .padding(.horizontal, Layout.Spacing.md)
                     .padding(.bottom, Layout.Spacing.sm)
@@ -113,6 +132,22 @@ struct DashboardView: View {
                 .presentationDetents([.height(300)])
                 .presentationDragIndicator(.hidden)
                 .presentationCornerRadius(20)
+        }
+        .sheet(isPresented: $showingSocialHub) {
+            SocialHubView()
+                .presentationDetents([.fraction(0.93)])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(20)
+                .presentationBackground(.ultraThinMaterial)
+        }
+        .sheet(isPresented: $showingAdminDebug) {
+            AdminDebugView()
+                .environmentObject(eventStore)
+                .environmentObject(navigationManager)
+                .presentationDetents([.fraction(0.93)])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(20)
+                .presentationBackground(.ultraThinMaterial)
         }
     }
     

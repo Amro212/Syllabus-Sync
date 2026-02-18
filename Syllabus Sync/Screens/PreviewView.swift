@@ -9,8 +9,12 @@ import UIKit
 struct PreviewView: View {
     @EnvironmentObject var importViewModel: ImportViewModel
     @EnvironmentObject var eventStore: EventStore
+    @EnvironmentObject var themeManager: ThemeManager
+    @EnvironmentObject var navigationManager: AppNavigationManager
     @State private var selectedTab: PreviewTab = .events
     @State private var editingEvent: EventItem?
+    @State private var showingSocialHub = false
+    @State private var showingAdminDebug = false
 
     private var events: [EventItem] {
         let parsed = importViewModel.events
@@ -87,12 +91,28 @@ struct PreviewView: View {
                             .font(.titleL)
                             .fontWeight(.bold)
                             .foregroundColor(AppColors.textPrimary)
-                        
+
                         Spacer()
-                        
-                        Image(systemName: "person.circle")
-                            .font(.lexend(size: 28, weight: .regular))
-                            .foregroundColor(AppColors.textPrimary)
+
+                        HStack(spacing: Layout.Spacing.md) {
+                            Button {
+                                HapticFeedbackManager.shared.lightImpact()
+                                showingSocialHub = true
+                            } label: {
+                                Image(systemName: "person.2.fill")
+                                    .font(.lexend(size: 22, weight: .regular))
+                                    .foregroundColor(AppColors.textPrimary)
+                            }
+
+                            Button {
+                                HapticFeedbackManager.shared.lightImpact()
+                                showingAdminDebug = true
+                            } label: {
+                                Image(systemName: "wrench.and.screwdriver.fill")
+                                    .font(.lexend(size: 22, weight: .regular))
+                                    .foregroundColor(.orange)
+                            }
+                        }
                     }
                     .padding(.horizontal, Layout.Spacing.md)
                     .padding(.bottom, Layout.Spacing.sm)
@@ -119,6 +139,22 @@ struct PreviewView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(20)
+        }
+        .sheet(isPresented: $showingSocialHub) {
+            SocialHubView()
+                .presentationDetents([.fraction(0.93)])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(20)
+                .presentationBackground(.ultraThinMaterial)
+        }
+        .sheet(isPresented: $showingAdminDebug) {
+            AdminDebugView()
+                .environmentObject(eventStore)
+                .environmentObject(navigationManager)
+                .presentationDetents([.fraction(0.93)])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(20)
+                .presentationBackground(.ultraThinMaterial)
         }
     }
 

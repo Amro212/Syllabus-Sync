@@ -78,13 +78,13 @@ struct CustomTabBar: View {
             }
             .frame(maxWidth: .infinity)
             
-            // Settings Tab
+            // Profile Tab
             TabBarItem(
-                icon: "settings",
-                title: "Settings",
-                isSelected: navigationManager.selectedTabRoute == .settings
+                icon: "profile",
+                title: "Profile",
+                isSelected: navigationManager.selectedTabRoute == .profile
             ) {
-                navigationManager.switchTab(to: .settings)
+                navigationManager.switchTab(to: .profile)
             }
             .frame(maxWidth: .infinity)
         }
@@ -129,6 +129,7 @@ private struct TabBarItem: View {
         case "eye": return "eye" + (isSelected ? ".fill" : "")
         case "calendar_month": return "calendar"
         case "settings": return "gearshape" + (isSelected ? ".fill" : "")
+        case "profile": return "person.crop.circle" + (isSelected ? ".fill" : "")
         default: return "questionmark"
         }
     }

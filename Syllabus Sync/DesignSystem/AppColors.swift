@@ -14,10 +14,10 @@ struct AppColors {
     // MARK: - Background Colors
     
     /// Primary background color - main app background
-    /// Light: #f8f7f6, Dark: #211c11
+    /// Light: #F9F3E5, Dark: #272010
     static let background = Color.adaptive(
-        light: Color(hex: "f8f7f6"),
-        dark: Color(hex: "211c11")
+        light: Color(hex: "F9F3E5"),
+        dark: Color(hex: "272010")
     )
     
     /// Secondary background color - cards, sheets, elevated surfaces

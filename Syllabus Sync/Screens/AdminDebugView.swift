@@ -282,26 +282,29 @@ struct AdminDebugView: View {
     }
 
     private func performSignOut() async {
-        // CRITICAL: Clear all local data before signing out
+        // CRITICAL: Sign out from Supabase FIRST to invalidate the session.
+        // This prevents background fetches from re-populating local stores
+        // with the old user's data.
 
-        // 1. Clear Event Store
-        await MainActor.run {
-            eventStore.clearEvents()
-        }
-        print("✅ EventStore cleared")
-
-        // 2. Clear UserDefaults
-        if let bundleId = Bundle.main.bundleIdentifier {
-            UserDefaults.standard.removePersistentDomain(forName: bundleId)
-            print("✅ UserDefaults cleared")
-        }
-
-        // 3. Sign out from Supabase
+        // 1. Sign out from Supabase (invalidates JWT immediately)
         do {
             try await SupabaseAuthService.shared.signOut()
             print("✅ Signed out from Supabase")
         } catch {
             print("⚠️ Sign out error: \(error)")
+        }
+
+        // 2. Clear Event Store (safe now — any re-fetch will fail auth)
+        await MainActor.run {
+            eventStore.clearEvents()
+        }
+        print("✅ EventStore cleared")
+
+        // 3. Clear UserDefaults
+        if let bundleId = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: bundleId)
+            UserDefaults.standard.synchronize()
+            print("✅ UserDefaults cleared")
         }
 
         // 4. Navigate to auth screen

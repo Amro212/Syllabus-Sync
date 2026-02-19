@@ -337,9 +337,15 @@ final class ProfileViewModel: ObservableObject {
 
     func signOut() async {
         do {
-            // CRITICAL: Clear all local data before signing out
+            // CRITICAL: Sign out from Supabase FIRST to invalidate the session.
+            // This ensures no background fetch can re-populate local stores
+            // with the old user's data while we're clearing state.
 
-            // 1. Clear Event Store
+            // 1. Sign out from Supabase (invalidates JWT immediately)
+            try await authService.signOut()
+            print("✅ Signed out from Supabase")
+
+            // 2. Clear Event Store (safe now — any re-fetch will fail auth)
             if let store = eventStore {
                 await MainActor.run {
                     store.clearEvents()
@@ -347,15 +353,12 @@ final class ProfileViewModel: ObservableObject {
                 print("✅ EventStore cleared")
             }
 
-            // 2. Clear UserDefaults
+            // 3. Clear UserDefaults
             if let bundleId = Bundle.main.bundleIdentifier {
                 UserDefaults.standard.removePersistentDomain(forName: bundleId)
+                UserDefaults.standard.synchronize()
                 print("✅ UserDefaults cleared")
             }
-
-            // 3. Sign out from Supabase
-            try await authService.signOut()
-            print("✅ Signed out from Supabase")
 
             // 4. Navigate to auth screen
             await MainActor.run {
@@ -367,6 +370,16 @@ final class ProfileViewModel: ObservableObject {
             }
 
         } catch {
+            // Even if sign-out fails, still clear local data to prevent leakage
+            if let store = eventStore {
+                await MainActor.run {
+                    store.clearEvents()
+                }
+            }
+            if let bundleId = Bundle.main.bundleIdentifier {
+                UserDefaults.standard.removePersistentDomain(forName: bundleId)
+                UserDefaults.standard.synchronize()
+            }
             await MainActor.run {
                 showToastMessage("Failed to sign out: \(error.localizedDescription)")
             }

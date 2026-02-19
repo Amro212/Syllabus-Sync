@@ -2,11 +2,14 @@
 #
 # gitignore contributors: remember to update Global/Xcode.gitignore, Objective-C.gitignore & Swift.gitignore
 
-## User settings
+## User settings/files
 xcuserdata/
 notes.md
+tasks.md
+architecture.md
 /.agents
 /.agent
+/.github
 
 ## compatibility with Xcode 8 and earlier (ignoring not required starting Xcode 9)
 *.xcscmblueprint

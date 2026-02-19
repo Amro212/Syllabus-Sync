@@ -15,21 +15,18 @@ class SupabaseDataService: DataService {
     
     static let shared = SupabaseDataService()
     
-    private let supabase: SupabaseClient
+    /// Uses the same SupabaseClient as SupabaseAuthService to ensure
+    /// auth session state (JWT) is always in sync with data queries.
+    /// Having separate clients causes stale-session bugs where user A's
+    /// data leaks into user B's view after sign-out/sign-in.
+    private var supabase: SupabaseClient {
+        authService.supabase
+    }
     private let authService: SupabaseAuthService
     
     // MARK: - Initialization
     
     private init() {
-        guard let url = URL(string: SupabaseConfig.url) else {
-            fatalError("Invalid Supabase URL")
-        }
-        
-        self.supabase = SupabaseClient(
-            supabaseURL: url,
-            supabaseKey: SupabaseConfig.anonKey
-        )
-        
         self.authService = SupabaseAuthService.shared
     }
     
@@ -46,7 +43,7 @@ class SupabaseDataService: DataService {
     // MARK: - Course Operations
     
     func fetchCourses() async -> DataResult<[Course]> {
-        guard currentUserId != nil else {
+        guard let userId = currentUserId else {
             return .failure(error: .notAuthenticated)
         }
         
@@ -54,6 +51,7 @@ class SupabaseDataService: DataService {
             let courses: [SupabaseCourse] = try await supabase
                 .from("courses")
                 .select()
+                .eq("user_id", value: userId)
                 .order("code", ascending: true)
                 .execute()
                 .value
@@ -67,7 +65,7 @@ class SupabaseDataService: DataService {
     }
     
     func fetchCourse(byCode code: String) async -> DataResult<Course?> {
-        guard currentUserId != nil else {
+        guard let userId = currentUserId else {
             return .failure(error: .notAuthenticated)
         }
         
@@ -75,6 +73,7 @@ class SupabaseDataService: DataService {
             let courses: [SupabaseCourse] = try await supabase
                 .from("courses")
                 .select()
+                .eq("user_id", value: userId)
                 .eq("code", value: code)
                 .limit(1)
                 .execute()
@@ -161,7 +160,7 @@ class SupabaseDataService: DataService {
             return .failure(error: .invalidData("Invalid course ID"))
         }
         
-        guard currentUserId != nil else {
+        guard let userId = currentUserId else {
             return .failure(error: .notAuthenticated)
         }
         
@@ -170,6 +169,7 @@ class SupabaseDataService: DataService {
                 .from("courses")
                 .delete()
                 .eq("id", value: courseUUID)
+                .eq("user_id", value: userId)
                 .execute()
             
             return .success(data: ())
@@ -182,7 +182,7 @@ class SupabaseDataService: DataService {
     // MARK: - Event Operations
     
     func fetchEvents() async -> DataResult<[EventItem]> {
-        guard currentUserId != nil else {
+        guard let userId = currentUserId else {
             return .failure(error: .notAuthenticated)
         }
         
@@ -190,6 +190,7 @@ class SupabaseDataService: DataService {
             let events: [SupabaseEvent] = try await supabase
                 .from("events")
                 .select()
+                .eq("user_id", value: userId)
                 .order("start_date", ascending: true)
                 .execute()
                 .value
@@ -203,7 +204,7 @@ class SupabaseDataService: DataService {
     }
     
     func fetchEvents(forCourseCode courseCode: String) async -> DataResult<[EventItem]> {
-        guard currentUserId != nil else {
+        guard let userId = currentUserId else {
             return .failure(error: .notAuthenticated)
         }
         
@@ -211,6 +212,7 @@ class SupabaseDataService: DataService {
             let events: [SupabaseEvent] = try await supabase
                 .from("events")
                 .select()
+                .eq("user_id", value: userId)
                 .eq("course_code", value: courseCode)
                 .order("start_date", ascending: true)
                 .execute()
@@ -225,7 +227,7 @@ class SupabaseDataService: DataService {
     }
     
     func fetchEvents(from startDate: Date, to endDate: Date) async -> DataResult<[EventItem]> {
-        guard currentUserId != nil else {
+        guard let userId = currentUserId else {
             return .failure(error: .notAuthenticated)
         }
         
@@ -233,6 +235,7 @@ class SupabaseDataService: DataService {
             let events: [SupabaseEvent] = try await supabase
                 .from("events")
                 .select()
+                .eq("user_id", value: userId)
                 .gte("start_date", value: startDate.ISO8601Format())
                 .lte("start_date", value: endDate.ISO8601Format())
                 .order("start_date", ascending: true)
@@ -349,7 +352,7 @@ class SupabaseDataService: DataService {
             return .failure(error: .invalidData("Invalid event ID"))
         }
         
-        guard currentUserId != nil else {
+        guard let userId = currentUserId else {
             return .failure(error: .notAuthenticated)
         }
         
@@ -358,6 +361,7 @@ class SupabaseDataService: DataService {
                 .from("events")
                 .delete()
                 .eq("id", value: eventUUID)
+                .eq("user_id", value: userId)
                 .execute()
             
             return .success(data: ())
@@ -368,7 +372,7 @@ class SupabaseDataService: DataService {
     }
     
     func deleteEvents(forCourseCode courseCode: String) async -> DataResult<Void> {
-        guard currentUserId != nil else {
+        guard let userId = currentUserId else {
             return .failure(error: .notAuthenticated)
         }
         
@@ -376,6 +380,7 @@ class SupabaseDataService: DataService {
             try await supabase
                 .from("events")
                 .delete()
+                .eq("user_id", value: userId)
                 .eq("course_code", value: courseCode)
                 .execute()
             
@@ -389,7 +394,7 @@ class SupabaseDataService: DataService {
     // MARK: - Batch Operations
     
     func deleteAllData() async -> DataResult<Void> {
-        guard currentUserId != nil else {
+        guard let userId = currentUserId else {
             return .failure(error: .notAuthenticated)
         }
         
@@ -398,14 +403,14 @@ class SupabaseDataService: DataService {
             try await supabase
                 .from("events")
                 .delete()
-                .neq("id", value: UUID())  // Delete all records for this user (RLS handles filtering)
+                .eq("user_id", value: userId)
                 .execute()
             
             // Then delete all courses
             try await supabase
                 .from("courses")
                 .delete()
-                .neq("id", value: UUID())  // Delete all records for this user (RLS handles filtering)
+                .eq("user_id", value: userId)
                 .execute()
             
             return .success(data: ())

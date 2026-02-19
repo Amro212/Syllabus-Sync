@@ -106,7 +106,7 @@ struct CalendarView: View {
                                 }
                             }
                             .padding(.horizontal, Layout.Spacing.md)
-                            .padding(.bottom, 100)
+                            .padding(.bottom, 40)
                         }
                         .padding(.top, 4)
                     }

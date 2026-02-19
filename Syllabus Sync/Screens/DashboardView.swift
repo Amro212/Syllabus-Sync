@@ -38,6 +38,8 @@ struct DashboardView: View {
                         // New modular dashboard structure matching wireframe
                         // Always show the structure, even if empty
                         VStack(spacing: Layout.Spacing.xl) {
+                            greetingHeader
+                            
                             QuickInsightCardView(events: eventStore.events, isNewUser: !hasAddedEvents && eventStore.events.isEmpty)
                             
                             WeekAtGlanceView(events: eventStore.events, isNewUser: !hasAddedEvents && eventStore.events.isEmpty)
@@ -178,6 +180,47 @@ struct DashboardView: View {
                 isRefreshing = false
                 showShimmer = false
             }
+        }
+    }
+    
+    // MARK: - Greeting
+    
+    private var greetingHeader: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(timeBasedGreeting)
+                .font(.lexend(size: 24, weight: .bold))
+                .foregroundColor(AppColors.textPrimary)
+            Text(todayEventSummary)
+                .font(.lexend(size: 14, weight: .regular))
+                .foregroundColor(AppColors.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    
+    private var timeBasedGreeting: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        let timeGreeting: String
+        switch hour {
+        case 0..<12: timeGreeting = "Good morning"
+        case 12..<17: timeGreeting = "Good afternoon"
+        default: timeGreeting = "Good evening"
+        }
+        if let name = SupabaseAuthService.shared.currentUser?.displayName?
+            .components(separatedBy: " ").first, !name.isEmpty {
+            return "\(timeGreeting), \(name)!"
+        }
+        return "\(timeGreeting)!"
+    }
+    
+    private var todayEventSummary: String {
+        let todayEvents = eventStore.events.filter { Calendar.current.isDateInToday($0.start) }
+        switch todayEvents.count {
+        case 0:
+            return eventStore.events.isEmpty ? "Add your first course to get started." : "No events scheduled for today."
+        case 1:
+            return "You have 1 event today."
+        default:
+            return "You have \(todayEvents.count) events today."
         }
     }
 }

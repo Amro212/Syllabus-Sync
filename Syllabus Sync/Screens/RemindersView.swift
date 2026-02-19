@@ -29,6 +29,9 @@ struct RemindersView: View {
     // View Mode
     @State private var viewMode: ViewMode = .list
     
+    // Completion State (stored locally per user)
+    @State private var completedEventIds: Set<String> = []
+    
     // User State
     @AppStorage("hasAddedEvents") private var hasAddedEvents: Bool = false
     @State private var userSpecificHasAddedEvents: Bool = false
@@ -114,6 +117,7 @@ struct RemindersView: View {
         case tomorrow = "Tomorrow"
         case laterThisWeek = "Later This Week"
         case later = "Later"
+        case past = "Past"
         
         func contains(_ date: Date) -> Bool {
             let calendar = Calendar.current
@@ -131,8 +135,12 @@ struct RemindersView: View {
             case .later:
                 guard let weekEnd = calendar.date(byAdding: .day, value: 7, to: now) else { return false }
                 return date >= weekEnd
+            case .past:
+                return date < calendar.startOfDay(for: now)
             }
         }
+        
+        var isHistorical: Bool { self == .past }
     }
     
     /// Returns the effective date for display/sorting
@@ -299,7 +307,11 @@ struct RemindersView: View {
     
     @ViewBuilder
     private func reminderRow(for event: EventItem) -> some View {
-        ReminderCard(event: event, displayDate: effectiveDate(for: event))
+        let isPast = effectiveDate(for: event) < Calendar.current.startOfDay(for: Date())
+        let isCompleted = completedEventIds.contains(event.id)
+
+        ReminderCard(event: event, displayDate: effectiveDate(for: event), isCompleted: isCompleted)
+            .opacity(isCompleted ? 0.5 : (isPast ? 0.65 : 1.0))
             .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
@@ -318,7 +330,13 @@ struct RemindersView: View {
                 .tint(.blue)
             }
             .swipeActions(edge: .leading) {
-                 // Future: Mark Complete logic
+                Button {
+                    toggleCompletion(event)
+                } label: {
+                    Label(isCompleted ? "Undo" : "Done",
+                          systemImage: isCompleted ? "xmark.circle" : "checkmark.circle.fill")
+                }
+                .tint(isCompleted ? .orange : .green)
             }
     }
     
@@ -333,7 +351,7 @@ struct RemindersView: View {
                 } header: {
                     Text(section.rawValue)
                         .font(.system(.title2, design: .default, weight: .bold))
-                        .foregroundColor(AppColors.textPrimary)
+                        .foregroundColor(section.isHistorical ? Color.red.opacity(0.75) : AppColors.textPrimary)
                         .textCase(nil)
                         .padding(.leading, -4)
                 }
@@ -427,7 +445,7 @@ struct RemindersView: View {
                                 .cornerRadius(10)
                         }
 
-                    toggleButton
+                        toggleButton
                     }
 
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -575,6 +593,7 @@ struct RemindersView: View {
         }
         .task {
             loadUserPreference()
+            loadCompletedEvents()
             await eventStore.fetchEvents()
             if !eventStore.events.isEmpty {
                 updateUserPreference(true)
@@ -595,6 +614,32 @@ struct RemindersView: View {
         }
     }
     
+    private func toggleCompletion(_ event: EventItem) {
+        HapticFeedbackManager.shared.lightImpact()
+        if completedEventIds.contains(event.id) {
+            completedEventIds.remove(event.id)
+        } else {
+            completedEventIds.insert(event.id)
+        }
+        saveCompletedEvents()
+    }
+    
+    private func completedEventsKey() -> String? {
+        guard let userId = SupabaseAuthService.shared.currentUser?.id else { return nil }
+        return "completedEvents_\(userId)"
+    }
+    
+    private func loadCompletedEvents() {
+        guard let key = completedEventsKey() else { return }
+        let stored = UserDefaults.standard.stringArray(forKey: key) ?? []
+        completedEventIds = Set(stored)
+    }
+    
+    private func saveCompletedEvents() {
+        guard let key = completedEventsKey() else { return }
+        UserDefaults.standard.set(Array(completedEventIds), forKey: key)
+    }
+    
     private func loadUserPreference() {
         guard let userId = SupabaseAuthService.shared.currentUser?.id else { return }
         userSpecificHasAddedEvents = UserDefaults.standard.bool(forKey: "hasAddedEvents_\(userId)")
@@ -611,6 +656,7 @@ struct RemindersView: View {
 private struct ReminderCard: View {
     let event: EventItem
     let displayDate: Date
+    var isCompleted: Bool = false
     
     var eventColor: Color {
         switch event.type {
@@ -634,7 +680,8 @@ private struct ReminderCard: View {
                 HStack {
                     Text(event.title)
                         .font(.headline)
-                        .foregroundColor(AppColors.textPrimary)
+                        .foregroundColor(isCompleted ? AppColors.textSecondary : AppColors.textPrimary)
+                        .strikethrough(isCompleted, color: AppColors.textSecondary)
                         .lineLimit(1)
                     
                     // Repeat Badge

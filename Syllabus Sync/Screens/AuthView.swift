@@ -861,8 +861,8 @@ private enum AuthPalette {
     static let textPrimary = Color.white
     static let textSecondary = Color(red: 0.85, green: 0.85, blue: 0.85)
     
-    // Top: 0.235    0.188    0.078
-    static let backgroundTop = Color(red: 0.235, green: 0.188, blue: 0.078)
+    // Top: softened — was 0.235/0.188/0.078, now darker for a more subtle gradient
+    static let backgroundTop = Color(red: 0.13, green: 0.105, blue: 0.045)
     // Bottom: 0.035    0.039    0.020
     static let backgroundBottom = Color(red: 0.035, green: 0.039, blue: 0.020)
     

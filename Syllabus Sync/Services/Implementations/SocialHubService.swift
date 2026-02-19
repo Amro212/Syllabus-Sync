@@ -16,8 +16,12 @@ final class SocialHubService {
 
     private let supabase: SupabaseClient
 
+    /// Lowercased to match Supabase/PostgreSQL's lowercase UUID format.
+    /// Swift's UUID.uuidString returns uppercase, but Supabase stores and
+    /// returns UUIDs as lowercase. Without this, all Swift-side `==`
+    /// comparisons against Supabase-returned IDs silently fail.
     private var currentUserId: String? {
-        SupabaseAuthService.shared.currentUser?.id
+        SupabaseAuthService.shared.currentUser?.id.lowercased()
     }
 
     private init() {

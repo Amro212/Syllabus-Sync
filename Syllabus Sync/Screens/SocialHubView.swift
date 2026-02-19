@@ -552,7 +552,7 @@ struct SocialHubView: View {
     private func toastBanner(_ message: String) -> some View {
         Text(message)
             .font(.lexend(size: 14, weight: .medium))
-            .foregroundColor(.white)
+            .foregroundColor(AppColors.textPrimary)
             .padding(.horizontal, Layout.Spacing.lg)
             .padding(.vertical, Layout.Spacing.sm)
             .background(

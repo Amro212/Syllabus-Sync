@@ -147,9 +147,9 @@ struct ProfileView: View {
                         // Footer
                         Text("Version 1.0 (Beta)")
                             .font(.lexend(size: 12, weight: .regular))
-                            .foregroundColor(AppColors.textTertiary)
+                            .foregroundColor(AppColors.textSecondary)
                             .padding(.top, Layout.Spacing.lg)
-                            .padding(.bottom, Layout.Spacing.massive)
+                            .padding(.bottom, 100)
                     }
                     .padding(.top, Layout.Spacing.md)
                 }

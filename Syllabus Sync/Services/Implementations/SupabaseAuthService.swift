@@ -226,12 +226,16 @@ class SupabaseAuthService: NSObject, AuthService {
                 struct ProviderResponse: Decodable {
                     let exists: Bool
                     let provider: String?
+                    let emailConfirmed: Bool?
                 }
                 
                 let result = try JSONDecoder().decode(ProviderResponse.self, from: data)
                 let authProvider: AuthProvider? = result.provider.flatMap { AuthProvider(rawValue: $0) }
+                // Default confirmed=true when the field is absent (older server) so we don't
+                // wrongly unlock re-signup for fully verified accounts.
+                let isConfirmed = result.emailConfirmed ?? true
                 
-                return .success(UserProviderInfo(exists: result.exists, provider: authProvider))
+                return .success(UserProviderInfo(exists: result.exists, provider: authProvider, isEmailConfirmed: isConfirmed))
                 
             } catch {
                 // On network error, allow the flow to continue (fail open)

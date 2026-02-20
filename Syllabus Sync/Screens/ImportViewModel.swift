@@ -63,44 +63,43 @@ final class ImportViewModel: ObservableObject {
         }
         HapticFeedbackManager.shared.mediumImpact()
 
-        // Start the dynamic progress bar
-        startDynamicProgress()
+        // Kick off with an immediate tiny tick so the bar is visibly alive
+        updateProgress(to: 0.02, message: "Preparing document...")
 
         let preview = await extractor.firstPagePreview(from: url, maxDimension: 600)
         previewImage = preview
 
         do {
-            // Stage 1: PDF Upload (0-20%)
-            await progressToRange(0, 0.2, "Preparing document...")
-            if shouldCancelEarly() { return false }
-
-            // Stage 2: OCR extraction (20-50%)
+            // Stage 1: OCR extraction — crawl concurrently toward 0.47 while work runs
+            let crawl1 = startProgressCrawl(toward: 0.47, message: "Reading document...")
+            if shouldCancelEarly() { crawl1.cancel(); return false }
             let structured = try await extractor.extractStructured(from: url)
+            crawl1.cancel()
             extractedPlainText = structured.plain
             extractedTSV = structured.tsv
-            await progressToRange(0.2, 0.5, "Processing document...")
+            await snapProgress(to: 0.5, message: "Document ready")
             if shouldCancelEarly() { return false }
 
             guard let tsv = extractedTSV, !tsv.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw SyllabusParserError.emptyPayload
             }
 
-            // Stage 3: Preprocessing (50-70%)
-            await progressToRange(0.5, 0.7, "Analyzing content...")
-            if shouldCancelEarly() { return false }
-
-            // Stage 4: AI parsing (70-95%)
+            // Stage 2: AI parsing — crawl concurrently toward 0.92 while work runs
             parserInputText = tsv
             preprocessedParserInputText = nil
+            let crawl2 = startProgressCrawl(toward: 0.92, message: "Analyzing content...")
+            if shouldCancelEarly() { crawl2.cancel(); return false }
             let events = try await parser.parse(text: tsv)
+            crawl2.cancel()
             if shouldCancelEarly() { return false }
 
-            // Stage 5: Final merge & persist (95-100%)
+            // Stage 3: Final merge & persist (95-100%)
             self.events = events
-            
+            await snapProgress(to: 0.95, message: "Saving events...")
+
             // Save events to Supabase
             await eventStore.autoApprove(events: events)
-            
+
             // Extract and save courses from events
             let uniqueCourseCodes = Set(events.map { $0.courseCode })
             for courseCode in uniqueCourseCodes {
@@ -110,7 +109,7 @@ final class ImportViewModel: ObservableObject {
                     _ = await courseRepository.saveCourse(course)
                 }
             }
-            
+
             preprocessedParserInputText = parser.latestPreprocessedText
             diagnosticsString = buildDiagnosticsString(from: parser.latestDiagnostics)
             rawAIResponse = parser.rawResponse
@@ -174,37 +173,37 @@ final class ImportViewModel: ObservableObject {
 
     // MARK: - Dynamic Progress System
 
-    private func startDynamicProgress() {
-        progressTask = Task {
-            // Start with immediate progress to show activity
-            await updateProgress(to: 0.02, message: "Starting import...")
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
+    /// Starts a background Task that crawls progress from its current value toward
+    /// `ceiling` using exponential decay — large steps first, tiny steps near the top.
+    /// This produces organic-feeling, variable-speed motion that naturally decelerates
+    /// without ever touching the ceiling.
+    /// The caller **must** cancel the returned Task once the real work completes.
+    @discardableResult
+    private func startProgressCrawl(toward ceiling: Double, message: String) -> Task<Void, Never> {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                let gap = ceiling - self.progress
+                guard gap > 0.005 else {
+                    // Hovering just below the ceiling — hold position
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    continue
+                }
+                // Each step consumes a random fraction of the remaining gap.
+                // Result: fast at the start, exponentially slower near the ceiling.
+                let step = gap * Double.random(in: 0.07...0.17)
+                self.updateProgress(to: min(self.progress + step, ceiling - 0.004), message: message)
+                // Randomise delay too so consecutive ticks never feel rhythmic.
+                let delay = Double.random(in: 0.22...0.52)
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
         }
     }
 
-    private func progressToRange(_ startRange: Double, _ endRange: Double, _ finalMessage: String) async {
-        let range = endRange - startRange
-        let steps = Int.random(in: 8...15) // 8-15 steps per stage
-        let stepSize = range / Double(steps)
-
-        for step in 0...steps {
-            guard !Task.isCancelled else { return }
-            let progress = startRange + (stepSize * Double(step))
-
-            if step == steps {
-                // Final step - use the provided message
-                updateProgress(to: progress, message: finalMessage)
-            } else {
-                // Intermediate steps - use generic messages
-                let messages = ["Processing...", "Analyzing...", "Working..."]
-                let message = messages[step % messages.count]
-                updateProgress(to: progress, message: message)
-            }
-
-            // Random delay between steps (0.1-0.3 seconds)
-            let delay = Double.random(in: 0.1...0.3)
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-        }
+    /// Snaps progress to an exact value with a quick animation, then settles briefly.
+    private func snapProgress(to value: Double, message: String) async {
+        updateProgress(to: value, message: message)
+        try? await Task.sleep(nanoseconds: 120_000_000) // ~0.12 s settle
     }
 
     private func completeProgress(_ message: String) async {

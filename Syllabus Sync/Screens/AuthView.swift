@@ -581,23 +581,35 @@ struct AuthView: View {
             print("🔍 Provider check result: \(providerResult)")
             
             if case .success(let info) = providerResult {
-                print("🔍 User exists: \(info.exists), Provider: \(String(describing: info.provider))")
+                print("🔍 User exists: \(info.exists), Provider: \(String(describing: info.provider)), Confirmed: \(info.isEmailConfirmed)")
                 if info.exists {
-                    print("⛔️ Email already exists - blocking signup")
-                    await MainActor.run {
-                        isLoading = false
-                        HapticFeedbackManager.shared.error()
-                        
-                        // If user exists with OAuth, show specific message
-                        if let provider = info.provider, provider != .email {
-                            errorMessage = AuthError.oauthUserAttemptingEmail(provider: provider).localizedDescription
-                        } else {
-                            // User exists with email - show appropriate error
-                            errorMessage = AuthError.emailAlreadyInUse.localizedDescription
+                    // Unverified account: user signed up before but cancelled the OTP modal.
+                    // The original OTP is still valid — skip sending a new email to avoid rate
+                    // limits and just surface the verification screen directly.
+                    // The resend button inside that screen handles the expired-OTP case.
+                    if !info.isEmailConfirmed && info.provider == .email {
+                        print("ℹ️ Unverified account — showing OTP screen without re-sending email")
+                        await MainActor.run {
+                            isLoading = false
+                            HapticFeedbackManager.shared.success()
+                            verificationEmail = email
+                            showEmailVerification = true
                         }
-                        showError = true
+                        return
+                    } else {
+                        print("⛔️ Email already exists (verified) - blocking signup")
+                        await MainActor.run {
+                            isLoading = false
+                            HapticFeedbackManager.shared.error()
+                            if let provider = info.provider, provider != .email {
+                                errorMessage = AuthError.oauthUserAttemptingEmail(provider: provider).localizedDescription
+                            } else {
+                                errorMessage = AuthError.emailAlreadyInUse.localizedDescription
+                            }
+                            showError = true
+                        }
+                        return
                     }
-                    return
                 }
             }
             

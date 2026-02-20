@@ -86,6 +86,10 @@ enum AuthError: LocalizedError {
 struct UserProviderInfo {
     let exists: Bool
     let provider: AuthProvider?
+    /// False when the account was registered but the OTP was never verified.
+    /// Defaults to true so that fallback/error paths conservatively treat users as verified
+    /// and avoid wrongly re-opening the OTP screen for fully confirmed accounts.
+    var isEmailConfirmed: Bool = true
 }
 
 /// Utility for mapping raw Supabase errors to user-friendly AuthError types
@@ -135,7 +139,9 @@ enum AuthErrorHandler {
         // Rate limiting
         if lowercased.contains("rate limit") ||
            lowercased.contains("too many requests") ||
-           lowercased.contains("email rate limit") {
+           lowercased.contains("email rate limit") ||
+           lowercased.contains("you can only request") ||
+           lowercased.contains("over_email_send_rate_limit") {
             return .rateLimitExceeded
         }
         

@@ -592,6 +592,7 @@ export default {
 					const adminData = await adminResponse.json() as {
 						users?: Array<{
 							email?: string;
+							email_confirmed_at?: string | null;
 							app_metadata?: {
 								provider?: string;
 								providers?: string[];
@@ -604,12 +605,13 @@ export default {
 					const user = users.find(u => u.email?.toLowerCase() === email);
 
 					if (!user) {
-						return json({ exists: false, provider: null });
+						return json({ exists: false, provider: null, emailConfirmed: false });
 					}
 
 					// Get the provider from app_metadata
 					// Prefer the primary provider, fallback to first in providers array
 					const provider = user.app_metadata?.provider || user.app_metadata?.providers?.[0] || 'email';
+					const emailConfirmed = !!user.email_confirmed_at;
 
 					logRequest(env, 'info', {
 						ts: nowIso(),
@@ -620,9 +622,10 @@ export default {
 						durationMs: Date.now() - startedAt,
 						userExists: true,
 						provider,
+						emailConfirmed,
 					});
 
-					return json({ exists: true, provider });
+					return json({ exists: true, provider, emailConfirmed });
 
 				} catch (error) {
 					logError(env, {

@@ -34,6 +34,37 @@ struct AISyllabusScanModal: View {
                     }
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            } else if let errorState = importViewModel.errorState {
+                // Error State
+                ScanErrorView(
+                    errorState: errorState,
+                    isCourseCodeMissing: importViewModel.isCourseCodeMissing,
+                    onRetry: {
+                        Task {
+                            await importViewModel.retryLastImport()
+                        }
+                    },
+                    onSubmitCourseCode: { courseCode in
+                        Task {
+                            let success = await importViewModel.retryWithCourseCode(courseCode)
+                            if success && !Task.isCancelled {
+                                dismiss()
+                                if importViewModel.needsReview {
+                                    navigationManager.showParseReview = true
+                                } else {
+                                    navigationManager.switchTab(to: .preview)
+                                }
+                            }
+                        }
+                    },
+                    onDismiss: {
+                        HapticFeedbackManager.shared.lightImpact()
+                        importViewModel.errorState = nil
+                        importViewModel.isCourseCodeMissing = false
+                        dismiss()
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
             } else {
                 // Upload State
                 uploadContentView
@@ -41,6 +72,7 @@ struct AISyllabusScanModal: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: importViewModel.isProcessing)
+        .animation(.easeInOut(duration: 0.3), value: importViewModel.errorState?.id)
         .fileImporter(
             isPresented: $isShowingFilePicker,
             allowedContentTypes: [.pdf],
@@ -195,6 +227,166 @@ struct AISyllabusScanModal: View {
             }
             await MainActor.run { currentImportTask = nil }
         }
+    }
+}
+
+// MARK: - Scan Error View
+
+private struct ScanErrorView: View {
+    let errorState: ImportErrorState
+    let isCourseCodeMissing: Bool
+    let onRetry: () -> Void
+    let onSubmitCourseCode: (String) -> Void
+    let onDismiss: () -> Void
+
+    @State private var courseCodeInput: String = ""
+    @FocusState private var isTextFieldFocused: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Drag handle
+            RoundedRectangle(cornerRadius: 3)
+                .fill(Color.gray.opacity(0.5))
+                .frame(width: 40, height: 5)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
+
+            // Icon
+            Image(systemName: isCourseCodeMissing ? "text.magnifyingglass" : "exclamationmark.triangle")
+                .font(.lexend(size: 32, weight: .bold))
+                .foregroundColor(AppColors.accent)
+                .padding(.bottom, Layout.Spacing.sm)
+
+            // Title
+            Text(isCourseCodeMissing ? "Course Code Needed" : "Something Went Wrong")
+                .font(.title3)
+                .fontWeight(.bold)
+                .foregroundColor(AppColors.textPrimary)
+                .padding(.bottom, 4)
+
+            // Message
+            Text(errorState.message)
+                .font(.subheadline)
+                .foregroundColor(AppColors.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+                .padding(.bottom, Layout.Spacing.lg)
+
+            if isCourseCodeMissing {
+                courseCodeSection
+            } else {
+                defaultButtons
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            if isCourseCodeMissing {
+                isTextFieldFocused = true
+            }
+        }
+    }
+
+    // MARK: - Course Code Input
+
+    private var courseCodeSection: some View {
+        VStack(spacing: Layout.Spacing.sm) {
+            VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
+                Text("Course Code")
+                    .font(.footnote.weight(.medium))
+                    .foregroundColor(AppColors.textSecondary)
+                    .padding(.leading, 4)
+
+                TextField("e.g. CS 101, MATH-152", text: $courseCodeInput)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                    .font(.body)
+                    .padding(.horizontal, Layout.Spacing.md)
+                    .frame(height: 48)
+                    .background(AppColors.background)
+                    .cornerRadius(Layout.CornerRadius.md)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
+                            .stroke(AppColors.border, lineWidth: 1)
+                    )
+                    .focused($isTextFieldFocused)
+                    .submitLabel(.go)
+                    .onSubmit { submitCourseCode() }
+            }
+            .padding(.horizontal, 32)
+
+            // Submit button
+            Button(action: submitCourseCode) {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.clockwise")
+                    Text("Parse with Course Code")
+                }
+                .font(.body.weight(.semibold))
+                .foregroundColor(AppColors.background)
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                .background(
+                    RoundedRectangle(cornerRadius: 24)
+                        .fill(courseCodeInput.trimmingCharacters(in: .whitespaces).isEmpty
+                            ? AppColors.accent.opacity(0.4)
+                            : AppColors.accent)
+                )
+            }
+            .disabled(courseCodeInput.trimmingCharacters(in: .whitespaces).isEmpty)
+            .padding(.horizontal, 32)
+
+            // Cancel
+            Button(action: onDismiss) {
+                Text("Cancel")
+                    .font(.body)
+                    .fontWeight(.medium)
+                    .foregroundColor(AppColors.textSecondary)
+                    .frame(width: 120, height: 44)
+            }
+            .padding(.top, Layout.Spacing.xs)
+        }
+    }
+
+    // MARK: - Default Buttons
+
+    private var defaultButtons: some View {
+        HStack(spacing: 16) {
+            Button(action: onDismiss) {
+                Text("Cancel")
+                    .font(.body)
+                    .fontWeight(.medium)
+                    .foregroundColor(AppColors.textPrimary)
+                    .frame(width: 100, height: 44)
+                    .background(
+                        RoundedRectangle(cornerRadius: 22)
+                            .stroke(AppColors.border, lineWidth: 1)
+                    )
+            }
+
+            Button(action: onRetry) {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.clockwise")
+                    Text("Retry")
+                }
+                .font(.body)
+                .fontWeight(.semibold)
+                .foregroundColor(AppColors.background)
+                .frame(width: 120, height: 44)
+                .background(
+                    RoundedRectangle(cornerRadius: 22)
+                        .fill(AppColors.accent)
+                )
+            }
+        }
+        .padding(.bottom, 20)
+    }
+
+    private func submitCourseCode() {
+        let trimmed = courseCodeInput.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        HapticFeedbackManager.shared.mediumImpact()
+        onSubmitCourseCode(trimmed)
     }
 }
 

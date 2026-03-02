@@ -24,6 +24,8 @@ final class ImportViewModel: ObservableObject {
     @Published var rawAIResponse: String? = nil  // Raw JSON response from AI for debugging
     @Published var needsReview: Bool = false  // True when parsed events contain missing dates
     @Published var parsedEventsForReview: [EventItem] = []  // Holds events pending user review
+    /// When `true`, the server could not detect a course code and the user must supply one.
+    @Published var isCourseCodeMissing: Bool = false
 
     private let extractor: PDFTextExtractor
     private let parser: SyllabusParser
@@ -148,9 +150,83 @@ final class ImportViewModel: ObservableObject {
 
         await MainActor.run {
             errorState = nil
+            isCourseCodeMissing = false
         }
 
         _ = await importSyllabus(from: url)
+    }
+
+    /// Re-runs the parse stage with the user-provided course code.
+    /// Reuses the already-extracted TSV text, skipping OCR.
+    @discardableResult
+    func retryWithCourseCode(_ courseCode: String) async -> Bool {
+        guard !isProcessing else { return false }
+        let trimmed = courseCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !trimmed.isEmpty else { return false }
+
+        guard let tsv = extractedTSV ?? parserInputText, !tsv.isEmpty else {
+            // Fallback: re-run full import — shouldn't normally happen
+            await retryLastImport()
+            return false
+        }
+
+        currentRequestID = UUID().uuidString
+        cancellationRequested = false
+        errorState = nil
+        isCourseCodeMissing = false
+
+        withAnimation(.easeInOut(duration: 0.3)) {
+            isProcessing = true
+        }
+        HapticFeedbackManager.shared.mediumImpact()
+        updateProgress(to: 0.50, message: "Re-parsing with course code...")
+
+        do {
+            let crawl = startProgressCrawl(toward: 0.92, message: "Analyzing content...")
+            let events = try await parser.parse(text: tsv, courseCode: trimmed)
+            crawl.cancel()
+            if shouldCancelEarly() { return false }
+
+            self.events = events
+            await snapProgress(to: 0.95, message: "Saving events...")
+
+            let hasDatelessEvents = events.contains { $0.needsDate }
+
+            if hasDatelessEvents {
+                parsedEventsForReview = events
+                needsReview = true
+            } else {
+                await eventStore.autoApprove(events: events)
+
+                let uniqueCourseCodes = Set(events.map { $0.courseCode })
+                for code in uniqueCourseCodes {
+                    if await courseRepository.fetchCourse(byCode: code) == nil {
+                        let course = Course(id: UUID().uuidString, code: code)
+                        _ = await courseRepository.saveCourse(course)
+                    }
+                }
+            }
+
+            rawAIResponse = parser.rawResponse
+            preprocessedParserInputText = parser.latestPreprocessedText
+            diagnosticsString = buildDiagnosticsString(from: parser.latestDiagnostics)
+            await completeProgress(hasDatelessEvents ? "Review required" : "Complete!")
+            HapticFeedbackManager.shared.success()
+
+            withAnimation(.easeInOut(duration: 0.3)) {
+                isProcessing = false
+            }
+            progressTask = nil
+            cancellationRequested = false
+            currentRequestID = nil
+            return true
+        } catch is CancellationError {
+            handleImportCancellation()
+            return false
+        } catch {
+            handleImportError(error)
+            return false
+        }
     }
 
     func clearResults() {
@@ -166,6 +242,7 @@ final class ImportViewModel: ObservableObject {
 
     private func resetStateForNewImport() {
         errorState = nil
+        isCourseCodeMissing = false
         clearResults()
         progress = 0
         statusMessage = "Ready"
@@ -354,6 +431,9 @@ final class ImportViewModel: ObservableObject {
                     return ("We're hitting parsing limits. Try again in \(retryAfter) seconds.", .server)
                 }
                 return (parserError.errorDescription ?? "We're hitting parsing limits. Please try again shortly.", .server)
+            case .courseCodeMissing:
+                isCourseCodeMissing = true
+                return (parserError.errorDescription ?? "We couldn't find a course code in this syllabus.", .validation)
             }
         }
 

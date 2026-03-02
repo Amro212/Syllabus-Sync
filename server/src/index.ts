@@ -344,7 +344,10 @@ export default {
 							durationMs: Date.now() - startedAt,
 							error: 'Course code could not be determined from syllabus text',
 						});
-						return new Response(JSON.stringify({ error: 'Unable to determine courseCode from syllabus text.' }), {
+						return new Response(JSON.stringify({
+							error: 'Unable to determine course code from syllabus text. Please provide it manually.',
+							code: 'COURSE_CODE_MISSING',
+						}), {
 							status,
 							headers: { 'Content-Type': 'application/json', ...corsHeaders },
 						});

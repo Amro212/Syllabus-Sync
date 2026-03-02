@@ -27,6 +27,14 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
     }
 
     func parse(text: String) async throws -> [EventItem] {
+        try await performParse(text: text, courseCode: nil)
+    }
+
+    func parse(text: String, courseCode: String) async throws -> [EventItem] {
+        try await performParse(text: text, courseCode: courseCode)
+    }
+
+    private func performParse(text: String, courseCode: String?) async throws -> [EventItem] {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             diagnostics = nil
@@ -35,7 +43,7 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
 
         let timezoneIdentifier = TimeZone.current.identifier
         preprocessedText = nil
-        let payload = ParseRequestPayload(text: trimmed, timezone: timezoneIdentifier)
+        let payload = ParseRequestPayload(text: trimmed, timezone: timezoneIdentifier, courseCode: courseCode)
         let body = try encoder.encode(payload)
         var request = APIRequest(path: "/parse", method: .post, headers: [:], body: body, timeout: 90)
         request.headers["Content-Type"] = "application/json"
@@ -83,6 +91,8 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
                 switch status {
                 case 401:
                     return .unauthorized
+                case 422 where message?.contains("course code") == true:
+                    return .courseCodeMissing
                 case 429:
                     return .rateLimited(retryAfter: retryAfter)
                 default:
@@ -124,4 +134,5 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
 private struct ParseRequestPayload: Encodable {
     let text: String
     let timezone: String
+    let courseCode: String?
 }

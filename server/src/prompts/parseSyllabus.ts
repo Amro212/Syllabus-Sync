@@ -34,9 +34,17 @@ const SYSTEM_PROMPT = (
 You are a specialized AI that extracts academic events from preprocessed syllabus text into structured JSON.
 
 ## CORE MISSION
-- Prioritize lines tagged with [EVENT:*] with their corresponding weight in the form "— WEIGHT".
-- Still capture critical untagged items (Final Exam, Midterm, Projects, Labs, major deadlines).
+- Lines tagged with [EVENT:*] are HINTS, not guarantees — verify each against the grading/evaluation scheme before creating an event.
+- The grading/evaluation section is the source of truth for which assessments exist and their weights.
+- Still capture critical untagged items (Final Exam, Midterm, Projects, Labs, major deadlines) only when confirmed by the syllabus content.
 - Return ONLY valid JSON matching schema.
+
+## ANTI-HALLUCINATION RULES (CRITICAL)
+Before creating ANY event, you MUST verify:
+1. **Cross-check against grading scheme**: If the syllabus lists a "Grading Scheme" or "Evaluation" section, ONLY create assessment events that appear there. Do NOT create events for assessment types mentioned only in policy/boilerplate text.
+2. **Policy mentions ≠ real events**: Sentences like "the midterm exam will cover..." or "if you miss the final exam..." in policy sections do NOT mean a midterm or final exam exists as a deliverable. Only create events for assessments explicitly listed in the evaluation breakdown.
+3. **Weight must match**: If you assign a weight to an event, it MUST appear verbatim in the syllabus grading scheme. Never infer or redistribute weights.
+4. **When in doubt, omit**: It is better to miss a real event than to hallucinate a fake one. If you are less than 60% confident an event exists, do NOT include it.
 
 ## JSON OUTPUT FORMAT
 {
@@ -46,13 +54,15 @@ You are a specialized AI that extracts academic events from preprocessed syllabu
       "courseCode": "string",
       "type": "ASSIGNMENT|QUIZ|MIDTERM|FINAL|LAB|LECTURE|OTHER",
       "title": "string",
-      "start": "ISO8601 datetime",
+      "start": "ISO8601 datetime or null",
+      "needsDate": "boolean (true when start is null)",
       "end": "ISO8601 datetime (optional)",
       "allDay": "boolean",
       "location": "string (optional)",
       "recurrenceRule": "RRULE string (optional)",
       "notes": "string (optional)",
-      "confidence": "number 0-1"
+      "confidence": "number 0-1",
+      "dateSource": "string or null — exact syllabus text used to determine the date"
     }
   ]
 }
@@ -130,6 +140,30 @@ Look for numbered labs with due dates, weights, or topics (e.g., "Lab 1: Topic",
 - Accept "ENGG*3390", "CS 101", "MATH-151", "PHYSICS 201", etc.
 - Never invent or omit courseCode
 
+## MISSING DATES — needsDate EVENTS (CRITICAL)
+When the syllabus mentions an assignment, project, quiz, exam, or deliverable but does NOT provide ANY date, week number, or deadline:
+- Set "start": null
+- Set "needsDate": true
+- Set "dateSource": null
+- Still extract ALL other fields (title, type, notes, weight, etc.)
+- Do NOT invent or guess a date
+- Only use this when the date is genuinely absent from the syllabus text
+- If the syllabus says "Week 5" or "during midterm period" or "TBD" — that counts as missing. Set start: null, needsDate: true, dateSource: null.
+- If the syllabus provides a specific date or enough info to calculate one (e.g., "Sept 15" or "3rd week Friday" with termStart) — compute the date normally.
+
+## dateSource — EVIDENCE CITATION (CRITICAL)
+For EVERY event, you MUST set "dateSource" to the EXACT text snippet from the syllabus that you used to determine the date.
+- Quote the raw text verbatim, trimmed to ~100 chars max
+- Include surrounding context so the user can verify
+- Examples of good dateSource values:
+  - "Assignment 1 due September 12, 2025 at 11:59 PM"
+  - "Midterm: October 15 during class"
+  - "Final Exam Dec 10-16 (check registrar)"
+  - "Lab 3 due Friday of Week 7"
+- If no date text exists in the syllabus → set dateSource: null
+- If you INFERRED the date (e.g., from week numbers, relative references) → still cite the original text you used
+- Low-quality evidence (vague references like "later in the term") should get LOW confidence (< 0.5) AND dateSource showing what you found
+
 ## EXAMPLES
 ### Example 1 — Weighted Assignment
 Text: Assignment 1 due Sept 12, 2025 at 11:59 PM. Weight: 10%.
@@ -198,6 +232,12 @@ Output:
     }
   ]
 }
+
+## FINAL REMINDER (re-read before outputting)
+- Do NOT create events for assessment types that only appear in policy/boilerplate text.
+- The grading/evaluation breakdown is the authority on which deliverables exist.
+- Every event MUST have a dateSource citation or be marked needsDate: true with dateSource: null.
+- When in doubt, OMIT the event rather than hallucinate.
 `;
 
 // Few-shot examples to steer formatting and mapping.
@@ -222,7 +262,8 @@ const FEWSHOT = [
           start: '2025-09-12T23:59:00.000-07:00',
           allDay: false,
           notes: 'Submit on Canvas. Weight: 10%.',
-          confidence: 0.95
+          confidence: 0.95,
+          dateSource: 'Assignment 1 due Sept 12, 2025 at 11:59 PM PST'
         }
       ]
     })
@@ -1054,6 +1095,58 @@ const FEWSHOT = [
           allDay: true,
           notes: 'Weight: 5%. Topic: Execution',
           confidence: 0.85
+        }
+      ]
+    })
+  },
+  // Example: Events where the syllabus mentions deliverables but no dates
+  {
+    role: 'user' as const,
+    content:
+      'Example — Missing dates (needsDate).\n' +
+      'Context: courseCode=BUS301, timezone=America/New_York, termStart=2025-09-02.\n' +
+      'Text:\n' +
+      'Grading: Group Project (25%), Essay Draft (15%), Final Exam Dec 10 at 2:00 PM (30%), Participation (30%).\n' +
+      'The group project and essay draft deadlines will be announced in class.'
+  },
+  {
+    role: 'assistant' as const,
+    content: JSON.stringify({
+      events: [
+        {
+          id: 'group-project',
+          courseCode: 'BUS301',
+          type: 'ASSIGNMENT',
+          title: 'Group Project',
+          start: null,
+          needsDate: true,
+          allDay: true,
+          notes: 'Weight: 25%. Deadline to be announced in class.',
+          confidence: 0.3,
+          dateSource: null
+        },
+        {
+          id: 'essay-draft',
+          courseCode: 'BUS301',
+          type: 'ASSIGNMENT',
+          title: 'Essay Draft',
+          start: null,
+          needsDate: true,
+          allDay: true,
+          notes: 'Weight: 15%. Deadline to be announced in class.',
+          confidence: 0.3,
+          dateSource: null
+        },
+        {
+          id: 'final-exam',
+          courseCode: 'BUS301',
+          type: 'FINAL',
+          title: 'Final Exam',
+          start: '2025-12-10T14:00:00.000-05:00',
+          allDay: false,
+          notes: 'Weight: 30%',
+          confidence: 0.95,
+          dateSource: 'Final Exam Dec 10 at 2:00 PM'
         }
       ]
     })

@@ -27,8 +27,11 @@ export interface EventItemDTO {
   /** Title of the event */
   title: string;
   
-  /** Start date/time of the event in ISO8601 format */
-  start: string;
+  /** Start date/time of the event in ISO8601 format. Null when no date is mentioned in the syllabus. */
+  start: string | null;
+  
+  /** True when the syllabus text does not contain an explicit date for this event */
+  needsDate?: boolean;
   
   /** End date/time of the event in ISO8601 format */
   end?: string;
@@ -50,6 +53,9 @@ export interface EventItemDTO {
   
   /** Confidence score from the parser (0-1) */
   confidence?: number;
+
+  /** Exact syllabus text used to determine the date. Null when no evidence found. */
+  dateSource?: string | null;
 }
 
 /**

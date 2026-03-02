@@ -74,8 +74,10 @@ struct EventEditView: View {
         _title = State(initialValue: event.title)
         _courseCode = State(initialValue: event.courseCode)
         _type = State(initialValue: event.type)
-        _startDate = State(initialValue: event.start)
-        let defaultEnd = event.end ?? event.start.addingTimeInterval(60 * 60)
+        // If the event needs a date (sentinel .distantFuture), default to now
+        let effectiveStart = event.needsDate ? Date() : event.start
+        _startDate = State(initialValue: effectiveStart)
+        let defaultEnd = event.end ?? effectiveStart.addingTimeInterval(60 * 60)
         _endDate = State(initialValue: defaultEnd)
         _includeEndDate = State(initialValue: event.end != nil)
         _isAllDay = State(initialValue: event.allDay ?? false)
@@ -481,6 +483,8 @@ struct EventEditView: View {
     private var hasUnsavedChanges: Bool {
         if title != event.title { return true }
         if type != event.type { return true }
+        // Always treat needsDate events as having changes once user picks a date
+        if event.needsDate { return true }
         if startDate != event.start { return true }
         if includeEndDate != (event.end != nil) { return true }
         if includeEndDate, let end = event.end, endDate != end { return true }

@@ -22,6 +22,8 @@ final class ImportViewModel: ObservableObject {
     @Published var preprocessedParserInputText: String? = nil
     @Published var errorState: ImportErrorState? = nil
     @Published var rawAIResponse: String? = nil  // Raw JSON response from AI for debugging
+    @Published var needsReview: Bool = false  // True when parsed events contain missing dates
+    @Published var parsedEventsForReview: [EventItem] = []  // Holds events pending user review
 
     private let extractor: PDFTextExtractor
     private let parser: SyllabusParser
@@ -97,16 +99,23 @@ final class ImportViewModel: ObservableObject {
             self.events = events
             await snapProgress(to: 0.95, message: "Saving events...")
 
-            // Save events to Supabase
-            await eventStore.autoApprove(events: events)
+            let hasDatelessEvents = events.contains { $0.needsDate }
 
-            // Extract and save courses from events
-            let uniqueCourseCodes = Set(events.map { $0.courseCode })
-            for courseCode in uniqueCourseCodes {
-                // Check if course already exists
-                if await courseRepository.fetchCourse(byCode: courseCode) == nil {
-                    let course = Course(id: UUID().uuidString, code: courseCode)
-                    _ = await courseRepository.saveCourse(course)
+            if hasDatelessEvents {
+                // Store events for review — do NOT save to DB yet
+                parsedEventsForReview = events
+                needsReview = true
+            } else {
+                // All events have dates — auto-approve immediately
+                await eventStore.autoApprove(events: events)
+
+                // Extract and save courses from events
+                let uniqueCourseCodes = Set(events.map { $0.courseCode })
+                for courseCode in uniqueCourseCodes {
+                    if await courseRepository.fetchCourse(byCode: courseCode) == nil {
+                        let course = Course(id: UUID().uuidString, code: courseCode)
+                        _ = await courseRepository.saveCourse(course)
+                    }
                 }
             }
 
@@ -162,6 +171,8 @@ final class ImportViewModel: ObservableObject {
         statusMessage = "Ready"
         progressTask?.cancel()
         progressTask = nil
+        needsReview = false
+        parsedEventsForReview = []
     }
 
     private func updateProgress(to value: Double, message: String) {
@@ -296,6 +307,33 @@ final class ImportViewModel: ObservableObject {
             events[index] = updated
         }
         await eventStore.update(event: updated)
+    }
+
+    // MARK: - Parse Review Completion
+
+    /// Called from ParseReviewView after the user resolves (or skips) missing dates.
+    /// Saves all events to Supabase and creates courses.
+    func completeReviewAndSave(events reviewedEvents: [EventItem]) async {
+        self.events = reviewedEvents
+        await eventStore.autoApprove(events: reviewedEvents)
+
+        let uniqueCourseCodes = Set(reviewedEvents.map { $0.courseCode })
+        for courseCode in uniqueCourseCodes {
+            if await courseRepository.fetchCourse(byCode: courseCode) == nil {
+                let course = Course(id: UUID().uuidString, code: courseCode)
+                _ = await courseRepository.saveCourse(course)
+            }
+        }
+
+        needsReview = false
+        parsedEventsForReview = []
+    }
+
+    /// Updates a single event in the pending review list (before save).
+    func updateReviewEvent(_ updated: EventItem) {
+        if let index = parsedEventsForReview.firstIndex(where: { $0.id == updated.id }) {
+            parsedEventsForReview[index] = updated
+        }
     }
 
     private func resolveError(from error: Error) -> (message: String, type: ImportErrorType) {

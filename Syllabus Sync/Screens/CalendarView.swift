@@ -640,7 +640,7 @@ struct CalendarEvent: Identifiable, Hashable {
     }
 
     static func make(from items: [EventItem]) -> [CalendarEvent] {
-        items.map(CalendarEvent.init)
+        items.filter { !$0.needsDate }.map(CalendarEvent.init)
     }
     
     static let timeFormatter: DateFormatter = {

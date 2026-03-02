@@ -27,7 +27,8 @@ export function validateEventItem(data: unknown): boolean {
   if (!item.courseCode || typeof item.courseCode !== 'string' || item.courseCode.trim().length === 0 || !courseCodeRegex.test(item.courseCode.trim())) return false;
   if (!item.type || !validEventTypes.has(item.type as EventType)) return false;
   if (!item.title || typeof item.title !== 'string' || item.title.length === 0 || item.title.length > 200) return false;
-  if (!item.start || typeof item.start !== 'string' || !iso8601Regex.test(item.start)) return false;
+  // start is optional — null means the syllabus had no date for this event
+  if (item.start !== undefined && item.start !== null && (typeof item.start !== 'string' || !iso8601Regex.test(item.start))) return false;
   
   // Optional fields validation
   // courseCode already validated
@@ -38,6 +39,8 @@ export function validateEventItem(data: unknown): boolean {
   if (item.recurrenceRule !== undefined && typeof item.recurrenceRule !== 'string') return false;
   if (item.reminderMinutes !== undefined && (typeof item.reminderMinutes !== 'number' || item.reminderMinutes < 0 || item.reminderMinutes > 43200)) return false;
   if (item.confidence !== undefined && (typeof item.confidence !== 'number' || item.confidence < 0 || item.confidence > 1)) return false;
+  if (item.needsDate !== undefined && typeof item.needsDate !== 'boolean') return false;
+  if (item.dateSource !== undefined && item.dateSource !== null && (typeof item.dateSource !== 'string' || item.dateSource.length > 300)) return false;
   
   return true;
 }
@@ -90,11 +93,13 @@ export function validateEventItemsStrict(data: unknown): EventItemsResponse {
  * Helper to create a valid EventItem with defaults
  */
 export function createEventItem(
-  partial: Partial<EventItemDTO> & Pick<EventItemDTO, 'id' | 'courseCode' | 'type' | 'title' | 'start'>
+  partial: Partial<EventItemDTO> & Pick<EventItemDTO, 'id' | 'courseCode' | 'type' | 'title'>
 ): EventItemDTO {
   const eventItem: EventItemDTO = {
+    start: null,
     allDay: false,
     confidence: 1.0,
+    needsDate: partial.start == null,
     ...partial,
   };
   

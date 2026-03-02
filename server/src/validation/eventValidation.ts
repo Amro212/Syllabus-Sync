@@ -94,11 +94,14 @@ function validateEventItemDTO(event: unknown): { valid: boolean; errors: string[
     errors.push('title must not exceed 200 characters');
   }
   
-  if (!e.start || typeof e.start !== 'string') {
-    errors.push('start is required and must be a string');
-  } else if (!isValidISODate(e.start)) {
-    errors.push('start must be a valid ISO 8601 date-time string');
+  if (e.start != null) {
+    if (typeof e.start !== 'string') {
+      errors.push('start must be a string when provided');
+    } else if (!isValidISODate(e.start)) {
+      errors.push('start must be a valid ISO 8601 date-time string');
+    }
   }
+  // If start is null/undefined, event needs a user-supplied date (needsDate)
   
   // Optional fields
   // courseCode already validated above
@@ -148,6 +151,15 @@ function validateEventItemDTO(event: unknown): { valid: boolean; errors: string[
       errors.push('confidence must be a number');
     } else if (e.confidence < 0 || e.confidence > 1) {
       errors.push('confidence must be between 0 and 1');
+    }
+  }
+
+  // dateSource: string or null
+  if (e.dateSource !== undefined && e.dateSource !== null) {
+    if (typeof e.dateSource !== 'string') {
+      errors.push('dateSource must be a string or null');
+    } else if (e.dateSource.length > 300) {
+      errors.push('dateSource must not exceed 300 characters');
     }
   }
   
@@ -236,12 +248,27 @@ export function validateEvents(
 function applyDefaults(dto: EventItemDTO, config: ValidationConfig): { event: EventItemDTO; defaultsApplied: boolean } {
   const result = { ...dto };
   let defaultsApplied = false;
+
+  // Mark events without a start date as needing a user-supplied date
+  if (result.start == null) {
+    result.needsDate = true;
+    defaultsApplied = true;
+  }
+  // Also flag events where the AI has no source evidence or low confidence
+  else if (!result.dateSource || (result.confidence !== undefined && result.confidence < 0.7)) {
+    result.needsDate = true;
+    defaultsApplied = true;
+  }
   
   // Apply allDay default if no time specified and no end date
   if (result.allDay === undefined) {
-    const hasDateTime = result.start.includes('T');
-    const hasNonMidnightTime = hasDateTime && !/T00:00:00\.000(?:[+-]\d{2}:\d{2})?$/.test(result.start);
-    result.allDay = hasDateTime ? !hasNonMidnightTime : true;
+    if (result.start != null) {
+      const hasDateTime = result.start.includes('T');
+      const hasNonMidnightTime = hasDateTime && !/T00:00:00\.000(?:[+-]\d{2}:\d{2})?$/.test(result.start);
+      result.allDay = hasDateTime ? !hasNonMidnightTime : true;
+    } else {
+      result.allDay = true; // Default for dateless events
+    }
     defaultsApplied = true;
   }
   
@@ -276,6 +303,11 @@ function clampDatesToTerm(
 ): { event: EventItemDTO; wasClamped: boolean } {
   let wasClamped = false;
   const result = { ...dto };
+
+  // Skip date clamping for events without a start date (needsDate)
+  if (result.start == null) {
+    return { event: result, wasClamped };
+  }
   
   const termStart = config.termStart;
   const termEnd = config.termEnd;
@@ -429,10 +461,12 @@ export function isValidISODate(dateString: string): boolean {
 export function normalizeEventData(events: EventItemDTO[]): EventItemDTO[] {
   return events.map(event => ({
     ...event,
-    // Ensure consistent ISO date format
-    start: /[+-]\d{2}:\d{2}$/.test(event.start)
-      ? event.start
-      : formatUtcDateWithoutTimezone(parseFlexibleISODate(event.start)),
+    // Ensure consistent ISO date format (skip for dateless events)
+    start: event.start != null
+      ? (/[+-]\d{2}:\d{2}$/.test(event.start)
+          ? event.start
+          : formatUtcDateWithoutTimezone(parseFlexibleISODate(event.start)))
+      : null,
     end: event.end
       ? (/[+-]\d{2}:\d{2}$/.test(event.end)
           ? event.end
@@ -447,6 +481,8 @@ export function normalizeEventData(events: EventItemDTO[]): EventItemDTO[] {
     // Ensure confidence is properly bounded
     confidence: event.confidence !== undefined 
       ? Math.max(0, Math.min(1, event.confidence)) 
-      : undefined
+      : undefined,
+    // Preserve needsDate flag
+    needsDate: event.needsDate,
   }));
 }

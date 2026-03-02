@@ -742,6 +742,10 @@ private struct ReminderCard: View {
     }
     
     private func formatDate(_ event: EventItem) -> String {
+        if event.needsDate {
+            return "Date TBD"
+        }
+        
         let formatter = DateFormatter()
         
         if event.allDay == true {

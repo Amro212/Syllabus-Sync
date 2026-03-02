@@ -416,6 +416,10 @@ struct PreviewEventCard: View {
     }()
     
     private func formatEventTime(_ event: EventItem) -> String {
+        if event.needsDate {
+            return "Date TBD"
+        }
+        
         if event.allDay == true {
             // Show date followed by "All Day"
             let dateString = Self.dateOnlyFormatter.string(from: event.start)
@@ -471,14 +475,25 @@ struct PreviewEventCard: View {
         VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
             HStack(alignment: .center, spacing: Layout.Spacing.md) {
                 VStack(alignment: .center, spacing: Layout.Spacing.xs) {
-                    Text(Self.dayFormatter.string(from: event.start))
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundColor(AppColors.textSecondary)
-                    Text(Self.shortDateFormatter.string(from: event.start))
-                        .font(.titleS)
-                        .fontWeight(.bold)
-                        .foregroundColor(AppColors.textPrimary)
+                    if event.needsDate {
+                        Text("TBD")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundColor(AppColors.warning)
+                        Text("No Date")
+                            .font(.captionL)
+                            .fontWeight(.bold)
+                            .foregroundColor(AppColors.warning)
+                    } else {
+                        Text(Self.dayFormatter.string(from: event.start))
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundColor(AppColors.textSecondary)
+                        Text(Self.shortDateFormatter.string(from: event.start))
+                            .font(.titleS)
+                            .fontWeight(.bold)
+                            .foregroundColor(AppColors.textPrimary)
+                    }
                 }
                 .frame(width: 54)
 

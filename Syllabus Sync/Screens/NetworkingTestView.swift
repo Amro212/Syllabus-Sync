@@ -212,7 +212,8 @@ struct NetworkingTestView: View {
                         let formatter = DateFormatter()
                         formatter.dateStyle = .short
                         formatter.timeStyle = .short
-                        testResults.append("📅 Event \(index + 1): \(event.title) - \(formatter.string(from: event.start))")
+                        let dateStr = event.needsDate ? "Date TBD" : formatter.string(from: event.start)
+                        testResults.append("📅 Event \(index + 1): \(event.title) - \(dateStr)")
                     }
                     
                     isRunning = false

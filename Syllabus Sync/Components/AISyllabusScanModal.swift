@@ -49,10 +49,14 @@ struct AISyllabusScanModal: View {
             handleFileImport(result)
         }
         .onChange(of: importViewModel.isProcessing) { isProcessing in
-            // When processing completes successfully, navigate to preview
+            // When processing completes successfully, navigate to review or preview
             if !isProcessing && importViewModel.progress >= 1.0 {
                 dismiss()
-                navigationManager.switchTab(to: .preview)
+                if importViewModel.needsReview {
+                    navigationManager.showParseReview = true
+                } else {
+                    navigationManager.switchTab(to: .preview)
+                }
             }
         }
     }
@@ -182,7 +186,11 @@ struct AISyllabusScanModal: View {
             if success && !Task.isCancelled {
                 await MainActor.run {
                     dismiss()
-                    navigationManager.switchTab(to: .preview)
+                    if importViewModel.needsReview {
+                        navigationManager.showParseReview = true
+                    } else {
+                        navigationManager.switchTab(to: .preview)
+                    }
                 }
             }
             await MainActor.run { currentImportTask = nil }

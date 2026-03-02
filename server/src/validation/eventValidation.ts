@@ -12,6 +12,7 @@ import {
   matchesAcceptedISOFormat,
   ACCEPTED_ISO_LOCAL_PATTERNS,
 } from '../utils/date.js';
+import type { GradingEntry } from '../utils/extractGradingScheme.js';
 
 /**
  * Configuration for validation and processing
@@ -25,6 +26,8 @@ export interface ValidationConfig {
   defaultCourseCode?: string;
   /** Whether to apply strict validation */
   strict?: boolean;
+  /** Grading scheme deliverables for grounding check */
+  gradingScheme?: GradingEntry[];
 }
 
 /**
@@ -237,6 +240,13 @@ export function validateEvents(
 
   if (result.events.length > 0) {
     result.events = normalizeEventData(result.events);
+
+    // Post-AI grounding check against deterministic grading scheme
+    if (config.gradingScheme && config.gradingScheme.length > 0) {
+      const grounding = groundEventsAgainstScheme(result.events, config.gradingScheme);
+      result.events = grounding.events;
+      result.warnings.push(...grounding.warnings);
+    }
   }
 
   return result;
@@ -485,4 +495,86 @@ export function normalizeEventData(events: EventItemDTO[]): EventItemDTO[] {
     // Preserve needsDate flag
     needsDate: event.needsDate,
   }));
+}
+
+// ── Assessment types subject to grounding check ─────────────────
+
+const ASSESSMENT_TYPES: Set<EventType> = new Set([
+  'ASSIGNMENT', 'QUIZ', 'MIDTERM', 'FINAL', 'LAB',
+]);
+
+/**
+ * Post-AI grounding check: verifies assessment events against the
+ * deterministic grading scheme. Events that claim to be assessments
+ * but have no match in the scheme get their confidence dropped to 0.3
+ * and a warning appended.
+ *
+ * Non-assessment types (LECTURE, OTHER) are passed through unchanged.
+ */
+export function groundEventsAgainstScheme(
+  events: EventItemDTO[],
+  scheme: GradingEntry[],
+): { events: EventItemDTO[]; warnings: string[] } {
+  if (scheme.length === 0) {
+    return { events, warnings: [] };
+  }
+
+  const warnings: string[] = [];
+  const schemeTypes = new Set(scheme.map(s => s.type));
+  const schemeNames = scheme.map(s => s.name.toLowerCase());
+
+  const grounded = events.map(ev => {
+    if (!ASSESSMENT_TYPES.has(ev.type)) return ev;
+
+    // Primary check: the event's type exists in the grading scheme
+    if (schemeTypes.has(ev.type)) return ev;
+
+    // Secondary check: fuzzy name match (handles renamed/custom categories)
+    const titleLower = ev.title.toLowerCase();
+    const nameMatched = schemeNames.some(name => {
+      if (titleLower.includes(name) || name.includes(titleLower)) return true;
+      // Stem-aware: strip trailing 's' and compare significant words (>4 chars)
+      const stem = (w: string) => w.replace(/s$/, '');
+      const nameStems = name.split(/\s+/).map(stem);
+      const titleStems = titleLower.split(/\s+/).map(stem);
+      const significant = nameStems.filter(w => w.length > 4);
+      return significant.length > 0 && significant.every(w => titleStems.includes(w));
+    });
+
+    if (!nameMatched) {
+      warnings.push(
+        `Grounding: "${ev.title}" (${ev.type}) not found in grading scheme — confidence reduced`
+      );
+      return {
+        ...ev,
+        confidence: Math.min(ev.confidence ?? 1, 0.3),
+      };
+    }
+
+    return ev;
+  });
+
+  return { events: grounded, warnings };
+}
+
+/**
+ * Helper to create a valid EventItem with defaults.
+ * Useful for tests and programmatic event construction.
+ */
+export function createEventItem(
+  partial: Partial<EventItemDTO> & Pick<EventItemDTO, 'id' | 'courseCode' | 'type' | 'title'>
+): EventItemDTO {
+  const dto: EventItemDTO = {
+    start: null,
+    allDay: false,
+    confidence: 1.0,
+    needsDate: partial.start == null,
+    ...partial,
+  };
+
+  const validation = validateSingleEvent(dto);
+  if (!validation.valid) {
+    throw new Error(`EventItem validation failed: ${validation.errors.join(', ')}`);
+  }
+  return dto;
 }

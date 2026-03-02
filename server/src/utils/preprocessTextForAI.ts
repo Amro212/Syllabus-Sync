@@ -10,7 +10,6 @@ export type EventMarkerType =
 const MARKER_PATTERNS: Array<{ type: EventMarkerType; regex: RegExp }> = [
 	{ type: 'IMPORTANT', regex: /\bimportant\s+dates\b/i },
 	{ type: 'FINAL', regex: /\bfinal\s+exam\b/i },
-	{ type: 'FINAL', regex: /\bfinals?\b/i },
 	{ type: 'MIDTERM', regex: /\bmidterm\b/i },
 	{ type: 'PROJECT', regex: /\bmini[-\s]?project\b/i },
 	{ type: 'PROJECT', regex: /\bproject\b/i },
@@ -18,10 +17,8 @@ const MARKER_PATTERNS: Array<{ type: EventMarkerType; regex: RegExp }> = [
 	{ type: 'LECTURE', regex: /\blectures?\b/i },
 	{ type: 'LECTURE', regex: /\bclass(?:es)?\s+meet(?:ings)?\b/i },
 	{ type: 'LECTURE', regex: /\bmeeting\s+times?\b/i },
-	{ type: 'EXAM', regex: /\bexam\b/i }
+	{ type: 'EXAM', regex: /\bexam\b/i },
 ];
-
-const WEIGHT_SUFFIX = ' — WEIGHT';
 
 // ── Section-awareness: detect boilerplate vs. content sections ──
 
@@ -137,23 +134,13 @@ function processLine(line: string, suppressTags: boolean): string {
 		return line;
 	}
 
-	// When inside a boilerplate section, skip tagging and weight injection
+	// When inside a boilerplate section, skip tagging
 	if (suppressTags) {
 		return line;
 	}
 
 	const marker = findMarker(line);
-	let result = marker ? `${marker} ${line}` : line;
-
-	const percentIndex = result.indexOf('%');
-	if (percentIndex !== -1) {
-		const afterPercent = result.slice(percentIndex + 1, percentIndex + 1 + WEIGHT_SUFFIX.length);
-		if (afterPercent !== WEIGHT_SUFFIX) {
-			result = `${result.slice(0, percentIndex + 1)}${WEIGHT_SUFFIX}${result.slice(percentIndex + 1)}`;
-		}
-	}
-
-	return result;
+	return marker ? `${marker} ${line}` : line;
 }
 
 function findMarker(line: string): string | undefined {

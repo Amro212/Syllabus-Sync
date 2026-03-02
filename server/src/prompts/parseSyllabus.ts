@@ -1,1208 +1,272 @@
-/*
- * Prompt builder for OpenAI JSON-mode parsing of syllabi → EventItemDTO[]
- * Optimized for gpt-4.1-mini model.
+/**
+ * Prompt builder for OpenAI JSON-mode parsing of syllabi -> EventItemDTO[]
+ *
+ * Two-pass architecture:
+ *   Pass 0 (deterministic): extractGradingScheme() runs regex on the raw text.
+ *   Pass 1 (this file):     Builds a constrained prompt that includes the
+ *                            extracted grading scheme as a structured block
+ *                            so the AI only creates events for confirmed
+ *                            deliverables.
+ *
+ * Optimised for gpt-4.1-mini.
  */
 
 import eventItemSchema from '../../schemas/eventItem.schema.json';
-import { preprocessTextForAI } from '../utils/preprocessTextForAI';
+import { preprocessTextForAI } from '../utils/preprocessTextForAI.js';
+import {
+	type GradingSchemeResult,
+	formatGradingSchemeForPrompt,
+} from '../utils/extractGradingScheme.js';
 
-export type ParsePromptOptions = {
-  courseCode?: string;
-  termStart?: string; // ISO date string, e.g., 2025-08-26
-  termEnd?: string;   // ISO date string
-  timezone?: string;  // IANA tz, e.g., "America/Los_Angeles"
-  model?: string;     // default provided by env/client
-};
+// -- Public types --
 
-// Build the response schema (object with events array of EventItem)
+export interface ParsePromptOptions {
+	courseCode?: string;
+	termStart?: string;
+	termEnd?: string;
+	timezone?: string;
+	model?: string;
+	/** Result of the deterministic grading-scheme extractor */
+	gradingScheme?: GradingSchemeResult;
+}
+
+// -- JSON-Schema wrapper for response_format --
+
 const eventItemsObjectSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['events'],
-  properties: {
-    events: {
-      type: 'array',
-      items: eventItemSchema,
-    },
-  },
+	type: 'object',
+	additionalProperties: false,
+	required: ['events'],
+	properties: {
+		events: {
+			type: 'array',
+			items: eventItemSchema,
+		},
+	},
 } as const;
 
+// -- System prompt --
+
 const SYSTEM_PROMPT = (
-  opts: Required<Pick<ParsePromptOptions, 'timezone'>>
-) => `# SYLLABUS TO CALENDAR PARSER
+	opts: Required<Pick<ParsePromptOptions, 'timezone'>>
+) => `# SYLLABUS -> CALENDAR PARSER
 
-You are a specialized AI that extracts academic events from preprocessed syllabus text into structured JSON.
+You extract academic events from preprocessed syllabus text into structured JSON.
 
-## CORE MISSION
-- Lines tagged with [EVENT:*] are HINTS, not guarantees — verify each against the grading/evaluation scheme before creating an event.
-- The grading/evaluation section is the source of truth for which assessments exist and their weights.
-- Still capture critical untagged items (Final Exam, Midterm, Projects, Labs, major deadlines) only when confirmed by the syllabus content.
-- Return ONLY valid JSON matching schema.
+## 1 -- SOURCE OF TRUTH
+The user message contains a **GRADING SCHEME** block extracted from the syllabus.
+- If the block lists deliverables, ONLY create assessment events (assignments, quizzes, midterms, finals, labs) for items that appear in that block.
+- If the block says "Not found", be conservative: create assessment events only when you are >= 70% confident they exist.
+- Lectures, admin dates, and recurring sessions are NOT in the grading scheme -- create those from schedule information.
 
-## ANTI-HALLUCINATION RULES (CRITICAL)
-Before creating ANY event, you MUST verify:
-1. **Cross-check against grading scheme**: If the syllabus lists a "Grading Scheme" or "Evaluation" section, ONLY create assessment events that appear there. Do NOT create events for assessment types mentioned only in policy/boilerplate text.
-2. **Policy mentions ≠ real events**: Sentences like "the midterm exam will cover..." or "if you miss the final exam..." in policy sections do NOT mean a midterm or final exam exists as a deliverable. Only create events for assessments explicitly listed in the evaluation breakdown.
-3. **Weight must match**: If you assign a weight to an event, it MUST appear verbatim in the syllabus grading scheme. Never infer or redistribute weights.
-4. **When in doubt, omit**: It is better to miss a real event than to hallucinate a fake one. If you are less than 60% confident an event exists, do NOT include it.
+## 2 -- HALLUCINATION RULES
+- Policy / boilerplate mentions of "exam", "midterm", "final" do NOT mean those events exist. Only the grading scheme or an explicit schedule entry counts.
+- Never invent or redistribute weights. Use verbatim numbers from the syllabus.
+- When in doubt, **omit** the event.
+- Lines tagged \`[EVENT:*]\` are hints -- verify each against the grading scheme before creating an event.
 
-## JSON OUTPUT FORMAT
+## 3 -- JSON FORMAT
+\`\`\`json
 {
   "events": [
     {
-      "id": "string",
+      "id": "string (kebab-case, unique)",
       "courseCode": "string",
-      "type": "ASSIGNMENT|QUIZ|MIDTERM|FINAL|LAB|LECTURE|OTHER",
+      "type": "ASSIGNMENT | QUIZ | MIDTERM | FINAL | LAB | LECTURE | OTHER",
       "title": "string",
-      "start": "ISO8601 datetime or null",
-      "needsDate": "boolean (true when start is null)",
-      "end": "ISO8601 datetime (optional)",
-      "allDay": "boolean",
+      "start": "ISO 8601 datetime | null",
+      "needsDate": true,
+      "end": "ISO 8601 (optional)",
+      "allDay": true,
       "location": "string (optional)",
       "recurrenceRule": "RRULE string (optional)",
-      "notes": "string (optional)",
-      "confidence": "number 0-1",
-      "dateSource": "string or null — exact syllabus text used to determine the date"
+      "notes": "string <= 200 chars (optional, include weight if present)",
+      "confidence": 0.85,
+      "dateSource": "exact syllabus quote or null"
     }
   ]
 }
+\`\`\`
 
-⚠️ **CRITICAL TYPE RESTRICTION**: The "type" field MUST be exactly one of these 7 values:
-- "ASSIGNMENT" (for projects, assignments, homework)
-- "QUIZ" (for quizzes, tests)
-- "MIDTERM" (for midterm exams)
-- "FINAL" (for final exams)
-- "LAB" (for lab sessions)
-- "LECTURE" (for lecture sessions)
-- "OTHER" (for administrative dates, holidays, etc.)
+### Type restriction
+ASSIGNMENT | QUIZ | MIDTERM | FINAL | LAB | LECTURE | OTHER -- no other values.
+Map: projects/homework -> ASSIGNMENT, exams -> MIDTERM or FINAL.
 
-❌ **NEVER use**: "PROJECT", "EXAM", "HOMEWORK", "TEST", "CLASS", "SESSION", etc.
+## 4 -- RECURRENCE (SPLIT MULTI-DAY)
+Multi-day patterns MUST be split into separate single-day events:
+- "TuTh 2:30 PM" -> Lecture (Tue) + Lecture (Thu), each with its own RRULE (BYDAY=TU / BYDAY=TH).
+- Day codes: MO, TU, WE, TH, FR, SA, SU.
 
-## CRITICAL TYPE MAPPING
-- Projects (Mini Project, Final Project, Term Project, etc.) → type: "ASSIGNMENT"
-- Exams (Midterm, Final) → type: "MIDTERM" or "FINAL"
-- Assignments → type: "ASSIGNMENT"
-- Quizzes → type: "QUIZ"
-- Labs → type: "LAB"
-- Lectures → type: "LECTURE"
-- Administrative dates → type: "OTHER"
+## 5 -- MULTIPLE SECTIONS
+Create one event per section per day. Extract each section's exact time.
 
-## EVENT PRIORITY
-- Weighted Assignments, Projects, Labs (include weights in notes).
-- Final Exams & Midterms.
-- Recurring lectures with proper RRULE.
-- Important administrative dates (drop/add, withdrawal, holidays).
+## 6 -- LAB RULES
+- Lab **sessions** (recurring attendance) -> one recurring event per section.
+- Lab **deliverables** (graded work with numbers like Lab 1, Lab 2) -> one event per deliverable, no recurrence.
 
-## RECURRENCE RULES - SPLIT MULTI-DAY PATTERNS (CRITICAL)
-⚠️ Multi-day patterns (TuTh, MWF, etc.) MUST be SPLIT into SEPARATE events:
-- "Tue/Thu 2:30 PM" → Create 2 SEPARATE events: "Lecture (Tue)" + "Lecture (Thu)"
-- "MWF 10:00 AM" → Create 3 SEPARATE events: "Lecture (Mon)" + "Lecture (Wed)" + "Lecture (Fri)"
-- Each event has SINGLE day in recurrenceRule: "FREQ=WEEKLY;BYDAY=TU" (NOT BYDAY=TU,TH)
-- Day codes: MO,TU,WE,TH,FR,SA,SU
-- Start date: first occurrence of THAT DAY from termStart
+## 7 -- MISSING DATES (needsDate)
+When a deliverable has NO date, week number, or deadline:
+- Set start: null, needsDate: true, dateSource: null.
+- "TBD", "to be announced", "during midterm period" count as missing.
 
-## MULTIPLE SECTIONS (CRITICAL)
-When a course has MULTIPLE SECTIONS with DIFFERENT instructors/times:
-- Create ONE event PER SECTION PER DAY
-- Example: "Section 01: Tue/Thu 4:00 PM" = 2 events (Lecture Section 01 Tue + Lecture Section 01 Thu)
-- Extract the EXACT time for EACH section (do NOT copy times between sections)
+## 8 -- dateSource (EVIDENCE)
+For every event cite the exact syllabus text used to determine the date (<= 100 chars). If inferred, cite the original text. If none -> null.
 
-## LAB PARSING RULES (CRITICAL)
-Labs appear as **sessions** (attendance) OR **deliverables** (graded work). Parse them SEPARATELY:
+## 9 -- IGNORE
+Office hours, seminars, tutorials, grading policies, generic info.
 
-### Lab Sessions (Recurring Attendance)
-Look for schedules with Day/Time/Location/Section patterns.
-→ Create ONE recurring event PER SECTION:
-  - title: "Lab - Section [number]" (e.g., "Lab - Section 01")
-  - recurrenceRule: FREQ=WEEKLY;BYDAY=...
-  - notes: If graded deliverables exist, add "See Lab 1-N for graded work"
+## 10 -- FINAL REMINDER
+Re-read before outputting:
+- Every assessment event must appear in the GRADING SCHEME block (or you must be >= 70% confident without one).
+- Every event must have dateSource or needsDate: true + dateSource: null.
+- Omit rather than hallucinate.
 
-### Lab Deliverables (Graded Work)
-Look for numbered labs with due dates, weights, or topics (e.g., "Lab 1: Topic", "Lab 2 worth 5%").
-→ Create ONE event PER DELIVERABLE:
-  - title: "Lab 1", "Lab 2", etc. (keep original numbering)
-  - NO recurrenceRule (one-time deadline)
-  - notes: Include weight and topic if available
-
-### Important Distinctions
-- "Section 01, Section 02" in schedule table = SESSIONS (recurring)
-- "Lab 1, Lab 2, Lab 3" with topics/weights = DELIVERABLES (graded)
-- Ungraded labs = Sessions only with notes "Not graded"
-
-## ADDITIONAL RULES
-- Notes: Max 200 chars, always include weight/submission if present
-- Relative dates: Convert "Week 5 Friday" using termStart
-- Ignore: Office hours, seminars, workshops, tutorials, grading policies, generic info
-- Confidence: 0–1 certainty per event
-- CRITICAL: Use ONLY these exact type values: ASSIGNMENT, QUIZ, MIDTERM, FINAL, LAB, LECTURE, OTHER
-
-## COURSE CODE EXTRACTION
-- Accept "ENGG*3390", "CS 101", "MATH-151", "PHYSICS 201", etc.
-- Never invent or omit courseCode
-
-## MISSING DATES — needsDate EVENTS (CRITICAL)
-When the syllabus mentions an assignment, project, quiz, exam, or deliverable but does NOT provide ANY date, week number, or deadline:
-- Set "start": null
-- Set "needsDate": true
-- Set "dateSource": null
-- Still extract ALL other fields (title, type, notes, weight, etc.)
-- Do NOT invent or guess a date
-- Only use this when the date is genuinely absent from the syllabus text
-- If the syllabus says "Week 5" or "during midterm period" or "TBD" — that counts as missing. Set start: null, needsDate: true, dateSource: null.
-- If the syllabus provides a specific date or enough info to calculate one (e.g., "Sept 15" or "3rd week Friday" with termStart) — compute the date normally.
-
-## dateSource — EVIDENCE CITATION (CRITICAL)
-For EVERY event, you MUST set "dateSource" to the EXACT text snippet from the syllabus that you used to determine the date.
-- Quote the raw text verbatim, trimmed to ~100 chars max
-- Include surrounding context so the user can verify
-- Examples of good dateSource values:
-  - "Assignment 1 due September 12, 2025 at 11:59 PM"
-  - "Midterm: October 15 during class"
-  - "Final Exam Dec 10-16 (check registrar)"
-  - "Lab 3 due Friday of Week 7"
-- If no date text exists in the syllabus → set dateSource: null
-- If you INFERRED the date (e.g., from week numbers, relative references) → still cite the original text you used
-- Low-quality evidence (vague references like "later in the term") should get LOW confidence (< 0.5) AND dateSource showing what you found
-
-## EXAMPLES
-### Example 1 — Weighted Assignment
-Text: Assignment 1 due Sept 12, 2025 at 11:59 PM. Weight: 10%.
-Output:
-{
-  "events": [
-    {
-      "id": "assignment-1",
-      "courseCode": "CS101",
-      "type": "ASSIGNMENT",
-      "title": "Assignment 1",
-      "start": "2025-09-12T23:59:00.000-07:00",
-      "allDay": false,
-      "notes": "Weight: 10%",
-      "confidence": 0.95
-    }
-  ]
-}
-
-### Example 2 — Relative Week Midterm
-Text: Week 5: Midterm on Friday.
-Output:
-{
-  "events": [
-    {
-      "id": "midterm",
-      "courseCode": "HIST200",
-      "type": "MIDTERM",
-      "title": "Midterm",
-      "start": "2025-09-26T00:00:00.000-04:00",
-      "allDay": true,
-      "notes": "During lecture",
-      "confidence": 0.8
-    }
-  ]
-}
-
-### Example 3 — Recurring Lecture (SPLIT DAYS)
-Text: TuTh 10:00-11:20 AM in Room 204 from Sept 4 to Dec 12.
-Output:
-{
-  "events": [
-    {
-      "id": "lecture-tue",
-      "courseCode": "CS2750",
-      "type": "LECTURE",
-      "title": "Lecture (Tue)",
-      "start": "2025-09-04T10:00:00.000-04:00",
-      "end": "2025-09-04T11:20:00.000-04:00",
-      "allDay": false,
-      "location": "Room 204",
-      "recurrenceRule": "FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-12-12",
-      "confidence": 0.9
-    },
-    {
-      "id": "lecture-thu",
-      "courseCode": "CS2750",
-      "type": "LECTURE",
-      "title": "Lecture (Thu)",
-      "start": "2025-09-06T10:00:00.000-04:00",
-      "end": "2025-09-06T11:20:00.000-04:00",
-      "allDay": false,
-      "location": "Room 204",
-      "recurrenceRule": "FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-12-12",
-      "confidence": 0.9
-    }
-  ]
-}
-
-## FINAL REMINDER (re-read before outputting)
-- Do NOT create events for assessment types that only appear in policy/boilerplate text.
-- The grading/evaluation breakdown is the authority on which deliverables exist.
-- Every event MUST have a dateSource citation or be marked needsDate: true with dateSource: null.
-- When in doubt, OMIT the event rather than hallucinate.
+Current timezone: ${opts.timezone}
 `;
 
-// Few-shot examples to steer formatting and mapping.
-const FEWSHOT = [
-  {
-    role: 'user' as const,
-    content:
-      'Example 1 — Extract explicit date/time with weight.\n' +
-      'Context: courseCode=CS101, timezone=America/Los_Angeles.\n' +
-      'Text:\n' +
-      'Assignment 1 due Sept 12, 2025 at 11:59 PM PST. Submit on Canvas. Weight: 10%.'
-  },
-  {
-    role: 'assistant' as const,
-    content: JSON.stringify({
-      events: [
-        {
-          id: 'assignment-1',
-          courseCode: 'CS101',
-          type: 'ASSIGNMENT',
-          title: 'Assignment 1',
-          start: '2025-09-12T23:59:00.000-07:00',
-          allDay: false,
-          notes: 'Submit on Canvas. Weight: 10%.',
-          confidence: 0.95,
-          dateSource: 'Assignment 1 due Sept 12, 2025 at 11:59 PM PST'
-        }
-      ]
-    })
-  },
-  {
-    role: 'user' as const,
-    content:
-      'Example 1b — Generic weight distribution.\n' +
-      'Context: courseCode=CS101, timezone=America/Los_Angeles.\n' +
-      'Text:\n' +
-      'Grading: Assignments (30% total), Labs (20% total), Midterm (25%), Final (25%).\n' +
-      'Assignment 1 due Sept 12, 2025. Assignment 2 due Oct 3, 2025.\n' +
-      'Lab 1 due Sept 15, 2025. Lab 2 due Sept 29, 2025.'
-  },
-  {
-    role: 'assistant' as const,
-    content: JSON.stringify({
-      events: [
-        {
-          id: 'assignment-1',
-          courseCode: 'CS101',
-          type: 'ASSIGNMENT',
-          title: 'Assignment 1',
-          start: '2025-09-12T00:00:00.000-07:00',
-          allDay: true,
-          notes: 'Weight: 15% (30% total for assignments, assuming 2 assignments)',
-          confidence: 0.9
-        },
-        {
-          id: 'assignment-2',
-          courseCode: 'CS101',
-          type: 'ASSIGNMENT',
-          title: 'Assignment 2',
-          start: '2025-10-03T00:00:00.000-07:00',
-          allDay: true,
-          notes: 'Weight: 15% (30% total for assignments, assuming 2 assignments)',
-          confidence: 0.9
-        },
-        {
-          id: 'lab-1',
-          courseCode: 'CS101',
-          type: 'LAB',
-          title: 'Lab 1',
-          start: '2025-09-15T00:00:00.000-07:00',
-          allDay: true,
-          notes: 'Weight: 10% (20% total for labs, assuming 2 labs)',
-          confidence: 0.9
-        },
-        {
-          id: 'lab-2',
-          courseCode: 'CS101',
-          type: 'LAB',
-          title: 'Lab 2',
-          start: '2025-09-29T00:00:00.000-07:00',
-          allDay: true,
-          notes: 'Weight: 10% (20% total for labs, assuming 2 labs)',
-          confidence: 0.9
-        }
-      ]
-    })
-  },
-  {
-    role: 'user' as const,
-    content:
-      'Example 2 — Relative week reference.\n' +
-      'Context: courseCode=HIST200, timezone=America/New_York, termStart=2025-08-26.\n' +
-      'Text:\n' +
-      'Week 5: Midterm on Friday during lecture.'
-  },
-  {
-    role: 'assistant' as const,
-    content: JSON.stringify({
-      events: [
-        {
-          id: 'midterm',
-          courseCode: 'HIST200',
-          type: 'MIDTERM',
-          title: 'Midterm',
-          // Week mapping example only; model determines exact date based on termStart
-          start: '2025-09-26T00:00:00.000-04:00',
-          allDay: true,
-          notes: 'During lecture.',
-          confidence: 0.7
-        }
-      ]
-    })
-  },
-  {
-    role: 'user' as const,
-    content:
-      'Example 3 — Lecture recurrence (TuTh format).\n' +
-      'Context: courseCode=CS2750, timezone=America/Toronto, termStart=2025-09-04, termEnd=2025-12-12.\n' +
-      'Text:\n' +
-      'Lecture: TuTh 10:00-11:20 AM in Room 204 from Sept 4 through Dec 12.'
-  },
-  {
-    role: 'assistant' as const,
-    content: JSON.stringify({
-      events: [
-        {
-          id: 'lecture-tue',
-          courseCode: 'CS2750',
-          type: 'LECTURE',
-          title: 'Lecture (Tue)',
-          start: '2025-09-04T10:00:00.000-04:00',
-          end: '2025-09-04T11:20:00.000-04:00',
-          allDay: false,
-          location: 'Room 204',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-12-12',
-          confidence: 0.9
-        },
-        {
-          id: 'lecture-thu',
-          courseCode: 'CS2750',
-          type: 'LECTURE',
-          title: 'Lecture (Thu)',
-          start: '2025-09-06T10:00:00.000-04:00',
-          end: '2025-09-06T11:20:00.000-04:00',
-          allDay: false,
-          location: 'Room 204',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-12-12',
-          confidence: 0.9
-        }
-      ]
-    })
-  },
-  {
-    role: 'user' as const,
-    content:
-      'Example 4 — Lecture recurrence (MWF format).\n' +
-      'Context: courseCode=MATH101, timezone=America/New_York, termStart=2025-08-26, termEnd=2025-12-15.\n' +
-      'Text:\n' +
-      'Classes meet Monday, Wednesday, Friday 2:00-2:50 PM in Lecture Hall A.'
-  },
-  {
-    role: 'assistant' as const,
-    content: JSON.stringify({
-      events: [
-        {
-          id: 'math-lecture-series',
-          courseCode: 'MATH101',
-          type: 'LECTURE',
-          title: 'Lecture',
-          start: '2025-08-26T14:00:00.000-04:00',
-          end: '2025-08-26T14:50:00.000-04:00',
-          allDay: false,
-          location: 'Lecture Hall A',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR;UNTIL=2025-12-15',
-          confidence: 0.95
-        }
-      ]
-    })
-  },
-  {
-    role: 'user' as const,
-    content:
-      'Example 5 — Lecture recurrence (T/Th format).\n' +
-      'Context: courseCode=PHYS201, timezone=America/Los_Angeles, termStart=2025-09-03, termEnd=2025-12-13.\n' +
-      'Text:\n' +
-      'T/Th 1:00-2:15 PM in Room 101. Lab follows immediately after.'
-  },
-  {
-    role: 'assistant' as const,
-    content: JSON.stringify({
-      events: [
-        {
-          id: 'physics-lecture-tue',
-          courseCode: 'PHYS201',
-          type: 'LECTURE',
-          title: 'Lecture (Tue)',
-          start: '2025-09-04T13:00:00.000-07:00',
-          end: '2025-09-04T14:15:00.000-07:00',
-          allDay: false,
-          location: 'Room 101',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-12-13',
-          confidence: 0.9
-        },
-        {
-          id: 'physics-lecture-thu',
-          courseCode: 'PHYS201',
-          type: 'LECTURE',
-          title: 'Lecture (Thu)',
-          start: '2025-09-06T13:00:00.000-07:00',
-          end: '2025-09-06T14:15:00.000-07:00',
-          allDay: false,
-          location: 'Room 101',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-12-13',
-          confidence: 0.9
-        }
-      ]
-    })
-  },
-  {
-    role: 'user' as const,
-    content:
-      'Example 6 — Lecture without explicit recurrence.\n' +
-      'Context: courseCode=ENGL102, timezone=America/Chicago, termStart=2025-08-25.\n' +
-      'Text:\n' +
-      'Regular class meetings: Tuesday and Thursday 11:00 AM - 12:15 PM in Room 205.'
-  },
-  {
-    role: 'assistant' as const,
-    content: JSON.stringify({
-      events: [
-        {
-          id: 'english-lecture-tue',
-          courseCode: 'ENGL102',
-          type: 'LECTURE',
-          title: 'Lecture (Tue)',
-          start: '2025-08-27T11:00:00.000-05:00',
-          end: '2025-08-27T12:15:00.000-05:00',
-          allDay: false,
-          location: 'Room 205',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU',
-          confidence: 0.85
-        },
-        {
-          id: 'english-lecture-thu',
-          courseCode: 'ENGL102',
-          type: 'LECTURE',
-          title: 'Lecture (Thu)',
-          start: '2025-08-29T11:00:00.000-05:00',
-          end: '2025-08-29T12:15:00.000-05:00',
-          allDay: false,
-          location: 'Room 205',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TH',
-          confidence: 0.85
-        }
-      ]
-    })
-  },
-  {
-    role: 'user' as const,
-    content:
-      'Example 6b — MULTIPLE LECTURE SECTIONS with DIFFERENT TIMES (CRITICAL).\\n' +
-      'Context: courseCode=CIS*2750, timezone=America/Toronto, termStart=2025-01-06, termEnd=2025-04-18.\\n' +
-      'Text:\\n' +
-      'Lecture Section 01\\n' +
-      'Instructor: Dr. D. Nikitenko\\n' +
-      'Class Time / Location: Tue/Thu 4:00-5:20 pm | MACN 105\\n\\n' +
-      'Lecture Section 02\\n' +
-      'Instructor: Dr. J. McCuaig\\n' +
-      'Class Time / Location: Tue/Thu 8:30-9:50 am | MACN 105'
-  },
-  {
-    role: 'assistant' as const,
-    content: JSON.stringify({
-      events: [
-        {
-          id: 'lecture-section-01-tue',
-          courseCode: 'CIS*2750',
-          type: 'LECTURE',
-          title: 'Lecture Section 01 (Tue)',
-          start: '2025-01-07T16:00:00.000-05:00',
-          end: '2025-01-07T17:20:00.000-05:00',
-          allDay: false,
-          location: 'MACN 105',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-04-18',
-          notes: 'Instructor: Dr. D. Nikitenko',
-          confidence: 0.95
-        },
-        {
-          id: 'lecture-section-01-thu',
-          courseCode: 'CIS*2750',
-          type: 'LECTURE',
-          title: 'Lecture Section 01 (Thu)',
-          start: '2025-01-09T16:00:00.000-05:00',
-          end: '2025-01-09T17:20:00.000-05:00',
-          allDay: false,
-          location: 'MACN 105',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-04-18',
-          notes: 'Instructor: Dr. D. Nikitenko',
-          confidence: 0.95
-        },
-        {
-          id: 'lecture-section-02-tue',
-          courseCode: 'CIS*2750',
-          type: 'LECTURE',
-          title: 'Lecture Section 02 (Tue)',
-          start: '2025-01-07T08:30:00.000-05:00',
-          end: '2025-01-07T09:50:00.000-05:00',
-          allDay: false,
-          location: 'MACN 105',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-04-18',
-          notes: 'Instructor: Dr. J. McCuaig',
-          confidence: 0.95
-        },
-        {
-          id: 'lecture-section-02-thu',
-          courseCode: 'CIS*2750',
-          type: 'LECTURE',
-          title: 'Lecture Section 02 (Thu)',
-          start: '2025-01-09T08:30:00.000-05:00',
-          end: '2025-01-09T09:50:00.000-05:00',
-          allDay: false,
-          location: 'MACN 105',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-04-18',
-          notes: 'Instructor: Dr. J. McCuaig',
-          confidence: 0.95
-        }
-      ]
-    })
-  },
-  {
-    role: 'user' as const,
-    content:
-      'Example 7 — Weighted events and recurring lectures only.\n' +
-      'Context: courseCode=PHYS301, timezone=America/Chicago, termStart=2025-08-25.\n' +
-      'Text:\n' +
-      'Grading Breakdown: Labs (15% total), Assignments (25% total), Midterm (30%), Final (30%).\n' +
-      'Recitation: Monday, Wednesday, Friday 11:00 AM - 11:50 AM in Room 205.\n' +
-      'Lab: MWF 2:00-3:50 PM in Lab 301. Lab reports worth 3% each (5 labs total).\n' +
-      'Assignment 1 due Sept 15, 2025. Assignment 2 due Oct 10, 2025. Each worth 12.5%.\n' +
-      'Midterm Exam: October 20, 2025, 2:00-4:00 PM in Lecture Hall A.\n' +
-      'Final Exam: December 15, 2025, 1:00-3:00 PM in Lecture Hall A.\n' +
-      'Drop/Add deadline: September 5, 2025. Withdrawal deadline: November 1, 2025.\n' +
-      'Office hours: Tuesdays 2:00-4:00 PM in Room 301.'
-  },
-  {
-    role: 'assistant' as const,
-    content: JSON.stringify({
-      events: [
-        {
-          id: 'physics-recitation-series',
-          courseCode: 'PHYS301',
-          type: 'LECTURE',
-          title: 'Recitation',
-          start: '2025-08-26T11:00:00.000-05:00',
-          end: '2025-08-26T11:50:00.000-05:00',
-          allDay: false,
-          location: 'Room 205',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR',
-          confidence: 0.9
-        },
-        {
-          id: 'lab-1',
-          courseCode: 'PHYS301',
-          type: 'LAB',
-          title: 'Lab 1',
-          start: '2025-08-26T14:00:00.000-05:00',
-          end: '2025-08-26T15:50:00.000-05:00',
-          allDay: false,
-          location: 'Lab 301',
-          notes: 'Weight: 3% (15% total for labs, 5 labs)',
-          confidence: 0.9
-        },
-        {
-          id: 'lab-2',
-          courseCode: 'PHYS301',
-          type: 'LAB',
-          title: 'Lab 2',
-          start: '2025-09-02T14:00:00.000-05:00',
-          end: '2025-09-02T15:50:00.000-05:00',
-          allDay: false,
-          location: 'Lab 301',
-          notes: 'Weight: 3% (15% total for labs, 5 labs)',
-          confidence: 0.9
-        },
-        {
-          id: 'assignment-1',
-          courseCode: 'PHYS301',
-          type: 'ASSIGNMENT',
-          title: 'Assignment 1',
-          start: '2025-09-15T00:00:00.000-05:00',
-          allDay: true,
-          notes: 'Weight: 12.5% (25% total for assignments, 2 assignments)',
-          confidence: 0.95
-        },
-        {
-          id: 'assignment-2',
-          courseCode: 'PHYS301',
-          type: 'ASSIGNMENT',
-          title: 'Assignment 2',
-          start: '2025-10-10T00:00:00.000-05:00',
-          allDay: true,
-          notes: 'Weight: 12.5% (25% total for assignments, 2 assignments)',
-          confidence: 0.95
-        },
-        {
-          id: 'midterm-exam',
-          courseCode: 'PHYS301',
-          type: 'MIDTERM',
-          title: 'Midterm Exam',
-          start: '2025-10-20T14:00:00.000-05:00',
-          end: '2025-10-20T16:00:00.000-05:00',
-          allDay: false,
-          location: 'Lecture Hall A',
-          notes: 'Weight: 30%',
-          confidence: 0.95
-        },
-        {
-          id: 'final-exam',
-          courseCode: 'PHYS301',
-          type: 'FINAL',
-          title: 'Final Exam',
-          start: '2025-12-15T13:00:00.000-05:00',
-          end: '2025-12-15T15:00:00.000-05:00',
-          allDay: false,
-          location: 'Lecture Hall A',
-          notes: 'Weight: 30%',
-          confidence: 0.95
-        },
-        {
-          id: 'drop-add-deadline',
-          courseCode: 'PHYS301',
-          type: 'OTHER',
-          title: 'Drop/Add Deadline',
-          start: '2025-09-05T00:00:00.000-05:00',
-          allDay: true,
-          notes: 'Last day to add or drop course',
-          confidence: 0.9
-        },
-        {
-          id: 'withdrawal-deadline',
-          courseCode: 'PHYS301',
-          type: 'OTHER',
-          title: 'Withdrawal Deadline',
-          start: '2025-11-01T00:00:00.000-05:00',
-          allDay: true,
-          notes: 'Last day to withdraw from course',
-          confidence: 0.9
-        }
-      ]
-    })
-  },
-  {
-    role: 'user' as const,
-    content:
-      'Example 9 — Ungraded labs excluded, projects included.\n' +
-      'Context: courseCode=CS201, timezone=America/Los_Angeles, termStart=2025-09-03.\n' +
-      'Text:\n' +
-      'Grading: Assignments (40%), Midterm (25%), Final (25%), Mini Project (10%).\n' +
-      'Class meets MWF 10:00-10:50 AM in Room 101.\n' +
-      'Lab sessions: Tuesdays 2:00-4:00 PM in Lab 205 (not graded, for practice).\n' +
-      'Assignment 1 due Sept 20. Assignment 2 due Oct 15.\n' +
-      'Mini Project due Nov 10. Midterm Oct 25. Final Dec 15.\n' +
-      'Office hours: Thursdays 3:00-5:00 PM.'
-  },
-  {
-    role: 'assistant' as const,
-    content: JSON.stringify({
-      events: [
-        {
-          id: 'cs-lecture-series',
-          courseCode: 'CS201',
-          type: 'LECTURE',
-          title: 'Lecture',
-          start: '2025-09-04T10:00:00.000-07:00',
-          end: '2025-09-04T10:50:00.000-07:00',
-          allDay: false,
-          location: 'Room 101',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR',
-          confidence: 0.9
-        },
-        {
-          id: 'assignment-1',
-          courseCode: 'CS201',
-          type: 'ASSIGNMENT',
-          title: 'Assignment 1',
-          start: '2025-09-20T00:00:00.000-07:00',
-          allDay: true,
-          notes: 'Weight: 20% (40% total for assignments, 2 assignments)',
-          confidence: 0.95
-        },
-        {
-          id: 'assignment-2',
-          courseCode: 'CS201',
-          type: 'ASSIGNMENT',
-          title: 'Assignment 2',
-          start: '2025-10-15T00:00:00.000-07:00',
-          allDay: true,
-          notes: 'Weight: 20% (40% total for assignments, 2 assignments)',
-          confidence: 0.95
-        },
-        {
-          id: 'mini-project',
-          courseCode: 'CS201',
-          type: 'ASSIGNMENT',
-          title: 'Mini Project',
-          start: '2025-11-10T00:00:00.000-08:00',
-          allDay: true,
-          notes: 'Weight: 10%',
-          confidence: 0.95
-        },
-        {
-          id: 'midterm-exam',
-          courseCode: 'CS201',
-          type: 'MIDTERM',
-          title: 'Midterm',
-          start: '2025-10-25T00:00:00.000-07:00',
-          allDay: true,
-          notes: 'Weight: 25%',
-          confidence: 0.95
-        },
-        {
-          id: 'final-exam',
-          courseCode: 'CS201',
-          type: 'FINAL',
-          title: 'Final',
-          start: '2025-12-15T00:00:00.000-08:00',
-          allDay: true,
-          notes: 'Weight: 25%',
-          confidence: 0.95
-        }
-      ]
-    })
-  },
-  {
-    role: 'user' as const,
-    content:
-      'Example 11 — Time-specific deadlines.\n' +
-      'Context: courseCode=CS301, timezone=America/New_York, termStart=2025-09-03.\n' +
-      'Text:\n' +
-      'Assignment 1 due October 15, 2025 at 11:59 PM\n' +
-      'Midterm Exam: November 5, 2025, 2:00-4:00 PM\n' +
-      'Project Proposal due December 1, 2025 at 5:30 PM\n' +
-      'Final Exam: December 20, 2025 at 9:00 AM\n' +
-      'Lab Report due before next class (no specific time mentioned)'
-  },
-  {
-    role: 'assistant' as const,
-    content: JSON.stringify({
-      events: [
-        {
-          id: 'assignment-1',
-          courseCode: 'CS301',
-          type: 'ASSIGNMENT',
-          title: 'Assignment 1',
-          start: '2025-10-15T23:59:00.000-04:00',
-          allDay: false,
-          notes: 'Due at 11:59 PM',
-          confidence: 0.95
-        },
-        {
-          id: 'midterm-exam',
-          courseCode: 'CS301',
-          type: 'MIDTERM',
-          title: 'Midterm Exam',
-          start: '2025-11-05T14:00:00.000-05:00',
-          end: '2025-11-05T16:00:00.000-05:00',
-          allDay: false,
-          notes: '2:00-4:00 PM',
-          confidence: 0.95
-        },
-        {
-          id: 'project-proposal',
-          courseCode: 'CS301',
-          type: 'ASSIGNMENT',
-          title: 'Project Proposal',
-          start: '2025-12-01T17:30:00.000-05:00',
-          allDay: false,
-          notes: 'Due at 5:30 PM',
-          confidence: 0.95
-        },
-        {
-          id: 'final-exam',
-          courseCode: 'CS301',
-          type: 'FINAL',
-          title: 'Final Exam',
-          start: '2025-12-20T09:00:00.000-05:00',
-          allDay: false,
-          notes: 'Starts at 9:00 AM',
-          confidence: 0.95
-        },
-        {
-          id: 'lab-report',
-          courseCode: 'CS301',
-          type: 'LAB',
-          title: 'Lab Report',
-          start: '2025-09-10T00:00:00.000-04:00',
-          allDay: true,
-          notes: 'Due before next class',
-          confidence: 0.9
-        }
-      ]
-    })
-  },
-  {
-    role: 'user' as const,
-    content:
-      'Example 12 — Labs and Projects extraction from grading breakdown.\n' +
-      'Context: courseCode=ENGG*1410, timezone=America/Toronto, termStart=2025-09-03.\n' +
-      'Text:\n' +
-      'Grading Breakdown: Mini Project (10%), Labs (15% total across 3 labs), Assignments (25%), Midterm (25%), Final (25%).\n' +
-      'Lab 1 due Sept 20, Lab 2 due Oct 15, Lab 3 due Nov 10.\n' +
-      'Mini Project due Nov 20.\n' +
-      'Assignment 1 due Sept 30. Assignment 2 due Oct 25.\n' +
-      'Midterm Exam: October 30, 2025, 2:00-4:00 PM.\n' +
-      'Final Exam: December 15, 2025, 9:00-11:00 AM.'
-  },
-  {
-    role: 'assistant' as const,
-    content: JSON.stringify({
-      events: [
-        {
-          id: 'lab-1',
-          courseCode: 'ENGG*1410',
-          type: 'LAB',
-          title: 'Lab 1',
-          start: '2025-09-20T00:00:00.000-04:00',
-          allDay: true,
-          notes: 'Weight: 5% (15% total for 3 labs)',
-          confidence: 0.95
-        },
-        {
-          id: 'lab-2',
-          courseCode: 'ENGG*1410',
-          type: 'LAB',
-          title: 'Lab 2',
-          start: '2025-10-15T00:00:00.000-04:00',
-          allDay: true,
-          notes: 'Weight: 5% (15% total for 3 labs)',
-          confidence: 0.95
-        },
-        {
-          id: 'lab-3',
-          courseCode: 'ENGG*1410',
-          type: 'LAB',
-          title: 'Lab 3',
-          start: '2025-11-10T00:00:00.000-05:00',
-          allDay: true,
-          notes: 'Weight: 5% (15% total for 3 labs)',
-          confidence: 0.95
-        },
-        {
-          id: 'mini-project',
-          courseCode: 'ENGG*1410',
-          type: 'ASSIGNMENT',
-          title: 'Mini Project',
-          start: '2025-11-20T00:00:00.000-05:00',
-          allDay: true,
-          notes: 'Weight: 10%',
-          confidence: 0.95
-        },
-        {
-          id: 'assignment-1',
-          courseCode: 'ENGG*1410',
-          type: 'ASSIGNMENT',
-          title: 'Assignment 1',
-          start: '2025-09-30T00:00:00.000-04:00',
-          allDay: true,
-          notes: 'Weight: 12.5% (25% total for 2 assignments)',
-          confidence: 0.95
-        },
-        {
-          id: 'assignment-2',
-          courseCode: 'ENGG*1410',
-          type: 'ASSIGNMENT',
-          title: 'Assignment 2',
-          start: '2025-10-25T00:00:00.000-04:00',
-          allDay: true,
-          notes: 'Weight: 12.5% (25% total for 2 assignments)',
-          confidence: 0.95
-        },
-        {
-          id: 'midterm-exam',
-          courseCode: 'ENGG*1410',
-          type: 'MIDTERM',
-          title: 'Midterm Exam',
-          start: '2025-10-30T14:00:00.000-04:00',
-          end: '2025-10-30T16:00:00.000-04:00',
-          allDay: false,
-          notes: 'Weight: 25%',
-          confidence: 0.95
-        },
-        {
-          id: 'final-exam',
-          courseCode: 'ENGG*1410',
-          type: 'FINAL',
-          title: 'Final Exam',
-          start: '2025-12-15T09:00:00.000-05:00',
-          end: '2025-12-15T11:00:00.000-05:00',
-          allDay: false,
-          notes: 'Weight: 25%',
-          confidence: 0.95
-        }
-      ]
-    })
-  },
-  {
-    role: 'user' as const,
-    content:
-      'Example 12 — Common type mapping mistakes to avoid.\n' +
-      'Context: courseCode=CS101, timezone=America/New_York.\n' +
-      'Text:\n' +
-      'Project 1 due Oct 15, 2025. Homework 2 due Oct 20, 2025. Class meets MWF 10-11 AM.'
-  },
-  {
-    role: 'assistant' as const,
-    content: JSON.stringify({
-      events: [
-        {
-          id: 'project-1',
-          courseCode: 'CS101',
-          type: 'ASSIGNMENT',  // NOT "PROJECT"
-          title: 'Project 1',
-          start: '2025-10-15T00:00:00.000-04:00',
-          allDay: true,
-          confidence: 0.9
-        },
-        {
-          id: 'homework-2',
-          courseCode: 'CS101',
-          type: 'ASSIGNMENT',  // NOT "HOMEWORK"
-          title: 'Homework 2',
-          start: '2025-10-20T00:00:00.000-04:00',
-          allDay: true,
-          confidence: 0.9
-        },
-        {
-          id: 'lecture-schedule',
-          courseCode: 'CS101',
-          type: 'LECTURE',  // NOT "CLASS"
-          title: 'Lecture',
-          start: '2025-09-04T10:00:00.000-04:00',
-          end: '2025-09-04T11:00:00.000-04:00',
-          allDay: false,
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR;UNTIL=2025-12-12',
-          confidence: 0.9
-        }
-      ]
-    })
-  },
-  {
-    role: 'user' as const,
-    content:
-      'Example 13 — Lab Sessions + Graded Deliverables (CRITICAL PATTERN).\n' +
-      'Context: courseCode=ENGG*4540, timezone=America/Toronto, termStart=2025-01-06, termEnd=2025-04-18.\n' +
-      'Text:\n' +
-      'Lab Schedule:\n' +
-      '| Day | Time | Location | Section |\n' +
-      '| Monday | 11:30 AM - 1:20 PM | RICH 2531 | 01 |\n' +
-      '| Monday | 2:30 PM - 4:20 PM | RICH 2531 | 02 |\n' +
-      '| Wednesday | 12:30 PM - 2:20 PM | RICH 2531 | 03 |\n\n' +
-      'Lab Topics: Lab 1: Benchmark, Lab 2: MARS/MIPS, Lab 3: Pipelining, Lab 4: DRAM, Lab 5: Execution\n' +
-      'Labs worth 25% total (5% each).'
-  },
-  {
-    role: 'assistant' as const,
-    content: JSON.stringify({
-      events: [
-        // Lab SESSIONS (recurring per section)
-        {
-          id: 'lab-session-01',
-          courseCode: 'ENGG*4540',
-          type: 'LAB',
-          title: 'Lab - Section 01',
-          start: '2025-01-06T11:30:00.000-05:00',
-          end: '2025-01-06T13:20:00.000-05:00',
-          allDay: false,
-          location: 'RICH 2531',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO;UNTIL=2025-04-18',
-          notes: 'Weekly lab session. See Lab 1-5 for graded work.',
-          confidence: 0.9
-        },
-        {
-          id: 'lab-session-02',
-          courseCode: 'ENGG*4540',
-          type: 'LAB',
-          title: 'Lab - Section 02',
-          start: '2025-01-06T14:30:00.000-05:00',
-          end: '2025-01-06T16:20:00.000-05:00',
-          allDay: false,
-          location: 'RICH 2531',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO;UNTIL=2025-04-18',
-          notes: 'Weekly lab session. See Lab 1-5 for graded work.',
-          confidence: 0.9
-        },
-        {
-          id: 'lab-session-03',
-          courseCode: 'ENGG*4540',
-          type: 'LAB',
-          title: 'Lab - Section 03',
-          start: '2025-01-08T12:30:00.000-05:00',
-          end: '2025-01-08T14:20:00.000-05:00',
-          allDay: false,
-          location: 'RICH 2531',
-          recurrenceRule: 'FREQ=WEEKLY;BYDAY=WE;UNTIL=2025-04-18',
-          notes: 'Weekly lab session. See Lab 1-5 for graded work.',
-          confidence: 0.9
-        },
-        // Lab DELIVERABLES (graded, one-time)
-        {
-          id: 'lab-1',
-          courseCode: 'ENGG*4540',
-          type: 'LAB',
-          title: 'Lab 1',
-          start: '2025-01-13T00:00:00.000-05:00',
-          allDay: true,
-          notes: 'Weight: 5%. Topic: Benchmark',
-          confidence: 0.85
-        },
-        {
-          id: 'lab-2',
-          courseCode: 'ENGG*4540',
-          type: 'LAB',
-          title: 'Lab 2',
-          start: '2025-01-20T00:00:00.000-05:00',
-          allDay: true,
-          notes: 'Weight: 5%. Topic: MARS/MIPS',
-          confidence: 0.85
-        },
-        {
-          id: 'lab-3',
-          courseCode: 'ENGG*4540',
-          type: 'LAB',
-          title: 'Lab 3',
-          start: '2025-01-27T00:00:00.000-05:00',
-          allDay: true,
-          notes: 'Weight: 5%. Topic: Pipelining',
-          confidence: 0.85
-        },
-        {
-          id: 'lab-4',
-          courseCode: 'ENGG*4540',
-          type: 'LAB',
-          title: 'Lab 4',
-          start: '2025-02-03T00:00:00.000-05:00',
-          allDay: true,
-          notes: 'Weight: 5%. Topic: DRAM',
-          confidence: 0.85
-        },
-        {
-          id: 'lab-5',
-          courseCode: 'ENGG*4540',
-          type: 'LAB',
-          title: 'Lab 5',
-          start: '2025-02-10T00:00:00.000-05:00',
-          allDay: true,
-          notes: 'Weight: 5%. Topic: Execution',
-          confidence: 0.85
-        }
-      ]
-    })
-  },
-  // Example: Events where the syllabus mentions deliverables but no dates
-  {
-    role: 'user' as const,
-    content:
-      'Example — Missing dates (needsDate).\n' +
-      'Context: courseCode=BUS301, timezone=America/New_York, termStart=2025-09-02.\n' +
-      'Text:\n' +
-      'Grading: Group Project (25%), Essay Draft (15%), Final Exam Dec 10 at 2:00 PM (30%), Participation (30%).\n' +
-      'The group project and essay draft deadlines will be announced in class.'
-  },
-  {
-    role: 'assistant' as const,
-    content: JSON.stringify({
-      events: [
-        {
-          id: 'group-project',
-          courseCode: 'BUS301',
-          type: 'ASSIGNMENT',
-          title: 'Group Project',
-          start: null,
-          needsDate: true,
-          allDay: true,
-          notes: 'Weight: 25%. Deadline to be announced in class.',
-          confidence: 0.3,
-          dateSource: null
-        },
-        {
-          id: 'essay-draft',
-          courseCode: 'BUS301',
-          type: 'ASSIGNMENT',
-          title: 'Essay Draft',
-          start: null,
-          needsDate: true,
-          allDay: true,
-          notes: 'Weight: 15%. Deadline to be announced in class.',
-          confidence: 0.3,
-          dateSource: null
-        },
-        {
-          id: 'final-exam',
-          courseCode: 'BUS301',
-          type: 'FINAL',
-          title: 'Final Exam',
-          start: '2025-12-10T14:00:00.000-05:00',
-          allDay: false,
-          notes: 'Weight: 30%',
-          confidence: 0.95,
-          dateSource: 'Final Exam Dec 10 at 2:00 PM'
-        }
-      ]
-    })
-  }
+// -- Few-shot examples (7 clean, consistent, with a negative case) --
+
+const FEWSHOT: Array<{ role: 'user' | 'assistant'; content: string }> = [
+	{ role: 'user' as const, content: `GRADING SCHEME:
+- Assignments: 30%
+- Final Exam: 30%
+- Participation: 40%
+
+Context: {"courseCode":"CS101","timezone":"America/New_York","termStart":"2025-09-02","termEnd":"2025-12-15"}
+Syllabus Text:
+Assignment 1 due Sept 12, 2025 at 11:59 PM. Submit on Canvas. Weight: 15%.
+Assignment 2 due Oct 3, 2025. Weight: 15%.
+Final Exam: December 10, 2025 2:00-4:00 PM in Hall A.` },
+	{ role: 'assistant' as const, content: `{"events": [{"id": "assignment-1", "courseCode": "CS101", "type": "ASSIGNMENT", "title": "Assignment 1", "start": "2025-09-12T23:59:00.000-04:00", "allDay": false, "notes": "Submit on Canvas. Weight: 15%.", "confidence": 0.95, "dateSource": "Assignment 1 due Sept 12, 2025 at 11:59 PM"}, {"id": "assignment-2", "courseCode": "CS101", "type": "ASSIGNMENT", "title": "Assignment 2", "start": "2025-10-03T00:00:00.000-04:00", "allDay": true, "notes": "Weight: 15%.", "confidence": 0.95, "dateSource": "Assignment 2 due Oct 3, 2025"}, {"id": "final-exam", "courseCode": "CS101", "type": "FINAL", "title": "Final Exam", "start": "2025-12-10T14:00:00.000-05:00", "end": "2025-12-10T16:00:00.000-05:00", "allDay": false, "location": "Hall A", "notes": "Weight: 30%.", "confidence": 0.95, "dateSource": "Final Exam: December 10, 2025 2:00-4:00 PM in Hall A"}]}` },
+	{ role: 'user' as const, content: `GRADING SCHEME:
+Not found
+
+Context: {"courseCode":"MATH101","timezone":"America/New_York","termStart":"2025-08-25","termEnd":"2025-12-15"}
+Syllabus Text:
+Classes meet Monday, Wednesday, Friday 2:00-2:50 PM in Lecture Hall A.` },
+	{ role: 'assistant' as const, content: `{"events": [{"id": "lecture-mon", "courseCode": "MATH101", "type": "LECTURE", "title": "Lecture (Mon)", "start": "2025-08-25T14:00:00.000-04:00", "end": "2025-08-25T14:50:00.000-04:00", "allDay": false, "location": "Lecture Hall A", "recurrenceRule": "FREQ=WEEKLY;BYDAY=MO;UNTIL=2025-12-15", "confidence": 0.9, "dateSource": "Monday, Wednesday, Friday 2:00-2:50 PM"}, {"id": "lecture-wed", "courseCode": "MATH101", "type": "LECTURE", "title": "Lecture (Wed)", "start": "2025-08-27T14:00:00.000-04:00", "end": "2025-08-27T14:50:00.000-04:00", "allDay": false, "location": "Lecture Hall A", "recurrenceRule": "FREQ=WEEKLY;BYDAY=WE;UNTIL=2025-12-15", "confidence": 0.9, "dateSource": "Monday, Wednesday, Friday 2:00-2:50 PM"}, {"id": "lecture-fri", "courseCode": "MATH101", "type": "LECTURE", "title": "Lecture (Fri)", "start": "2025-08-29T14:00:00.000-04:00", "end": "2025-08-29T14:50:00.000-04:00", "allDay": false, "location": "Lecture Hall A", "recurrenceRule": "FREQ=WEEKLY;BYDAY=FR;UNTIL=2025-12-15", "confidence": 0.9, "dateSource": "Monday, Wednesday, Friday 2:00-2:50 PM"}]}` },
+	{ role: 'user' as const, content: `GRADING SCHEME:
+- Group Project: 25%
+- Essay Draft: 15%
+- Final Exam: 30%
+- Participation: 30%
+
+Context: {"courseCode":"BUS301","timezone":"America/New_York","termStart":"2025-09-02"}
+Syllabus Text:
+Grading: Group Project (25%), Essay Draft (15%), Final Exam Dec 10 at 2:00 PM (30%), Participation (30%).
+The group project and essay draft deadlines will be announced in class.` },
+	{ role: 'assistant' as const, content: `{"events": [{"id": "group-project", "courseCode": "BUS301", "type": "ASSIGNMENT", "title": "Group Project", "start": null, "needsDate": true, "allDay": true, "notes": "Weight: 25%. Deadline to be announced.", "confidence": 0.3, "dateSource": null}, {"id": "essay-draft", "courseCode": "BUS301", "type": "ASSIGNMENT", "title": "Essay Draft", "start": null, "needsDate": true, "allDay": true, "notes": "Weight: 15%. Deadline to be announced.", "confidence": 0.3, "dateSource": null}, {"id": "final-exam", "courseCode": "BUS301", "type": "FINAL", "title": "Final Exam", "start": "2025-12-10T14:00:00.000-05:00", "allDay": false, "notes": "Weight: 30%.", "confidence": 0.95, "dateSource": "Final Exam Dec 10 at 2:00 PM"}]}` },
+	{ role: 'user' as const, content: `GRADING SCHEME:
+- Labs: 25%
+- Midterm: 35%
+- Final Exam: 40%
+
+Context: {"courseCode":"ENGG*4540","timezone":"America/Toronto","termStart":"2025-01-06","termEnd":"2025-04-18"}
+Syllabus Text:
+Lab Schedule:
+| Day | Time | Location | Section |
+| Monday | 11:30 AM - 1:20 PM | RICH 2531 | 01 |
+| Wednesday | 12:30 PM - 2:20 PM | RICH 2531 | 02 |
+
+Lab Topics: Lab 1: Benchmark, Lab 2: MARS/MIPS, Lab 3: Pipelining, Lab 4: DRAM, Lab 5: Execution.
+Labs worth 25% total (5% each).
+Midterm: February 20, 2025 during lecture. Final Exam: April 14, 2025 9:00-11:00 AM.` },
+	{ role: 'assistant' as const, content: `{"events": [{"id": "lab-session-01", "courseCode": "ENGG*4540", "type": "LAB", "title": "Lab - Section 01", "start": "2025-01-06T11:30:00.000-05:00", "end": "2025-01-06T13:20:00.000-05:00", "allDay": false, "location": "RICH 2531", "recurrenceRule": "FREQ=WEEKLY;BYDAY=MO;UNTIL=2025-04-18", "notes": "Weekly session.", "confidence": 0.9, "dateSource": "Monday | 11:30 AM - 1:20 PM | RICH 2531 | 01"}, {"id": "lab-session-02", "courseCode": "ENGG*4540", "type": "LAB", "title": "Lab - Section 02", "start": "2025-01-08T12:30:00.000-05:00", "end": "2025-01-08T14:20:00.000-05:00", "allDay": false, "location": "RICH 2531", "recurrenceRule": "FREQ=WEEKLY;BYDAY=WE;UNTIL=2025-04-18", "notes": "Weekly session.", "confidence": 0.9, "dateSource": "Wednesday | 12:30 PM - 2:20 PM | RICH 2531 | 02"}, {"id": "lab-1", "courseCode": "ENGG*4540", "type": "LAB", "title": "Lab 1", "start": null, "needsDate": true, "allDay": true, "notes": "Weight: 5%. Topic: Benchmark.", "confidence": 0.3, "dateSource": null}, {"id": "lab-2", "courseCode": "ENGG*4540", "type": "LAB", "title": "Lab 2", "start": null, "needsDate": true, "allDay": true, "notes": "Weight: 5%. Topic: MARS/MIPS.", "confidence": 0.3, "dateSource": null}, {"id": "lab-3", "courseCode": "ENGG*4540", "type": "LAB", "title": "Lab 3", "start": null, "needsDate": true, "allDay": true, "notes": "Weight: 5%. Topic: Pipelining.", "confidence": 0.3, "dateSource": null}, {"id": "lab-4", "courseCode": "ENGG*4540", "type": "LAB", "title": "Lab 4", "start": null, "needsDate": true, "allDay": true, "notes": "Weight: 5%. Topic: DRAM.", "confidence": 0.3, "dateSource": null}, {"id": "lab-5", "courseCode": "ENGG*4540", "type": "LAB", "title": "Lab 5", "start": null, "needsDate": true, "allDay": true, "notes": "Weight: 5%. Topic: Execution.", "confidence": 0.3, "dateSource": null}, {"id": "midterm", "courseCode": "ENGG*4540", "type": "MIDTERM", "title": "Midterm", "start": "2025-02-20T00:00:00.000-05:00", "allDay": true, "notes": "Weight: 35%. During lecture.", "confidence": 0.85, "dateSource": "Midterm: February 20, 2025 during lecture"}, {"id": "final-exam", "courseCode": "ENGG*4540", "type": "FINAL", "title": "Final Exam", "start": "2025-04-14T09:00:00.000-04:00", "end": "2025-04-14T11:00:00.000-04:00", "allDay": false, "notes": "Weight: 40%.", "confidence": 0.95, "dateSource": "Final Exam: April 14, 2025 9:00-11:00 AM"}]}` },
+	{ role: 'user' as const, content: `GRADING SCHEME:
+Not found
+
+Context: {"courseCode":"CIS*2750","timezone":"America/Toronto","termStart":"2025-01-06","termEnd":"2025-04-18"}
+Syllabus Text:
+Lecture Section 01
+Instructor: Dr. D. Nikitenko
+Tue/Thu 4:00-5:20 pm | MACN 105
+
+Lecture Section 02
+Instructor: Dr. J. McCuaig
+Tue/Thu 8:30-9:50 am | MACN 105` },
+	{ role: 'assistant' as const, content: `{"events": [{"id": "lecture-s01-tue", "courseCode": "CIS*2750", "type": "LECTURE", "title": "Lecture Section 01 (Tue)", "start": "2025-01-07T16:00:00.000-05:00", "end": "2025-01-07T17:20:00.000-05:00", "allDay": false, "location": "MACN 105", "recurrenceRule": "FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-04-18", "notes": "Instructor: Dr. D. Nikitenko", "confidence": 0.95, "dateSource": "Tue/Thu 4:00-5:20 pm | MACN 105"}, {"id": "lecture-s01-thu", "courseCode": "CIS*2750", "type": "LECTURE", "title": "Lecture Section 01 (Thu)", "start": "2025-01-09T16:00:00.000-05:00", "end": "2025-01-09T17:20:00.000-05:00", "allDay": false, "location": "MACN 105", "recurrenceRule": "FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-04-18", "notes": "Instructor: Dr. D. Nikitenko", "confidence": 0.95, "dateSource": "Tue/Thu 4:00-5:20 pm | MACN 105"}, {"id": "lecture-s02-tue", "courseCode": "CIS*2750", "type": "LECTURE", "title": "Lecture Section 02 (Tue)", "start": "2025-01-07T08:30:00.000-05:00", "end": "2025-01-07T09:50:00.000-05:00", "allDay": false, "location": "MACN 105", "recurrenceRule": "FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-04-18", "notes": "Instructor: Dr. J. McCuaig", "confidence": 0.95, "dateSource": "Tue/Thu 8:30-9:50 am | MACN 105"}, {"id": "lecture-s02-thu", "courseCode": "CIS*2750", "type": "LECTURE", "title": "Lecture Section 02 (Thu)", "start": "2025-01-09T08:30:00.000-05:00", "end": "2025-01-09T09:50:00.000-05:00", "allDay": false, "location": "MACN 105", "recurrenceRule": "FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-04-18", "notes": "Instructor: Dr. J. McCuaig", "confidence": 0.95, "dateSource": "Tue/Thu 8:30-9:50 am | MACN 105"}]}` },
+	{ role: 'user' as const, content: `GRADING SCHEME:
+- Assignments: 40%
+- Final Exam: 60%
+
+Context: {"courseCode":"BIO4944G","timezone":"America/Toronto","termStart":"2025-01-06","termEnd":"2025-04-18"}
+Syllabus Text:
+[EVENT:MIDTERM] If you miss the midterm exam, you must provide documentation within 48 hours.
+[EVENT:EXAM] The final exam will cover all material from the semester.
+Assignment 1 due Feb 5, 2025. Assignment 2 due Mar 12, 2025.
+Final Exam: April 10, 2025 9:00 AM - 12:00 PM.
+Academic Integrity: Plagiarism on any exam or assignment will result in a grade of zero.` },
+	{ role: 'assistant' as const, content: `{"events": [{"id": "assignment-1", "courseCode": "BIO4944G", "type": "ASSIGNMENT", "title": "Assignment 1", "start": "2025-02-05T00:00:00.000-05:00", "allDay": true, "notes": "Weight: 20% (40% total for assignments).", "confidence": 0.9, "dateSource": "Assignment 1 due Feb 5, 2025"}, {"id": "assignment-2", "courseCode": "BIO4944G", "type": "ASSIGNMENT", "title": "Assignment 2", "start": "2025-03-12T00:00:00.000-05:00", "allDay": true, "notes": "Weight: 20% (40% total for assignments).", "confidence": 0.9, "dateSource": "Assignment 2 due Mar 12, 2025"}, {"id": "final-exam", "courseCode": "BIO4944G", "type": "FINAL", "title": "Final Exam", "start": "2025-04-10T09:00:00.000-04:00", "end": "2025-04-10T12:00:00.000-04:00", "allDay": false, "notes": "Weight: 60%.", "confidence": 0.95, "dateSource": "Final Exam: April 10, 2025 9:00 AM - 12:00 PM"}]}` },
+	{ role: 'user' as const, content: `GRADING SCHEME:
+- Research Paper: 50%
+- Presentation: 30%
+- Participation: 20%
+
+Context: {"courseCode":"HIST400","timezone":"America/Chicago","termStart":"2025-08-25","termEnd":"2025-12-12"}
+Syllabus Text:
+The research paper is due near the end of the semester.
+Presentations will be scheduled during the last two weeks of class.` },
+	{ role: 'assistant' as const, content: `{"events": [{"id": "research-paper", "courseCode": "HIST400", "type": "ASSIGNMENT", "title": "Research Paper", "start": null, "needsDate": true, "allDay": true, "notes": "Weight: 50%. Due near end of semester.", "confidence": 0.3, "dateSource": null}, {"id": "presentation", "courseCode": "HIST400", "type": "ASSIGNMENT", "title": "Presentation", "start": null, "needsDate": true, "allDay": true, "notes": "Weight: 30%. Last two weeks of class.", "confidence": 0.3, "dateSource": null}]}` },
 ];
 
+// -- Request builder --
+
 export function buildParseSyllabusRequest(
-  text: string,
-  options: ParsePromptOptions = {}
+	text: string,
+	options: ParsePromptOptions = {}
 ) {
-  const {
-    courseCode,
-    termStart,
-    termEnd,
-    timezone = 'UTC',
-    model = 'gpt-4.1-mini'
-  } = options;
+	const {
+		courseCode,
+		termStart,
+		termEnd,
+		timezone = 'UTC',
+		model = 'gpt-4.1-mini',
+		gradingScheme,
+	} = options;
 
-  const system = SYSTEM_PROMPT({ timezone });
+	const system = SYSTEM_PROMPT({ timezone });
 
-  const contextBlock = JSON.stringify(
-    {
-      courseCode,
-      termStart,
-      termEnd,
-      timezone
-    },
-    null,
-    0
-  );
+	const contextBlock = JSON.stringify(
+		{ courseCode, termStart, termEnd, timezone },
+		null,
+		0
+	);
 
-  const processedText = preprocessTextForAI(text);
+	const processedText = preprocessTextForAI(text);
 
-  const userContent = `Context: ${contextBlock}\nSyllabus Text:\n${processedText}`;
+	// Build the grading-scheme preamble
+	const schemeLine = gradingScheme
+		? formatGradingSchemeForPrompt(gradingScheme) ?? 'Not found'
+		: 'Not found';
 
-  const messages = [
-    { role: 'system' as const, content: system },
-    ...FEWSHOT,
-    { role: 'user' as const, content: userContent }
-  ];
+	const userContent = [
+		'GRADING SCHEME:',
+		schemeLine,
+		'',
+		`Context: ${contextBlock}`,
+		'Syllabus Text:',
+		processedText,
+	].join('\n');
 
-  // OpenAI responses with JSON schema enforcement
-  return {
-    processedText,
-    request: {
-      model,
-      temperature: 0, // Zero temperature for maximum consistency
-      messages,
-      response_format: {
-        type: 'json_schema' as const,
-        json_schema: {
-          name: 'parse_syllabus_events',
-          schema: eventItemsObjectSchema,
-          strict: false
-        }
-      }
-    }
-  };
+	const messages = [
+		{ role: 'system' as const, content: system },
+		...FEWSHOT,
+		{ role: 'user' as const, content: userContent },
+	];
+
+	return {
+		processedText,
+		request: {
+			model,
+			temperature: 0,
+			messages,
+			response_format: {
+				type: 'json_schema' as const,
+				json_schema: {
+					name: 'parse_syllabus_events',
+					schema: eventItemsObjectSchema,
+					strict: false,
+				},
+			},
+		},
+	};
 }

@@ -26,6 +26,9 @@
         "FINAL",
         "LAB",
         "LECTURE",
+        "TUTORIAL",
+        "OFFICE_HOURS",
+        "IMPORTANT_DATE",
         "OTHER"
       ],
       "description": "Type of the event"

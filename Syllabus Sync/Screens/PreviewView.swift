@@ -209,6 +209,11 @@ struct PreviewView: View {
 
     private var eventsTabContent: some View {
         VStack(alignment: .leading, spacing: Layout.Spacing.lg) {
+            // Grading Breakdown (if scheme was extracted)
+            if !importViewModel.gradingScheme.isEmpty {
+                GradingBreakdownCard(entries: importViewModel.gradingScheme)
+            }
+
             if events.isEmpty {
                 PreviewEmptyStateView()
             } else {
@@ -367,6 +372,9 @@ struct PreviewEventCard: View {
         case .final: return Color.red
         case .lab: return Color.green
         case .lecture: return Color.blue
+        case .tutorial: return Color.teal
+        case .officeHours: return Color.indigo
+        case .importantDate: return Color.orange
         case .other: return AppColors.accent
         }
     }
@@ -379,6 +387,9 @@ struct PreviewEventCard: View {
         case .final: return "rosette"
         case .lab: return "flask"
         case .lecture: return "person.fill"
+        case .tutorial: return "person.2.fill"
+        case .officeHours: return "clock.fill"
+        case .importantDate: return "exclamationmark.triangle.fill"
         case .other: return "bookmark"
         }
     }

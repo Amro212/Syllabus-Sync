@@ -86,8 +86,8 @@ describe('buildParseSyllabusRequest', () => {
 
   it('has correct number of few-shot messages', () => {
     const { request } = buildParseSyllabusRequest(baseText);
-    // 1 system + 14 fewshot (7 pairs) + 1 user = 16
-    expect(request.messages).toHaveLength(16);
+    // 1 system + 16 fewshot (8 pairs) + 1 user = 18
+    expect(request.messages).toHaveLength(18);
     expect(request.messages[0].role).toBe('system');
     expect(request.messages[1].role).toBe('user');
     expect(request.messages[2].role).toBe('assistant');

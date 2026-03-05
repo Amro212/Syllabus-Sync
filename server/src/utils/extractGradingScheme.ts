@@ -99,6 +99,7 @@ const TYPE_MAP: Array<{ regex: RegExp; type: EventType }> = [
 	{ regex: /\bquiz/i, type: 'QUIZ' },
 	{ regex: /\blab/i, type: 'LAB' },
 	{ regex: /\blecture/i, type: 'LECTURE' },
+	{ regex: /\btutorial|seminar/i, type: 'TUTORIAL' },
 	{ regex: /\bparticipation|attendance\b/i, type: 'OTHER' },
 	// Everything else (assignment, project, homework, essay, report, etc.)
 ];

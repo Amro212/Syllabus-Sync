@@ -611,7 +611,7 @@ struct CalendarEvent: Identifiable, Hashable {
     }
 
     enum EventType: String, Hashable {
-        case assignment, quiz, midterm, final, lab, lecture, other
+        case assignment, quiz, midterm, final, lab, lecture, tutorial, officeHours, importantDate, other
 
         init(from domain: EventItem.EventType) {
             switch domain {
@@ -621,6 +621,9 @@ struct CalendarEvent: Identifiable, Hashable {
             case .final: self = .final
             case .lab: self = .lab
             case .lecture: self = .lecture
+            case .tutorial: self = .tutorial
+            case .officeHours: self = .officeHours
+            case .importantDate: self = .importantDate
             case .other: self = .other
             }
         }

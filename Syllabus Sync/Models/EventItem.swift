@@ -16,6 +16,9 @@ struct EventItem: Identifiable, Codable, Equatable {
         case final = "FINAL"
         case lab = "LAB"
         case lecture = "LECTURE"
+        case tutorial = "TUTORIAL"
+        case officeHours = "OFFICE_HOURS"
+        case importantDate = "IMPORTANT_DATE"
         case other = "OTHER"
     }
 
@@ -103,6 +106,14 @@ struct EventItem: Identifiable, Codable, Equatable {
 
 extension EventItem.EventType: CaseIterable {}
 
+/// A grading scheme entry returned by the parsing service.
+struct GradingSchemeEntry: Decodable, Equatable, Identifiable {
+    var id: String { name }
+    let name: String
+    let weight: Double?
+    let type: String // raw EventType string from server
+}
+
 /// Diagnostics metadata surfaced by the parsing service.
 struct ParseDiagnostics: Equatable {
     enum Source: String, Codable {
@@ -126,6 +137,7 @@ struct ParseResult: Decodable {
     let source: ParseDiagnostics.Source
     let confidence: Double
     let preprocessedText: String?
+    let gradingScheme: [GradingSchemeEntry]?
     let diagnostics: DiagnosticsPayload?
 
     struct DiagnosticsPayload: Decodable {

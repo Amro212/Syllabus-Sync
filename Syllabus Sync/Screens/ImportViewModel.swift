@@ -26,6 +26,8 @@ final class ImportViewModel: ObservableObject {
     @Published var parsedEventsForReview: [EventItem] = []  // Holds events pending user review
     /// When `true`, the server could not detect a course code and the user must supply one.
     @Published var isCourseCodeMissing: Bool = false
+    /// Grading scheme entries from the most recent successful parse.
+    @Published var gradingScheme: [GradingSchemeEntry] = []
 
     private let extractor: PDFTextExtractor
     private let parser: SyllabusParser
@@ -96,6 +98,9 @@ final class ImportViewModel: ObservableObject {
             let events = try await parser.parse(text: tsv)
             crawl2.cancel()
             if shouldCancelEarly() { return false }
+
+            // Capture grading scheme for the UI breakdown card
+            gradingScheme = parser.latestGradingScheme
 
             // Stage 3: Final merge & persist (95-100%)
             self.events = events
@@ -186,6 +191,9 @@ final class ImportViewModel: ObservableObject {
             let events = try await parser.parse(text: tsv, courseCode: trimmed)
             crawl.cancel()
             if shouldCancelEarly() { return false }
+
+            // Capture grading scheme for the UI breakdown card
+            gradingScheme = parser.latestGradingScheme
 
             self.events = events
             await snapProgress(to: 0.95, message: "Saving events...")

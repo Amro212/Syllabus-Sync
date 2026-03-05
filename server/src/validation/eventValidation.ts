@@ -61,7 +61,7 @@ export interface ValidationResult {
  * Manual validation schema for EventItemDTO
  * (Replaces AJV for Cloudflare Workers compatibility)
  */
-const VALID_EVENT_TYPES: EventType[] = ['ASSIGNMENT', 'QUIZ', 'MIDTERM', 'FINAL', 'LAB', 'LECTURE', 'OTHER'];
+const VALID_EVENT_TYPES: EventType[] = ['ASSIGNMENT', 'QUIZ', 'MIDTERM', 'FINAL', 'LAB', 'LECTURE', 'TUTORIAL', 'OFFICE_HOURS', 'IMPORTANT_DATE', 'OTHER'];
 
 /**
  * Validates an EventItemDTO manually against our schema
@@ -500,7 +500,7 @@ export function normalizeEventData(events: EventItemDTO[]): EventItemDTO[] {
 // ── Assessment types subject to grounding check ─────────────────
 
 const ASSESSMENT_TYPES: Set<EventType> = new Set([
-  'ASSIGNMENT', 'QUIZ', 'MIDTERM', 'FINAL', 'LAB',
+  'ASSIGNMENT', 'QUIZ', 'MIDTERM', 'FINAL', 'LAB', 'TUTORIAL',
 ]);
 
 /**
@@ -509,7 +509,8 @@ const ASSESSMENT_TYPES: Set<EventType> = new Set([
  * but have no match in the scheme get their confidence dropped to 0.3
  * and a warning appended.
  *
- * Non-assessment types (LECTURE, OTHER) are passed through unchanged.
+ * Non-assessment types (LECTURE, OFFICE_HOURS, IMPORTANT_DATE, OTHER)
+ * are passed through unchanged.
  */
 export function groundEventsAgainstScheme(
   events: EventItemDTO[],

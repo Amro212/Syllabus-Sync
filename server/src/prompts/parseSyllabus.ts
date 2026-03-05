@@ -54,9 +54,9 @@ You extract academic events from preprocessed syllabus text into structured JSON
 
 ## 1 -- SOURCE OF TRUTH
 The user message contains a **GRADING SCHEME** block extracted from the syllabus.
-- If the block lists deliverables, ONLY create assessment events (assignments, quizzes, midterms, finals, labs) for items that appear in that block.
+- If the block lists deliverables, ONLY create assessment events (assignments, quizzes, midterms, finals, labs, tutorials) for items that appear in that block.
 - If the block says "Not found", be conservative: create assessment events only when you are >= 70% confident they exist.
-- Lectures, admin dates, and recurring sessions are NOT in the grading scheme -- create those from schedule information.
+- Lectures, admin dates, office hours, and recurring sessions are NOT in the grading scheme -- create those from schedule information.
 
 ## 2 -- HALLUCINATION RULES
 - Policy / boilerplate mentions of "exam", "midterm", "final" do NOT mean those events exist. Only the grading scheme or an explicit schedule entry counts.
@@ -71,7 +71,7 @@ The user message contains a **GRADING SCHEME** block extracted from the syllabus
     {
       "id": "string (kebab-case, unique)",
       "courseCode": "string",
-      "type": "ASSIGNMENT | QUIZ | MIDTERM | FINAL | LAB | LECTURE | OTHER",
+      "type": "ASSIGNMENT | QUIZ | MIDTERM | FINAL | LAB | LECTURE | TUTORIAL | OFFICE_HOURS | IMPORTANT_DATE | OTHER",
       "title": "string",
       "start": "ISO 8601 datetime | null",
       "needsDate": true,
@@ -88,8 +88,8 @@ The user message contains a **GRADING SCHEME** block extracted from the syllabus
 \`\`\`
 
 ### Type restriction
-ASSIGNMENT | QUIZ | MIDTERM | FINAL | LAB | LECTURE | OTHER -- no other values.
-Map: projects/homework -> ASSIGNMENT, exams -> MIDTERM or FINAL.
+ASSIGNMENT | QUIZ | MIDTERM | FINAL | LAB | LECTURE | TUTORIAL | OFFICE_HOURS | IMPORTANT_DATE | OTHER -- no other values.
+Map: projects/homework -> ASSIGNMENT, exams -> MIDTERM or FINAL, seminars -> TUTORIAL, drop deadlines/reading week/holidays -> IMPORTANT_DATE.
 
 ## 4 -- RECURRENCE (SPLIT MULTI-DAY)
 Multi-day patterns MUST be split into separate single-day events:
@@ -111,10 +111,20 @@ When a deliverable has NO date, week number, or deadline:
 ## 8 -- dateSource (EVIDENCE)
 For every event cite the exact syllabus text used to determine the date (<= 100 chars). If inferred, cite the original text. If none -> null.
 
-## 9 -- IGNORE
-Office hours, seminars, tutorials, grading policies, generic info.
+## 9 -- TUTORIALS & OFFICE HOURS
+- **Tutorials / seminars** with a recurring schedule -> TUTORIAL events with RRULE, just like lectures.
+- **Tutorials** that appear in the grading scheme as weighted deliverables -> one TUTORIAL event per deliverable (no RRULE).
+- **Office hours** with day/time info -> OFFICE_HOURS events with RRULE. Include instructor name and location.
 
-## 10 -- FINAL REMINDER
+## 10 -- IMPORTANT DATES
+- **Drop/withdrawal deadlines**, **reading week**, **holidays**, **no-class dates** -> IMPORTANT_DATE events.
+- These are never weighted. Set allDay: true unless a specific time is given.
+- Only create these when the syllabus explicitly states the date.
+
+## 11 -- IGNORE
+Grading policies, generic info, course descriptions, textbook lists.
+
+## 12 -- FINAL REMINDER
 Re-read before outputting:
 - Every assessment event must appear in the GRADING SCHEME block (or you must be >= 70% confident without one).
 - Every event must have dateSource or needsDate: true + dateSource: null.
@@ -206,6 +216,24 @@ Syllabus Text:
 The research paper is due near the end of the semester.
 Presentations will be scheduled during the last two weeks of class.` },
 	{ role: 'assistant' as const, content: `{"events": [{"id": "research-paper", "courseCode": "HIST400", "type": "ASSIGNMENT", "title": "Research Paper", "start": null, "needsDate": true, "allDay": true, "notes": "Weight: 50%. Due near end of semester.", "confidence": 0.3, "dateSource": null}, {"id": "presentation", "courseCode": "HIST400", "type": "ASSIGNMENT", "title": "Presentation", "start": null, "needsDate": true, "allDay": true, "notes": "Weight: 30%. Last two weeks of class.", "confidence": 0.3, "dateSource": null}]}` },
+	// -- Tutorials, office hours, and important dates examples --
+	{ role: 'user' as const, content: `GRADING SCHEME:
+- Tutorial Participation: 10%
+- Midterm: 30%
+- Final Exam: 60%
+
+Context: {"courseCode":"PSYC*2010","timezone":"America/Toronto","termStart":"2025-01-06","termEnd":"2025-04-18"}
+Syllabus Text:
+Lectures: Tue/Thu 10:00-11:20 AM in MCKN 120.
+Tutorials: Fridays 1:00-1:50 PM in MCKN 230.
+Office Hours: Dr. Smith, Wednesdays 3:00-4:30 PM, Room 210 MacKinnon.
+Important Dates:
+- Last day to add courses: January 17, 2025
+- Last day to drop without academic penalty: March 7, 2025
+- Reading Week: February 17-21, 2025 (no classes)
+Midterm: February 27, 2025 during lecture.
+Final Exam: April 15, 2025 7:00-9:00 PM.` },
+	{ role: 'assistant' as const, content: `{"events": [{"id": "lecture-tue", "courseCode": "PSYC*2010", "type": "LECTURE", "title": "Lecture (Tue)", "start": "2025-01-07T10:00:00.000-05:00", "end": "2025-01-07T11:20:00.000-05:00", "allDay": false, "location": "MCKN 120", "recurrenceRule": "FREQ=WEEKLY;BYDAY=TU;UNTIL=2025-04-18", "confidence": 0.95, "dateSource": "Tue/Thu 10:00-11:20 AM in MCKN 120"}, {"id": "lecture-thu", "courseCode": "PSYC*2010", "type": "LECTURE", "title": "Lecture (Thu)", "start": "2025-01-09T10:00:00.000-05:00", "end": "2025-01-09T11:20:00.000-05:00", "allDay": false, "location": "MCKN 120", "recurrenceRule": "FREQ=WEEKLY;BYDAY=TH;UNTIL=2025-04-18", "confidence": 0.95, "dateSource": "Tue/Thu 10:00-11:20 AM in MCKN 120"}, {"id": "tutorial-fri", "courseCode": "PSYC*2010", "type": "TUTORIAL", "title": "Tutorial (Fri)", "start": "2025-01-10T13:00:00.000-05:00", "end": "2025-01-10T13:50:00.000-05:00", "allDay": false, "location": "MCKN 230", "recurrenceRule": "FREQ=WEEKLY;BYDAY=FR;UNTIL=2025-04-18", "notes": "Weight: 10% (participation).", "confidence": 0.9, "dateSource": "Fridays 1:00-1:50 PM in MCKN 230"}, {"id": "office-hours-wed", "courseCode": "PSYC*2010", "type": "OFFICE_HOURS", "title": "Office Hours - Dr. Smith (Wed)", "start": "2025-01-08T15:00:00.000-05:00", "end": "2025-01-08T16:30:00.000-05:00", "allDay": false, "location": "Room 210 MacKinnon", "recurrenceRule": "FREQ=WEEKLY;BYDAY=WE;UNTIL=2025-04-18", "notes": "Dr. Smith", "confidence": 0.85, "dateSource": "Wednesdays 3:00-4:30 PM, Room 210 MacKinnon"}, {"id": "last-day-add", "courseCode": "PSYC*2010", "type": "IMPORTANT_DATE", "title": "Last Day to Add Courses", "start": "2025-01-17T00:00:00.000-05:00", "allDay": true, "confidence": 0.95, "dateSource": "Last day to add courses: January 17, 2025"}, {"id": "last-day-drop", "courseCode": "PSYC*2010", "type": "IMPORTANT_DATE", "title": "Last Day to Drop Without Penalty", "start": "2025-03-07T00:00:00.000-05:00", "allDay": true, "confidence": 0.95, "dateSource": "Last day to drop without academic penalty: March 7, 2025"}, {"id": "reading-week", "courseCode": "PSYC*2010", "type": "IMPORTANT_DATE", "title": "Reading Week (No Classes)", "start": "2025-02-17T00:00:00.000-05:00", "end": "2025-02-21T23:59:00.000-05:00", "allDay": true, "notes": "No classes.", "confidence": 0.95, "dateSource": "Reading Week: February 17-21, 2025 (no classes)"}, {"id": "midterm", "courseCode": "PSYC*2010", "type": "MIDTERM", "title": "Midterm", "start": "2025-02-27T00:00:00.000-05:00", "allDay": true, "notes": "Weight: 30%. During lecture.", "confidence": 0.85, "dateSource": "Midterm: February 27, 2025 during lecture"}, {"id": "final-exam", "courseCode": "PSYC*2010", "type": "FINAL", "title": "Final Exam", "start": "2025-04-15T19:00:00.000-04:00", "end": "2025-04-15T21:00:00.000-04:00", "allDay": false, "notes": "Weight: 60%.", "confidence": 0.95, "dateSource": "Final Exam: April 15, 2025 7:00-9:00 PM"}]}` },
 ];
 
 // -- Request builder --

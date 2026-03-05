@@ -5,15 +5,27 @@ export type EventMarkerType =
 	| 'FINAL'
 	| 'EXAM'
 	| 'IMPORTANT'
-	| 'LECTURE';
+	| 'LECTURE'
+	| 'TUTORIAL'
+	| 'OFFICE_HOURS';
 
 const MARKER_PATTERNS: Array<{ type: EventMarkerType; regex: RegExp }> = [
 	{ type: 'IMPORTANT', regex: /\bimportant\s+dates\b/i },
+	{ type: 'IMPORTANT', regex: /\b(?:last|final)\s+(?:day|date)\s+to\s+(?:drop|withdraw|add)\b/i },
+	{ type: 'IMPORTANT', regex: /\bdrop\s+deadline\b/i },
+	{ type: 'IMPORTANT', regex: /\bwithdrawal\s+deadline\b/i },
+	{ type: 'IMPORTANT', regex: /\breading\s+week\b/i },
+	{ type: 'IMPORTANT', regex: /\b(?:fall|winter|spring|study)\s+break\b/i },
+	{ type: 'IMPORTANT', regex: /\bno\s+class(?:es)?\b/i },
+	{ type: 'IMPORTANT', regex: /\bholiday\b/i },
 	{ type: 'FINAL', regex: /\bfinal\s+exam\b/i },
 	{ type: 'MIDTERM', regex: /\bmidterm\b/i },
 	{ type: 'PROJECT', regex: /\bmini[-\s]?project\b/i },
 	{ type: 'PROJECT', regex: /\bproject\b/i },
 	{ type: 'ASSIGNMENT', regex: /\bassignment\b/i },
+	{ type: 'TUTORIAL', regex: /\btutorials?\b/i },
+	{ type: 'TUTORIAL', regex: /\bseminars?\b/i },
+	{ type: 'OFFICE_HOURS', regex: /\boffice\s+hours?\b/i },
 	{ type: 'LECTURE', regex: /\blectures?\b/i },
 	{ type: 'LECTURE', regex: /\bclass(?:es)?\s+meet(?:ings)?\b/i },
 	{ type: 'LECTURE', regex: /\bmeeting\s+times?\b/i },
@@ -48,7 +60,6 @@ const BOILERPLATE_SECTION_PATTERNS: RegExp[] = [
 	/\blate\s+polic(?:y|ies)\b/i,
 	/\bregulat(?:ion|ory)\b/i,
 	/\binstructor\s+information\b/i,
-	/\boffice\s+hours?\b/i,
 	/\bcontact\s+information\b/i,
 	/\bteaching\s+assistant\b/i,
 	/\bcommunication\s+polic(?:y|ies)\b/i,
@@ -71,6 +82,10 @@ const CONTENT_SECTION_PATTERNS: RegExp[] = [
 	/\btopic(?:s)?\s+(?:and\s+)?schedule\b/i,
 	/\bassignment(?:s)?\s+(?:and\s+)?schedule\b/i,
 	/\blab\s+schedule\b/i,
+	/\btutorial\s+schedule\b/i,
+	/\boffice\s+hours?\b/i,
+	/\bkey\s+dates\b/i,
+	/\bacademic\s+dates\b/i,
 ];
 
 /**

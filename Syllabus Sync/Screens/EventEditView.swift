@@ -538,6 +538,9 @@ struct EventEditView: View {
         case .final: return "Final"
         case .lab: return "Lab"
         case .lecture: return "Lecture"
+        case .tutorial: return "Tutorial"
+        case .officeHours: return "Office Hours"
+        case .importantDate: return "Important Date"
         case .other: return "Other"
         }
     }

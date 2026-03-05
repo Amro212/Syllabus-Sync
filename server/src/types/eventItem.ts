@@ -12,6 +12,9 @@ export type EventType =
   | 'FINAL' 
   | 'LAB' 
   | 'LECTURE' 
+  | 'TUTORIAL'
+  | 'OFFICE_HOURS'
+  | 'IMPORTANT_DATE'
   | 'OTHER';
 
 export interface EventItemDTO {
@@ -64,11 +67,24 @@ export interface EventItemDTO {
 export type EventItemsResponse = EventItemDTO[];
 
 /**
+ * A grading scheme entry surfaced to the client.
+ */
+export interface GradingSchemeEntryDTO {
+  /** Raw name as it appears in the syllabus (e.g. "Mini Project") */
+  name: string;
+  /** Weight as a decimal 0-1 (10% → 0.10). Null if no percentage found. */
+  weight: number | null;
+  /** Best-guess event type based on the name */
+  type: EventType;
+}
+
+/**
  * Parse response from the server
  */
 export interface ParseResponse {
   events: EventItemDTO[];
   confidence: number;
+  gradingScheme?: GradingSchemeEntryDTO[];
   diagnostics?: {
     source: 'openai';
     processingTimeMs: number;

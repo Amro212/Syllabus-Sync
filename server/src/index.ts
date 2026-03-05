@@ -475,6 +475,11 @@ export default {
 						source: 'openai' as const,
 						confidence: Number.isFinite(avgConfidence) ? Number(avgConfidence.toFixed(3)) : 0,
 						preprocessedText: processedText,
+						gradingScheme: gradingScheme?.deliverables?.map(d => ({
+							name: d.name,
+							weight: d.weight,
+							type: d.type,
+						})) ?? [],
 						diagnostics: {
 							source: 'openai' as const,
 							processingTimeMs: Date.now() - parseStarted,

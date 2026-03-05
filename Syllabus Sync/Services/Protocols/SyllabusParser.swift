@@ -16,6 +16,10 @@ protocol SyllabusParser {
     @MainActor
     var latestPreprocessedText: String? { get }
 
+    /// Grading scheme entries from the most recent parse response (may be empty).
+    @MainActor
+    var latestGradingScheme: [GradingSchemeEntry] { get }
+
     @MainActor
     func parse(text: String) async throws -> [EventItem]
 

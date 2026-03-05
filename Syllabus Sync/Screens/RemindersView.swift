@@ -78,8 +78,8 @@ struct RemindersView: View {
             case .assignments: return eventType == .assignment
             case .exams: return eventType == .midterm || eventType == .final || eventType == .quiz
             case .labs: return eventType == .lab
-            case .lectures: return eventType == .lecture
-            case .other: return eventType == .other
+            case .lectures: return eventType == .lecture || eventType == .tutorial
+            case .other: return eventType == .other || eventType == .officeHours || eventType == .importantDate
             }
         }
     }
@@ -664,6 +664,9 @@ private struct ReminderCard: View {
         case .quiz, .midterm, .final: return .red
         case .lab: return .green
         case .lecture: return .purple
+        case .tutorial: return .teal
+        case .officeHours: return .indigo
+        case .importantDate: return .orange
         case .other: return AppColors.accent
         }
     }

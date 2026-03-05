@@ -57,6 +57,12 @@ struct ParseReviewView: View {
                     .padding(.horizontal, Layout.Spacing.lg)
                     .padding(.top, Layout.Spacing.md)
 
+                    // Grading Breakdown (if scheme was extracted)
+                    if !importViewModel.gradingScheme.isEmpty {
+                        GradingBreakdownCard(entries: importViewModel.gradingScheme)
+                            .padding(.horizontal, Layout.Spacing.lg)
+                    }
+
                     // Successfully Extracted section
                     if !completeEvents.isEmpty {
                         VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
@@ -284,6 +290,9 @@ private struct ReviewCompleteCard: View {
         case .final:      return (Color.red, "rosette")
         case .lab:        return (Color.green, "flask")
         case .lecture:    return (Color.blue, "person.fill")
+        case .tutorial:   return (Color.teal, "person.2.fill")
+        case .officeHours: return (Color.indigo, "clock.fill")
+        case .importantDate: return (Color.orange, "exclamationmark.triangle.fill")
         case .other:      return (AppColors.accent, "bookmark")
         }
     }

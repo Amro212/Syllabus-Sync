@@ -13,10 +13,12 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
     @Published private(set) var diagnostics: ParseDiagnostics?
     @Published private(set) var latestRawResponse: String?
     @Published private(set) var preprocessedText: String?
+    @Published private(set) var gradingScheme: [GradingSchemeEntry] = []
 
     var latestDiagnostics: ParseDiagnostics? { diagnostics }
     var rawResponse: String? { latestRawResponse }
     var latestPreprocessedText: String? { preprocessedText }
+    var latestGradingScheme: [GradingSchemeEntry] { gradingScheme }
 
     init(apiClient: APIClient) {
         self.apiClient = apiClient
@@ -53,10 +55,12 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
             diagnostics = mapDiagnostics(from: response)
             latestRawResponse = rawResponse
             preprocessedText = response.preprocessedText
+            gradingScheme = response.gradingScheme ?? []
             return response.events
         } catch {
             latestRawResponse = nil
             preprocessedText = nil
+            gradingScheme = []
             throw mapToParserError(error)
         }
     }

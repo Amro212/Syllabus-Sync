@@ -38,9 +38,19 @@ struct ImportView: View {
                 if let errorState = importViewModel.errorState {
                     ImportErrorOverlay(
                         errorState: errorState,
+                        isCourseCodeMissing: importViewModel.isCourseCodeMissing,
                         onRetry: {
                             Task {
                                 await importViewModel.retryLastImport()
+                            }
+                        },
+                        onSubmitCourseCode: { courseCode in
+                            Task {
+                                let success = await importViewModel.retryWithCourseCode(courseCode)
+                                if success && !Task.isCancelled {
+                                    dismiss()
+                                    navigationManager.switchTab(to: .preview)
+                                }
                             }
                         },
                         onContinue: {
@@ -104,8 +114,13 @@ struct ImportView: View {
 
 private struct ImportErrorOverlay: View {
     let errorState: ImportErrorState
+    let isCourseCodeMissing: Bool
     let onRetry: () -> Void
+    let onSubmitCourseCode: (String) -> Void
     let onContinue: () -> Void
+
+    @State private var courseCodeInput: String = ""
+    @FocusState private var isTextFieldFocused: Bool
 
     var body: some View {
         VStack(spacing: Layout.Spacing.lg) {
@@ -126,36 +141,10 @@ private struct ImportErrorOverlay: View {
                     .padding(.horizontal, Layout.Spacing.lg)
             }
 
-            VStack(spacing: Layout.Spacing.sm) {
-                Button(action: onRetry) {
-                    HStack {
-                        Image(systemName: "arrow.clockwise")
-                        Text("Retry Parse")
-                    }
-                    .font(.body.weight(.semibold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(AppColors.accent)
-                    .cornerRadius(Layout.CornerRadius.md)
-                }
-
-                Button(action: onContinue) {
-                    HStack {
-                        Image(systemName: "checkmark.circle")
-                        Text("Continue Without Events")
-                    }
-                    .font(.body)
-                    .foregroundColor(AppColors.textPrimary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .background(AppColors.surface)
-                    .cornerRadius(Layout.CornerRadius.md)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
-                            .stroke(AppColors.separator, lineWidth: 1)
-                    )
-                }
+            if isCourseCodeMissing {
+                courseCodeInputSection
+            } else {
+                defaultActionButtons
             }
 
             Text("Request ID: \(errorState.requestID)\nLogged: \(formattedTimestamp)")
@@ -176,9 +165,116 @@ private struct ImportErrorOverlay: View {
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black.opacity(0.4).ignoresSafeArea())
+        .onAppear {
+            if isCourseCodeMissing {
+                isTextFieldFocused = true
+            }
+        }
+    }
+
+    // MARK: - Course Code Input
+
+    private var courseCodeInputSection: some View {
+        VStack(spacing: Layout.Spacing.sm) {
+            VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
+                Text("Course Code")
+                    .font(.footnote.weight(.medium))
+                    .foregroundColor(AppColors.textSecondary)
+
+                TextField("e.g. CS 101, MATH-152", text: $courseCodeInput)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                    .font(.body)
+                    .padding(.horizontal, Layout.Spacing.md)
+                    .frame(height: 48)
+                    .background(AppColors.surface)
+                    .cornerRadius(Layout.CornerRadius.md)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
+                            .stroke(AppColors.separator, lineWidth: 1)
+                    )
+                    .focused($isTextFieldFocused)
+                    .submitLabel(.go)
+                    .onSubmit {
+                        submitCourseCode()
+                    }
+            }
+
+            Button(action: submitCourseCode) {
+                HStack {
+                    Image(systemName: "arrow.clockwise")
+                    Text("Parse with Course Code")
+                }
+                .font(.body.weight(.semibold))
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(courseCodeInput.trimmingCharacters(in: .whitespaces).isEmpty
+                    ? AppColors.accent.opacity(0.4)
+                    : AppColors.accent)
+                .cornerRadius(Layout.CornerRadius.md)
+            }
+            .disabled(courseCodeInput.trimmingCharacters(in: .whitespaces).isEmpty)
+
+            Button(action: onContinue) {
+                Text("Cancel")
+                    .font(.body)
+                    .foregroundColor(AppColors.textSecondary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+            }
+        }
+    }
+
+    // MARK: - Default Buttons
+
+    private var defaultActionButtons: some View {
+        VStack(spacing: Layout.Spacing.sm) {
+            Button(action: onRetry) {
+                HStack {
+                    Image(systemName: "arrow.clockwise")
+                    Text("Retry Parse")
+                }
+                .font(.body.weight(.semibold))
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(AppColors.accent)
+                .cornerRadius(Layout.CornerRadius.md)
+            }
+
+            Button(action: onContinue) {
+                HStack {
+                    Image(systemName: "checkmark.circle")
+                    Text("Continue Without Events")
+                }
+                .font(.body)
+                .foregroundColor(AppColors.textPrimary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                .background(AppColors.surface)
+                .cornerRadius(Layout.CornerRadius.md)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
+                        .stroke(AppColors.separator, lineWidth: 1)
+                )
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func submitCourseCode() {
+        let trimmed = courseCodeInput.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        HapticFeedbackManager.shared.mediumImpact()
+        onSubmitCourseCode(trimmed)
     }
 
     private var title: String {
+        if isCourseCodeMissing {
+            return "Course Code Needed"
+        }
         switch errorState.type {
         case .network:
             return "Connection Issue"
@@ -194,6 +290,9 @@ private struct ImportErrorOverlay: View {
     }
 
     private var iconName: String {
+        if isCourseCodeMissing {
+            return "text.magnifyingglass"
+        }
         switch errorState.type {
         case .network:
             return "wifi.exclamationmark"

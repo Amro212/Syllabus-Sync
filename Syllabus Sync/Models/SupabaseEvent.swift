@@ -15,7 +15,7 @@ struct SupabaseEvent: Codable, Identifiable {
     let courseCode: String
     let type: String  // EventType as string
     let title: String
-    let startDate: Date
+    let startDate: Date?
     let endDate: Date?
     let allDay: Bool?
     let location: String?
@@ -23,6 +23,8 @@ struct SupabaseEvent: Codable, Identifiable {
     let recurrenceRule: String?
     let reminderMinutes: Int?
     let confidence: Double?
+    let needsDate: Bool?
+    let dateSource: String?
     let createdAt: Date
     let updatedAt: Date
     
@@ -41,25 +43,30 @@ struct SupabaseEvent: Codable, Identifiable {
         case recurrenceRule = "recurrence_rule"
         case reminderMinutes = "reminder_minutes"
         case confidence
+        case needsDate = "needs_date"
+        case dateSource = "date_source"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
     
     /// Convert to domain EventItem model
     func toDomain() -> EventItem {
+        let isNeedsDate = needsDate ?? (startDate == nil)
         return EventItem(
             id: id.uuidString,
             courseCode: courseCode,
             type: EventItem.EventType(rawValue: type) ?? .other,
             title: title,
-            start: startDate,
+            start: startDate ?? .distantFuture,
             end: endDate,
             allDay: allDay,
             location: location,
             notes: notes,
             recurrenceRule: recurrenceRule,
             reminderMinutes: reminderMinutes,
-            confidence: confidence
+            confidence: confidence,
+            needsDate: isNeedsDate,
+            dateSource: dateSource
         )
     }
     
@@ -72,7 +79,7 @@ struct SupabaseEvent: Codable, Identifiable {
             courseCode: event.courseCode,
             type: event.type.rawValue,
             title: event.title,
-            startDate: event.start,
+            startDate: event.needsDate ? nil : event.start,
             endDate: event.end,
             allDay: event.allDay,
             location: event.location,
@@ -80,6 +87,8 @@ struct SupabaseEvent: Codable, Identifiable {
             recurrenceRule: event.recurrenceRule,
             reminderMinutes: event.reminderMinutes,
             confidence: event.confidence,
+            needsDate: event.needsDate,
+            dateSource: event.dateSource,
             createdAt: Date(),
             updatedAt: Date()
         )
@@ -93,7 +102,7 @@ struct SupabaseEventInsert: Encodable {
     let courseCode: String
     let type: String
     let title: String
-    let startDate: Date
+    let startDate: Date?
     let endDate: Date?
     let allDay: Bool?
     let location: String?
@@ -101,6 +110,8 @@ struct SupabaseEventInsert: Encodable {
     let recurrenceRule: String?
     let reminderMinutes: Int?
     let confidence: Double?
+    let needsDate: Bool?
+    let dateSource: String?
     
     enum CodingKeys: String, CodingKey {
         case userId = "user_id"
@@ -116,6 +127,8 @@ struct SupabaseEventInsert: Encodable {
         case recurrenceRule = "recurrence_rule"
         case reminderMinutes = "reminder_minutes"
         case confidence
+        case needsDate = "needs_date"
+        case dateSource = "date_source"
     }
     
     static func fromDomain(_ event: EventItem, userId: UUID, courseId: UUID?) -> SupabaseEventInsert {
@@ -125,14 +138,16 @@ struct SupabaseEventInsert: Encodable {
             courseCode: event.courseCode,
             type: event.type.rawValue,
             title: event.title,
-            startDate: event.start,
+            startDate: event.needsDate ? nil : event.start,
             endDate: event.end,
             allDay: event.allDay,
             location: event.location,
             notes: event.notes,
             recurrenceRule: event.recurrenceRule,
             reminderMinutes: event.reminderMinutes,
-            confidence: event.confidence
+            confidence: event.confidence,
+            needsDate: event.needsDate,
+            dateSource: event.dateSource
         )
     }
 }

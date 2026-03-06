@@ -22,6 +22,12 @@ final class ImportViewModel: ObservableObject {
     @Published var preprocessedParserInputText: String? = nil
     @Published var errorState: ImportErrorState? = nil
     @Published var rawAIResponse: String? = nil  // Raw JSON response from AI for debugging
+    @Published var needsReview: Bool = false  // True when parsed events contain missing dates
+    @Published var parsedEventsForReview: [EventItem] = []  // Holds events pending user review
+    /// When `true`, the server could not detect a course code and the user must supply one.
+    @Published var isCourseCodeMissing: Bool = false
+    /// Grading scheme entries from the most recent successful parse.
+    @Published var gradingScheme: [GradingSchemeEntry] = []
 
     private let extractor: PDFTextExtractor
     private let parser: SyllabusParser
@@ -93,20 +99,30 @@ final class ImportViewModel: ObservableObject {
             crawl2.cancel()
             if shouldCancelEarly() { return false }
 
+            // Capture grading scheme for the UI breakdown card
+            gradingScheme = parser.latestGradingScheme
+
             // Stage 3: Final merge & persist (95-100%)
             self.events = events
             await snapProgress(to: 0.95, message: "Saving events...")
 
-            // Save events to Supabase
-            await eventStore.autoApprove(events: events)
+            let hasDatelessEvents = events.contains { $0.needsDate }
 
-            // Extract and save courses from events
-            let uniqueCourseCodes = Set(events.map { $0.courseCode })
-            for courseCode in uniqueCourseCodes {
-                // Check if course already exists
-                if await courseRepository.fetchCourse(byCode: courseCode) == nil {
-                    let course = Course(id: UUID().uuidString, code: courseCode)
-                    _ = await courseRepository.saveCourse(course)
+            if hasDatelessEvents {
+                // Store events for review — do NOT save to DB yet
+                parsedEventsForReview = events
+                needsReview = true
+            } else {
+                // All events have dates — auto-approve immediately
+                await eventStore.autoApprove(events: events)
+
+                // Extract and save courses from events
+                let uniqueCourseCodes = Set(events.map { $0.courseCode })
+                for courseCode in uniqueCourseCodes {
+                    if await courseRepository.fetchCourse(byCode: courseCode) == nil {
+                        let course = Course(id: UUID().uuidString, code: courseCode)
+                        _ = await courseRepository.saveCourse(course)
+                    }
                 }
             }
 
@@ -139,9 +155,86 @@ final class ImportViewModel: ObservableObject {
 
         await MainActor.run {
             errorState = nil
+            isCourseCodeMissing = false
         }
 
         _ = await importSyllabus(from: url)
+    }
+
+    /// Re-runs the parse stage with the user-provided course code.
+    /// Reuses the already-extracted TSV text, skipping OCR.
+    @discardableResult
+    func retryWithCourseCode(_ courseCode: String) async -> Bool {
+        guard !isProcessing else { return false }
+        let trimmed = courseCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !trimmed.isEmpty else { return false }
+
+        guard let tsv = extractedTSV ?? parserInputText, !tsv.isEmpty else {
+            // Fallback: re-run full import — shouldn't normally happen
+            await retryLastImport()
+            return false
+        }
+
+        currentRequestID = UUID().uuidString
+        cancellationRequested = false
+        errorState = nil
+        isCourseCodeMissing = false
+
+        withAnimation(.easeInOut(duration: 0.3)) {
+            isProcessing = true
+        }
+        HapticFeedbackManager.shared.mediumImpact()
+        updateProgress(to: 0.50, message: "Re-parsing with course code...")
+
+        do {
+            let crawl = startProgressCrawl(toward: 0.92, message: "Analyzing content...")
+            let events = try await parser.parse(text: tsv, courseCode: trimmed)
+            crawl.cancel()
+            if shouldCancelEarly() { return false }
+
+            // Capture grading scheme for the UI breakdown card
+            gradingScheme = parser.latestGradingScheme
+
+            self.events = events
+            await snapProgress(to: 0.95, message: "Saving events...")
+
+            let hasDatelessEvents = events.contains { $0.needsDate }
+
+            if hasDatelessEvents {
+                parsedEventsForReview = events
+                needsReview = true
+            } else {
+                await eventStore.autoApprove(events: events)
+
+                let uniqueCourseCodes = Set(events.map { $0.courseCode })
+                for code in uniqueCourseCodes {
+                    if await courseRepository.fetchCourse(byCode: code) == nil {
+                        let course = Course(id: UUID().uuidString, code: code)
+                        _ = await courseRepository.saveCourse(course)
+                    }
+                }
+            }
+
+            rawAIResponse = parser.rawResponse
+            preprocessedParserInputText = parser.latestPreprocessedText
+            diagnosticsString = buildDiagnosticsString(from: parser.latestDiagnostics)
+            await completeProgress(hasDatelessEvents ? "Review required" : "Complete!")
+            HapticFeedbackManager.shared.success()
+
+            withAnimation(.easeInOut(duration: 0.3)) {
+                isProcessing = false
+            }
+            progressTask = nil
+            cancellationRequested = false
+            currentRequestID = nil
+            return true
+        } catch is CancellationError {
+            handleImportCancellation()
+            return false
+        } catch {
+            handleImportError(error)
+            return false
+        }
     }
 
     func clearResults() {
@@ -157,11 +250,14 @@ final class ImportViewModel: ObservableObject {
 
     private func resetStateForNewImport() {
         errorState = nil
+        isCourseCodeMissing = false
         clearResults()
         progress = 0
         statusMessage = "Ready"
         progressTask?.cancel()
         progressTask = nil
+        needsReview = false
+        parsedEventsForReview = []
     }
 
     private func updateProgress(to value: Double, message: String) {
@@ -298,6 +394,33 @@ final class ImportViewModel: ObservableObject {
         await eventStore.update(event: updated)
     }
 
+    // MARK: - Parse Review Completion
+
+    /// Called from ParseReviewView after the user resolves (or skips) missing dates.
+    /// Saves all events to Supabase and creates courses.
+    func completeReviewAndSave(events reviewedEvents: [EventItem]) async {
+        self.events = reviewedEvents
+        await eventStore.autoApprove(events: reviewedEvents)
+
+        let uniqueCourseCodes = Set(reviewedEvents.map { $0.courseCode })
+        for courseCode in uniqueCourseCodes {
+            if await courseRepository.fetchCourse(byCode: courseCode) == nil {
+                let course = Course(id: UUID().uuidString, code: courseCode)
+                _ = await courseRepository.saveCourse(course)
+            }
+        }
+
+        needsReview = false
+        parsedEventsForReview = []
+    }
+
+    /// Updates a single event in the pending review list (before save).
+    func updateReviewEvent(_ updated: EventItem) {
+        if let index = parsedEventsForReview.firstIndex(where: { $0.id == updated.id }) {
+            parsedEventsForReview[index] = updated
+        }
+    }
+
     private func resolveError(from error: Error) -> (message: String, type: ImportErrorType) {
         if let parserError = error as? SyllabusParserError {
             switch parserError {
@@ -316,6 +439,9 @@ final class ImportViewModel: ObservableObject {
                     return ("We're hitting parsing limits. Try again in \(retryAfter) seconds.", .server)
                 }
                 return (parserError.errorDescription ?? "We're hitting parsing limits. Please try again shortly.", .server)
+            case .courseCodeMissing:
+                isCourseCodeMissing = true
+                return (parserError.errorDescription ?? "We couldn't find a course code in this syllabus.", .validation)
             }
         }
 

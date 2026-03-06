@@ -267,6 +267,9 @@ private struct WeekAtGlanceView: View {
             case .midterm, .final: exams += 1
             case .quiz: quizzes += 1
             case .lecture: lectures += 1
+            case .tutorial: other += 1
+            case .officeHours: other += 1
+            case .importantDate: other += 1
             case .other: other += 1
             }
         }
@@ -428,7 +431,11 @@ private struct DeadlineRow: View {
         case .lab: return Color.green
         case .midterm, .final: return Color.red
         case .quiz: return Color.orange
-        case .lecture, .other: return Color.gray
+        case .lecture: return Color.gray
+        case .tutorial: return Color.teal
+        case .officeHours: return Color.indigo
+        case .importantDate: return Color.orange
+        case .other: return Color.gray
         }
     }
     
@@ -439,6 +446,9 @@ private struct DeadlineRow: View {
         case .midterm, .final: return "graduationcap.fill"
         case .quiz: return "questionmark.circle.fill"
         case .lecture: return "person.3.fill"
+        case .tutorial: return "person.2.fill"
+        case .officeHours: return "clock.fill"
+        case .importantDate: return "exclamationmark.triangle.fill"
         case .other: return "calendar"
         }
     }
@@ -885,6 +895,12 @@ private struct DayCard: View {
             return Color.orange
         case .lecture:
             return Color.green
+        case .tutorial:
+            return Color.teal
+        case .officeHours:
+            return Color.indigo
+        case .importantDate:
+            return Color.orange
         case .other:
             return Color.gray
         }
@@ -964,6 +980,12 @@ private struct HighlightCard: View {
             return "questionmark.circle.fill"
         case .lecture:
             return "person.fill"
+        case .tutorial:
+            return "person.2.fill"
+        case .officeHours:
+            return "clock.fill"
+        case .importantDate:
+            return "exclamationmark.triangle.fill"
         case .other:
             return "calendar"
         }

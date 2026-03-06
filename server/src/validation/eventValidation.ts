@@ -12,6 +12,7 @@ import {
   matchesAcceptedISOFormat,
   ACCEPTED_ISO_LOCAL_PATTERNS,
 } from '../utils/date.js';
+import type { GradingEntry } from '../utils/extractGradingScheme.js';
 
 /**
  * Configuration for validation and processing
@@ -25,6 +26,8 @@ export interface ValidationConfig {
   defaultCourseCode?: string;
   /** Whether to apply strict validation */
   strict?: boolean;
+  /** Grading scheme deliverables for grounding check */
+  gradingScheme?: GradingEntry[];
 }
 
 /**
@@ -58,7 +61,7 @@ export interface ValidationResult {
  * Manual validation schema for EventItemDTO
  * (Replaces AJV for Cloudflare Workers compatibility)
  */
-const VALID_EVENT_TYPES: EventType[] = ['ASSIGNMENT', 'QUIZ', 'MIDTERM', 'FINAL', 'LAB', 'LECTURE', 'OTHER'];
+const VALID_EVENT_TYPES: EventType[] = ['ASSIGNMENT', 'QUIZ', 'MIDTERM', 'FINAL', 'LAB', 'LECTURE', 'TUTORIAL', 'OFFICE_HOURS', 'IMPORTANT_DATE', 'OTHER'];
 
 /**
  * Validates an EventItemDTO manually against our schema
@@ -94,11 +97,14 @@ function validateEventItemDTO(event: unknown): { valid: boolean; errors: string[
     errors.push('title must not exceed 200 characters');
   }
   
-  if (!e.start || typeof e.start !== 'string') {
-    errors.push('start is required and must be a string');
-  } else if (!isValidISODate(e.start)) {
-    errors.push('start must be a valid ISO 8601 date-time string');
+  if (e.start != null) {
+    if (typeof e.start !== 'string') {
+      errors.push('start must be a string when provided');
+    } else if (!isValidISODate(e.start)) {
+      errors.push('start must be a valid ISO 8601 date-time string');
+    }
   }
+  // If start is null/undefined, event needs a user-supplied date (needsDate)
   
   // Optional fields
   // courseCode already validated above
@@ -148,6 +154,15 @@ function validateEventItemDTO(event: unknown): { valid: boolean; errors: string[
       errors.push('confidence must be a number');
     } else if (e.confidence < 0 || e.confidence > 1) {
       errors.push('confidence must be between 0 and 1');
+    }
+  }
+
+  // dateSource: string or null
+  if (e.dateSource !== undefined && e.dateSource !== null) {
+    if (typeof e.dateSource !== 'string') {
+      errors.push('dateSource must be a string or null');
+    } else if (e.dateSource.length > 300) {
+      errors.push('dateSource must not exceed 300 characters');
     }
   }
   
@@ -225,6 +240,13 @@ export function validateEvents(
 
   if (result.events.length > 0) {
     result.events = normalizeEventData(result.events);
+
+    // Post-AI grounding check against deterministic grading scheme
+    if (config.gradingScheme && config.gradingScheme.length > 0) {
+      const grounding = groundEventsAgainstScheme(result.events, config.gradingScheme);
+      result.events = grounding.events;
+      result.warnings.push(...grounding.warnings);
+    }
   }
 
   return result;
@@ -236,12 +258,27 @@ export function validateEvents(
 function applyDefaults(dto: EventItemDTO, config: ValidationConfig): { event: EventItemDTO; defaultsApplied: boolean } {
   const result = { ...dto };
   let defaultsApplied = false;
+
+  // Mark events without a start date as needing a user-supplied date
+  if (result.start == null) {
+    result.needsDate = true;
+    defaultsApplied = true;
+  }
+  // Also flag events where the AI has no source evidence or low confidence
+  else if (!result.dateSource || (result.confidence !== undefined && result.confidence < 0.7)) {
+    result.needsDate = true;
+    defaultsApplied = true;
+  }
   
   // Apply allDay default if no time specified and no end date
   if (result.allDay === undefined) {
-    const hasDateTime = result.start.includes('T');
-    const hasNonMidnightTime = hasDateTime && !/T00:00:00\.000(?:[+-]\d{2}:\d{2})?$/.test(result.start);
-    result.allDay = hasDateTime ? !hasNonMidnightTime : true;
+    if (result.start != null) {
+      const hasDateTime = result.start.includes('T');
+      const hasNonMidnightTime = hasDateTime && !/T00:00:00\.000(?:[+-]\d{2}:\d{2})?$/.test(result.start);
+      result.allDay = hasDateTime ? !hasNonMidnightTime : true;
+    } else {
+      result.allDay = true; // Default for dateless events
+    }
     defaultsApplied = true;
   }
   
@@ -276,6 +313,11 @@ function clampDatesToTerm(
 ): { event: EventItemDTO; wasClamped: boolean } {
   let wasClamped = false;
   const result = { ...dto };
+
+  // Skip date clamping for events without a start date (needsDate)
+  if (result.start == null) {
+    return { event: result, wasClamped };
+  }
   
   const termStart = config.termStart;
   const termEnd = config.termEnd;
@@ -429,10 +471,12 @@ export function isValidISODate(dateString: string): boolean {
 export function normalizeEventData(events: EventItemDTO[]): EventItemDTO[] {
   return events.map(event => ({
     ...event,
-    // Ensure consistent ISO date format
-    start: /[+-]\d{2}:\d{2}$/.test(event.start)
-      ? event.start
-      : formatUtcDateWithoutTimezone(parseFlexibleISODate(event.start)),
+    // Ensure consistent ISO date format (skip for dateless events)
+    start: event.start != null
+      ? (/[+-]\d{2}:\d{2}$/.test(event.start)
+          ? event.start
+          : formatUtcDateWithoutTimezone(parseFlexibleISODate(event.start)))
+      : null,
     end: event.end
       ? (/[+-]\d{2}:\d{2}$/.test(event.end)
           ? event.end
@@ -447,6 +491,91 @@ export function normalizeEventData(events: EventItemDTO[]): EventItemDTO[] {
     // Ensure confidence is properly bounded
     confidence: event.confidence !== undefined 
       ? Math.max(0, Math.min(1, event.confidence)) 
-      : undefined
+      : undefined,
+    // Preserve needsDate flag
+    needsDate: event.needsDate,
   }));
+}
+
+// ── Assessment types subject to grounding check ─────────────────
+
+const ASSESSMENT_TYPES: Set<EventType> = new Set([
+  'ASSIGNMENT', 'QUIZ', 'MIDTERM', 'FINAL', 'LAB', 'TUTORIAL',
+]);
+
+/**
+ * Post-AI grounding check: verifies assessment events against the
+ * deterministic grading scheme. Events that claim to be assessments
+ * but have no match in the scheme get their confidence dropped to 0.3
+ * and a warning appended.
+ *
+ * Non-assessment types (LECTURE, OFFICE_HOURS, IMPORTANT_DATE, OTHER)
+ * are passed through unchanged.
+ */
+export function groundEventsAgainstScheme(
+  events: EventItemDTO[],
+  scheme: GradingEntry[],
+): { events: EventItemDTO[]; warnings: string[] } {
+  if (scheme.length === 0) {
+    return { events, warnings: [] };
+  }
+
+  const warnings: string[] = [];
+  const schemeTypes = new Set(scheme.map(s => s.type));
+  const schemeNames = scheme.map(s => s.name.toLowerCase());
+
+  const grounded = events.map(ev => {
+    if (!ASSESSMENT_TYPES.has(ev.type)) return ev;
+
+    // Primary check: the event's type exists in the grading scheme
+    if (schemeTypes.has(ev.type)) return ev;
+
+    // Secondary check: fuzzy name match (handles renamed/custom categories)
+    const titleLower = ev.title.toLowerCase();
+    const nameMatched = schemeNames.some(name => {
+      if (titleLower.includes(name) || name.includes(titleLower)) return true;
+      // Stem-aware: strip trailing 's' and compare significant words (>4 chars)
+      const stem = (w: string) => w.replace(/s$/, '');
+      const nameStems = name.split(/\s+/).map(stem);
+      const titleStems = titleLower.split(/\s+/).map(stem);
+      const significant = nameStems.filter(w => w.length > 4);
+      return significant.length > 0 && significant.every(w => titleStems.includes(w));
+    });
+
+    if (!nameMatched) {
+      warnings.push(
+        `Grounding: "${ev.title}" (${ev.type}) not found in grading scheme — confidence reduced`
+      );
+      return {
+        ...ev,
+        confidence: Math.min(ev.confidence ?? 1, 0.3),
+      };
+    }
+
+    return ev;
+  });
+
+  return { events: grounded, warnings };
+}
+
+/**
+ * Helper to create a valid EventItem with defaults.
+ * Useful for tests and programmatic event construction.
+ */
+export function createEventItem(
+  partial: Partial<EventItemDTO> & Pick<EventItemDTO, 'id' | 'courseCode' | 'type' | 'title'>
+): EventItemDTO {
+  const dto: EventItemDTO = {
+    start: null,
+    allDay: false,
+    confidence: 1.0,
+    needsDate: partial.start == null,
+    ...partial,
+  };
+
+  const validation = validateSingleEvent(dto);
+  if (!validation.valid) {
+    throw new Error(`EventItem validation failed: ${validation.errors.join(', ')}`);
+  }
+  return dto;
 }

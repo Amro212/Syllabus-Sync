@@ -16,8 +16,16 @@ protocol SyllabusParser {
     @MainActor
     var latestPreprocessedText: String? { get }
 
+    /// Grading scheme entries from the most recent parse response (may be empty).
+    @MainActor
+    var latestGradingScheme: [GradingSchemeEntry] { get }
+
     @MainActor
     func parse(text: String) async throws -> [EventItem]
+
+    /// Re-parse with a user-provided course code (used after a courseCodeMissing error).
+    @MainActor
+    func parse(text: String, courseCode: String) async throws -> [EventItem]
 }
 
 /// Lightweight errors surfaced to the UI when parsing fails.
@@ -28,6 +36,9 @@ enum SyllabusParserError: LocalizedError {
     case decoding
     case unauthorized
     case rateLimited(retryAfter: Int?)
+    /// The server could not detect a course code in the syllabus text.
+    /// The user must provide one manually before re-parsing.
+    case courseCodeMissing
 
     var errorDescription: String? {
         switch self {
@@ -46,6 +57,8 @@ enum SyllabusParserError: LocalizedError {
                 return "We've hit the parsing limit. Please retry in \(retryAfter) seconds."
             }
             return "We've hit the parsing limit. Please try again shortly."
+        case .courseCodeMissing:
+            return "We couldn't find a course code in this syllabus. Please enter it below."
         }
     }
 }

@@ -26,6 +26,9 @@
         "FINAL",
         "LAB",
         "LECTURE",
+        "TUTORIAL",
+        "OFFICE_HOURS",
+        "IMPORTANT_DATE",
         "OTHER"
       ],
       "description": "Type of the event"
@@ -37,9 +40,14 @@
       "description": "Title of the event"
     },
     "start": {
-      "type": "string",
+      "type": ["string", "null"],
       "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}([+-]\\d{2}:\\d{2}|Z)?$",
-      "description": "Start date/time of the event in ISO8601 format with optional timezone"
+      "description": "Start date/time of the event in ISO8601 format with optional timezone. Null when no date is mentioned in the syllabus."
+    },
+    "needsDate": {
+      "type": "boolean",
+      "default": false,
+      "description": "True when the syllabus text does not contain an explicit date for this event and the user must provide one."
     },
     "end": {
       "type": "string",
@@ -76,14 +84,18 @@
       "minimum": 0,
       "maximum": 1,
       "description": "Confidence score from the parser (0-1)"
+    },
+    "dateSource": {
+      "type": ["string", "null"],
+      "maxLength": 300,
+      "description": "The exact syllabus text the AI used to determine the date. Null when no date evidence was found."
     }
   },
   "required": [
     "id",
     "courseCode",
     "type",
-    "title",
-    "start"
+    "title"
   ],
   "additionalProperties": false
 }

@@ -13,6 +13,7 @@ import { buildParseSyllabusRequest } from './prompts/parseSyllabus';
 import { detectCourseCode } from './utils/courseCode';
 import { callOpenAIParse } from './clients/openai';
 import { splitMultiDayRecurrence } from './utils/splitMultiDayRecurrence';
+import { extractGradingScheme } from './utils/extractGradingScheme';
 
 // Basic in-memory token buckets by IP (per-isolate, best-effort)
 const buckets = new Map<string, { tokens: number; lastRefill: number }>();
@@ -343,7 +344,10 @@ export default {
 							durationMs: Date.now() - startedAt,
 							error: 'Course code could not be determined from syllabus text',
 						});
-						return new Response(JSON.stringify({ error: 'Unable to determine courseCode from syllabus text.' }), {
+						return new Response(JSON.stringify({
+							error: 'Unable to determine course code from syllabus text. Please provide it manually.',
+							code: 'COURSE_CODE_MISSING',
+						}), {
 							status,
 							headers: { 'Content-Type': 'application/json', ...corsHeaders },
 						});
@@ -390,12 +394,17 @@ export default {
 					}
 
 					const tz = (body as any).timezone || request.headers.get('CF-Timezone') || 'UTC';
+
+					// ── Pass 0: deterministic grading-scheme extraction ──
+					const gradingScheme = extractGradingScheme(text);
+
 					const { request: promptReq, processedText } = buildParseSyllabusRequest(text, {
 						courseCode,
 						termStart: (body as any).termStart,
 						termEnd: (body as any).termEnd,
 						timezone: tz,
 						model: (env as any).OPENAI_MODEL || 'gpt-4.1-mini',
+						gradingScheme,
 					});
 
 					let aiItems: unknown[];
@@ -429,7 +438,10 @@ export default {
 					openaiUsage.totalCost += costPerCall;
 					openaiUsage.perIpCalls.set(ip, usedByIp + 1);
 
-					const validationResult = validateEvents(aiItems, validationConfig);
+					const validationResult = validateEvents(aiItems, {
+						...validationConfig,
+						gradingScheme: gradingScheme?.deliverables,
+					});
 					if (validationResult.events.length === 0) {
 						const status = 422;
 						logRequest(env, 'info', {
@@ -463,6 +475,11 @@ export default {
 						source: 'openai' as const,
 						confidence: Number.isFinite(avgConfidence) ? Number(avgConfidence.toFixed(3)) : 0,
 						preprocessedText: processedText,
+						gradingScheme: gradingScheme?.deliverables?.map(d => ({
+							name: d.name,
+							weight: d.weight,
+							type: d.type,
+						})) ?? [],
 						diagnostics: {
 							source: 'openai' as const,
 							processingTimeMs: Date.now() - parseStarted,

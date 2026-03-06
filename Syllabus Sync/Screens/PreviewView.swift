@@ -209,6 +209,11 @@ struct PreviewView: View {
 
     private var eventsTabContent: some View {
         VStack(alignment: .leading, spacing: Layout.Spacing.lg) {
+            // Grading Breakdown (if scheme was extracted)
+            if !importViewModel.gradingScheme.isEmpty {
+                GradingBreakdownCard(entries: importViewModel.gradingScheme)
+            }
+
             if events.isEmpty {
                 PreviewEmptyStateView()
             } else {
@@ -367,6 +372,9 @@ struct PreviewEventCard: View {
         case .final: return Color.red
         case .lab: return Color.green
         case .lecture: return Color.blue
+        case .tutorial: return Color.teal
+        case .officeHours: return Color.indigo
+        case .importantDate: return Color.orange
         case .other: return AppColors.accent
         }
     }
@@ -379,6 +387,9 @@ struct PreviewEventCard: View {
         case .final: return "rosette"
         case .lab: return "flask"
         case .lecture: return "person.fill"
+        case .tutorial: return "person.2.fill"
+        case .officeHours: return "clock.fill"
+        case .importantDate: return "exclamationmark.triangle.fill"
         case .other: return "bookmark"
         }
     }
@@ -416,6 +427,10 @@ struct PreviewEventCard: View {
     }()
     
     private func formatEventTime(_ event: EventItem) -> String {
+        if event.needsDate {
+            return "Date TBD"
+        }
+        
         if event.allDay == true {
             // Show date followed by "All Day"
             let dateString = Self.dateOnlyFormatter.string(from: event.start)
@@ -471,14 +486,25 @@ struct PreviewEventCard: View {
         VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
             HStack(alignment: .center, spacing: Layout.Spacing.md) {
                 VStack(alignment: .center, spacing: Layout.Spacing.xs) {
-                    Text(Self.dayFormatter.string(from: event.start))
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundColor(AppColors.textSecondary)
-                    Text(Self.shortDateFormatter.string(from: event.start))
-                        .font(.titleS)
-                        .fontWeight(.bold)
-                        .foregroundColor(AppColors.textPrimary)
+                    if event.needsDate {
+                        Text("TBD")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundColor(AppColors.warning)
+                        Text("No Date")
+                            .font(.captionL)
+                            .fontWeight(.bold)
+                            .foregroundColor(AppColors.warning)
+                    } else {
+                        Text(Self.dayFormatter.string(from: event.start))
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundColor(AppColors.textSecondary)
+                        Text(Self.shortDateFormatter.string(from: event.start))
+                            .font(.titleS)
+                            .fontWeight(.bold)
+                            .foregroundColor(AppColors.textPrimary)
+                    }
                 }
                 .frame(width: 54)
 

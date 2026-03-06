@@ -26,6 +26,7 @@ enum AppRoute: Hashable, CaseIterable {
     case reminders
     case importSyllabus
     case preview
+    case parseReview
     case calendar
     case courseDetail(course: MockCourse)
     case profile
@@ -33,7 +34,7 @@ enum AppRoute: Hashable, CaseIterable {
     
     // Static cases for easier iteration (excluding parameterized routes)
     static var allCases: [AppRoute] {
-        return [.launch, .onboarding, .auth, .dashboard, .reminders, .importSyllabus, .preview, .calendar, .profile]
+        return [.launch, .onboarding, .auth, .dashboard, .reminders, .importSyllabus, .preview, .parseReview, .calendar, .profile]
     }
     
     var title: String {
@@ -45,6 +46,7 @@ enum AppRoute: Hashable, CaseIterable {
         case .reminders: return "Reminders"
         case .importSyllabus: return "Import Syllabus"
         case .preview: return "Preview"
+        case .parseReview: return "Review Events"
         case .calendar: return "Calendar"
         case .courseDetail: return "Course Details"
         case .profile: return "Profile"
@@ -61,6 +63,7 @@ enum AppRoute: Hashable, CaseIterable {
         case .reminders: return "bell"
         case .importSyllabus: return "plus.circle"
         case .preview: return "eye"
+        case .parseReview: return "checklist"
         case .calendar: return "calendar"
         case .courseDetail: return "book"
         case .profile: return "person.crop.circle"
@@ -78,6 +81,7 @@ class AppNavigationManager: ObservableObject {
     @Published var selectedTabRoute: AppRoute = .dashboard
     @Published var isTabBarVisible: Bool = false
     @Published var scrollToEventId: String?
+    @Published var showParseReview: Bool = false
     
     /// Navigate to a specific route
     func navigate(to route: AppRoute) {
@@ -214,6 +218,8 @@ struct AppRoot: View {
             AISyllabusScanModal()
         case .preview:
             PreviewView()
+        case .parseReview:
+            ParseReviewView()
         case .calendar:
             CalendarView()
         case .courseDetail(let course):
@@ -385,6 +391,12 @@ struct TabNavigationView: View {
             // Close FAB if tab changes
             fabExpanded = false
             showFabActions = false
+        }
+        .fullScreenCover(isPresented: $navigationManager.showParseReview) {
+            ParseReviewView()
+                .environmentObject(importViewModel)
+                .environmentObject(navigationManager)
+                .environmentObject(eventStore)
         }
     }
     

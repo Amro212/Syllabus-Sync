@@ -214,6 +214,7 @@ struct FriendScheduleView: View {
     // MARK: - Helpers
 
     private func timeString(for event: EventItem) -> String {
+        if event.needsDate { return "Date TBD" }
         if event.allDay == true { return "All Day" }
         let formatter = DateFormatter()
         formatter.dateFormat = "h:mm a"

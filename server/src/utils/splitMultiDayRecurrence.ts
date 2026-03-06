@@ -70,14 +70,14 @@ function addDaysToIsoString(isoString: string, days: number): string {
  * Input: { recurrenceRule: "FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=2026-04-21" }
  * Output: Two events, one with BYDAY=TU, one with BYDAY=TH
  */
-export function splitMultiDayRecurrence<T extends { id: string; title: string; start: string; end?: string; recurrenceRule?: string }>(events: T[]): T[] {
+export function splitMultiDayRecurrence<T extends { id: string; title: string; start: string | null; end?: string; recurrenceRule?: string }>(events: T[]): T[] {
     const result: T[] = [];
 
     for (const event of events) {
         const rule = event.recurrenceRule;
 
-        // If no recurrence rule, or it's not a multi-day rule, keep as-is
-        if (!rule || !rule.includes('BYDAY=')) {
+        // If no start date (needsDate event), no recurrence rule, or it's not a multi-day rule, keep as-is
+        if (!event.start || !rule || !rule.includes('BYDAY=')) {
             result.push(event);
             continue;
         }

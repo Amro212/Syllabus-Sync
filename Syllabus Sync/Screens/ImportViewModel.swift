@@ -32,17 +32,20 @@ final class ImportViewModel: ObservableObject {
     private let extractor: PDFTextExtractor
     private let parser: SyllabusParser
     private let eventStore: EventStore
-    private let courseRepository = CourseRepository()
+    private let courseRepository: CourseRepository
+    private let gradingRepository: GradingRepository
     private var progressTask: Task<Void, Never>?
     private var lastImportedURL: URL?
     private var currentRequestID: String?
     private var cancellationRequested = false
     private var eventStoreCancellable: AnyCancellable?
 
-    init(extractor: PDFTextExtractor, parser: SyllabusParser, eventStore: EventStore) {
+    init(extractor: PDFTextExtractor, parser: SyllabusParser, eventStore: EventStore, courseRepository: CourseRepository, gradingRepository: GradingRepository) {
         self.extractor = extractor
         self.parser = parser
         self.eventStore = eventStore
+        self.courseRepository = courseRepository
+        self.gradingRepository = gradingRepository
         eventStoreCancellable = eventStore.$events
             .receive(on: DispatchQueue.main)
             .sink { [weak self] items in
@@ -116,12 +119,25 @@ final class ImportViewModel: ObservableObject {
                 // All events have dates — auto-approve immediately
                 await eventStore.autoApprove(events: events)
 
-                // Extract and save courses from events
+                // Extract and save courses from events, then persist grading
                 let uniqueCourseCodes = Set(events.map { $0.courseCode })
                 for courseCode in uniqueCourseCodes {
-                    if await courseRepository.fetchCourse(byCode: courseCode) == nil {
+                    let savedCourse: Course
+                    if let existing = await courseRepository.fetchCourse(byCode: courseCode) {
+                        savedCourse = existing
+                    } else {
                         let course = Course(id: UUID().uuidString, code: courseCode)
-                        _ = await courseRepository.saveCourse(course)
+                        savedCourse = await courseRepository.saveCourse(course) ?? course
+                    }
+                    // Persist grading scheme for this course
+                    if !gradingScheme.isEmpty {
+                        let courseEntries = gradingScheme.filter {
+                            // Filter by courseCode match if entries are generic (no courseId yet)
+                            $0.courseId == nil || $0.courseId == savedCourse.id
+                        }
+                        if !courseEntries.isEmpty {
+                            await gradingRepository.save(entries: courseEntries, forCourseId: savedCourse.id)
+                        }
                     }
                 }
             }
@@ -208,9 +224,20 @@ final class ImportViewModel: ObservableObject {
 
                 let uniqueCourseCodes = Set(events.map { $0.courseCode })
                 for code in uniqueCourseCodes {
-                    if await courseRepository.fetchCourse(byCode: code) == nil {
+                    let savedCourse: Course
+                    if let existing = await courseRepository.fetchCourse(byCode: code) {
+                        savedCourse = existing
+                    } else {
                         let course = Course(id: UUID().uuidString, code: code)
-                        _ = await courseRepository.saveCourse(course)
+                        savedCourse = await courseRepository.saveCourse(course) ?? course
+                    }
+                    if !gradingScheme.isEmpty {
+                        let courseEntries = gradingScheme.filter {
+                            $0.courseId == nil || $0.courseId == savedCourse.id
+                        }
+                        if !courseEntries.isEmpty {
+                            await gradingRepository.save(entries: courseEntries, forCourseId: savedCourse.id)
+                        }
                     }
                 }
             }
@@ -404,9 +431,21 @@ final class ImportViewModel: ObservableObject {
 
         let uniqueCourseCodes = Set(reviewedEvents.map { $0.courseCode })
         for courseCode in uniqueCourseCodes {
-            if await courseRepository.fetchCourse(byCode: courseCode) == nil {
+            let savedCourse: Course
+            if let existing = await courseRepository.fetchCourse(byCode: courseCode) {
+                savedCourse = existing
+            } else {
                 let course = Course(id: UUID().uuidString, code: courseCode)
-                _ = await courseRepository.saveCourse(course)
+                savedCourse = await courseRepository.saveCourse(course) ?? course
+            }
+            // Persist grading scheme for this course
+            if !gradingScheme.isEmpty {
+                let courseEntries = gradingScheme.filter {
+                    $0.courseId == nil || $0.courseId == savedCourse.id
+                }
+                if !courseEntries.isEmpty {
+                    await gradingRepository.save(entries: courseEntries, forCourseId: savedCourse.id)
+                }
             }
         }
 

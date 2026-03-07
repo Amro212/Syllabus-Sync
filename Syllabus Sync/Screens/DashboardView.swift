@@ -12,6 +12,8 @@ struct DashboardView: View {
     @EnvironmentObject var eventStore: EventStore
     @EnvironmentObject var importViewModel: ImportViewModel
     @EnvironmentObject var themeManager: ThemeManager
+    @EnvironmentObject var courseRepository: CourseRepository
+    @EnvironmentObject var gradingRepository: GradingRepository
     @StateObject private var errorHandler = ErrorHandler()
     @State private var isRefreshing = false
     @State private var showShimmer = false
@@ -41,6 +43,16 @@ struct DashboardView: View {
                             greetingHeader
                             
                             QuickInsightCardView(events: eventStore.events, isNewUser: !hasAddedEvents && eventStore.events.isEmpty)
+                            
+                            // My Courses horizontal scroll
+                            MyCoursesSection(
+                                courses: courseRepository.courses,
+                                events: eventStore.events,
+                                gradingByCourse: gradingRepository.gradingByCourse,
+                                onCourseTapped: { course in
+                                    navigationManager.navigate(to: .courseDetail(course: course))
+                                }
+                            )
                             
                             WeekAtGlanceView(events: eventStore.events, isNewUser: !hasAddedEvents && eventStore.events.isEmpty)
                             
@@ -174,6 +186,8 @@ struct DashboardView: View {
         }
 
         await eventStore.refresh()
+        await courseRepository.refresh()
+        await gradingRepository.fetchAll()
 
         await MainActor.run {
             withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
@@ -1261,6 +1275,76 @@ struct ShimmerRectangle: View {
 }
 
 
+// MARK: - My Courses Section
+
+private struct MyCoursesSection: View {
+    let courses: [Course]
+    let events: [EventItem]
+    let gradingByCourse: [String: [GradingSchemeEntry]]
+    let onCourseTapped: (Course) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.md) {
+            HStack {
+                Text("My Courses")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundStyle(AppColors.textPrimary)
+
+                Spacer()
+
+                if !courses.isEmpty {
+                    Text("\(courses.count)")
+                        .font(.captionL)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(AppColors.accent)
+                        .padding(.horizontal, Layout.Spacing.sm)
+                        .padding(.vertical, Layout.Spacing.xs)
+                        .background(AppColors.accent.opacity(0.1))
+                        .clipShape(.rect(cornerRadius: Layout.CornerRadius.sm))
+                }
+            }
+
+            if courses.isEmpty {
+                // Empty state
+                VStack(spacing: Layout.Spacing.sm) {
+                    Image(systemName: "book.closed")
+                        .font(.system(size: 28))
+                        .foregroundStyle(AppColors.textTertiary)
+
+                    Text("No courses yet")
+                        .font(.subheadline)
+                        .foregroundStyle(AppColors.textSecondary)
+
+                    Text("Import a syllabus to see your courses here")
+                        .font(.caption)
+                        .foregroundStyle(AppColors.textTertiary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Layout.Spacing.xl)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Layout.Spacing.md) {
+                        ForEach(courses) { course in
+                            CourseCardView(
+                                course: course,
+                                eventCount: events.filter { $0.courseCode == course.code }.count,
+                                gradingEntries: gradingByCourse[course.id] ?? [],
+                                onTap: { onCourseTapped(course) }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                    .padding(.vertical, 4)
+                }
+                .padding(.horizontal, -Layout.Spacing.md) // bleed to edges
+                .padding(.leading, Layout.Spacing.md)
+            }
+        }
+    }
+}
+
 // MARK: - Preview
 
 #Preview {
@@ -1268,6 +1352,8 @@ struct ShimmerRectangle: View {
         .environmentObject(AppNavigationManager())
         .environmentObject(ThemeManager())
         .environmentObject(EventStore())
+        .environmentObject(CourseRepository())
+        .environmentObject(GradingRepository())
         .environmentObject(ImportViewModel(
             extractor: PDFKitExtractor(),
             parser: SyllabusParserRemote(apiClient: URLSessionAPIClient(
@@ -1277,6 +1363,8 @@ struct ShimmerRectangle: View {
                     maxRetryCount: 1
                 )
             )),
-            eventStore: EventStore()
+            eventStore: EventStore(),
+            courseRepository: CourseRepository(),
+            gradingRepository: GradingRepository()
         ))
 }

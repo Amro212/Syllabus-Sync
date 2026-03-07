@@ -1,7 +1,7 @@
 import Foundation
 
 /// Domain model for a course
-struct Course: Identifiable, Codable, Equatable {
+struct Course: Identifiable, Codable, Equatable, Hashable {
     let id: String
     let code: String
     var title: String?

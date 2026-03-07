@@ -909,6 +909,8 @@ struct CourseFilterButton: View {
                     maxRetryCount: 1
                 )
             )),
-            eventStore: EventStore()
+            eventStore: EventStore(),
+            courseRepository: CourseRepository(),
+            gradingRepository: GradingRepository()
         ))
 }

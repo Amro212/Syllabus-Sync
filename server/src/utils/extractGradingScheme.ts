@@ -148,6 +148,108 @@ function dedup(entries: GradingEntry[]): GradingEntry[] {
 	});
 }
 
+/**
+ * Remove parent/umbrella entries that overlap with their children.
+ *
+ * When a syllabus lists both a category ("Exams: 60%") and individual
+ * items ("Midterm 1: 15%, Midterm 2: 15%, Final: 30%"), the total
+ * exceeds 100%.  This function detects entries whose weight equals
+ * the sum of some subset of other entries (within ±2.5 pp tolerance)
+ * and removes those parent entries.
+ *
+ * Processes candidates largest-weight-first and stops as soon as
+ * the remaining total is ≤ 100%.
+ *
+ * Only runs when the raw total exceeds 1.0 (100%).
+ */
+function removeParentEntries(entries: GradingEntry[]): GradingEntry[] {
+	const withWeight = entries.filter((e) => e.weight != null && e.weight > 0);
+	let totalWeight = withWeight.reduce((s, e) => s + (e.weight ?? 0), 0);
+
+	// If total is ≤ 1.0, nothing to fix
+	if (totalWeight <= 1.02) return entries;
+
+	const tolerance = 0.025; // 2.5 percentage-point tolerance
+
+	// Process largest-first so we preferentially remove umbrella categories
+	const sorted = [...withWeight].sort(
+		(a, b) => (b.weight ?? 0) - (a.weight ?? 0)
+	);
+	const parentNames = new Set<string>();
+
+	for (const candidate of sorted) {
+		// Stop once total is at or below 100%
+		if (totalWeight <= 1.02) break;
+
+		const target = candidate.weight!;
+		// Exclude the candidate AND any already-flagged parents from the pool
+		const others = withWeight.filter(
+			(e) =>
+				e !== candidate &&
+				!parentNames.has(e.name.toLowerCase().replace(/\s+/g, ' '))
+		);
+
+		if (others.length < 2) continue;
+
+		if (hasSubsetSum(others.map((o) => o.weight!), target, tolerance)) {
+			parentNames.add(
+				candidate.name.toLowerCase().replace(/\s+/g, ' ')
+			);
+			totalWeight -= target;
+		}
+	}
+
+	if (parentNames.size === 0) return entries;
+
+	return entries.filter(
+		(e) => !parentNames.has(e.name.toLowerCase().replace(/\s+/g, ' '))
+	);
+}
+
+/**
+ * Check whether any subset of `weights` (with at least 2 elements)
+ * sums to `target` ± `tolerance`.
+ *
+ * Uses DP on quantised integers.  Weights are percentages 0-1 so
+ * we scale by 1000 to get integer cents; max possible sum is ~1000
+ * which keeps the DP table small and fast.
+ */
+function hasSubsetSum(
+	weights: number[],
+	target: number,
+	tolerance: number
+): boolean {
+	if (weights.length < 2) return false;
+
+	const scale = 1000;
+	const targetInt = Math.round(target * scale);
+	const tolInt = Math.round(tolerance * scale);
+
+	// dp maps reachable sums to the minimum item-count required
+	let dp = new Map<number, number>();
+	dp.set(0, 0);
+
+	for (const w of weights) {
+		const wInt = Math.round(w * scale);
+		// Iterate over a snapshot so new sums don't interfere
+		const snapshot = [...dp.entries()];
+		for (const [sum, count] of snapshot) {
+			const newSum = sum + wInt;
+			const existing = dp.get(newSum);
+			if (existing === undefined || count + 1 < existing) {
+				dp.set(newSum, count + 1);
+			}
+		}
+	}
+
+	for (let t = targetInt - tolInt; t <= targetInt + tolInt; t++) {
+		const count = dp.get(t);
+		if (count !== undefined && count >= 2) return true;
+	}
+
+	return false;
+}
+
 // ── Main export ─────────────────────────────────────────────────
 
 export function extractGradingScheme(text: string): GradingSchemeResult {
@@ -227,7 +329,7 @@ export function extractGradingScheme(text: string): GradingSchemeResult {
 	}
 
 	return {
-		deliverables: dedup(entries),
+		deliverables: removeParentEntries(dedup(entries)),
 		rawSection,
 	};
 }

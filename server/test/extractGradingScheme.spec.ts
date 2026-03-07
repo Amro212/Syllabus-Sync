@@ -94,6 +94,39 @@ describe('extractGradingScheme', () => {
     // Should NOT pick up the "100%" from the academic integrity section
     expect(result.deliverables).toHaveLength(2);
   });
+
+  it('removes parent entries when children sum to the same weight', () => {
+    const text = [
+      'Evaluation Scheme:',
+      'Midterm 1  15%',
+      'Midterm 2  15%',
+      'Final Exam  30%',
+      'Exams  60%',
+      'Participation  40%',
+    ].join('\n');
+
+    const result = extractGradingScheme(text);
+    // "Exams 60%" is a parent of the three exam items (15+15+30=60).
+    // It should be removed, leaving 4 entries totaling 100%.
+    const names = result.deliverables.map(d => d.name.toLowerCase());
+    expect(names).not.toContain('exams');
+    const total = result.deliverables.reduce((s, d) => s + (d.weight ?? 0), 0);
+    expect(total).toBeCloseTo(1.0);
+  });
+
+  it('keeps all entries when total is at or below 100%', () => {
+    const text = [
+      'Grading Breakdown:',
+      'Assignments  30%',
+      'Midterm  30%',
+      'Final  40%',
+    ].join('\n');
+
+    const result = extractGradingScheme(text);
+    expect(result.deliverables).toHaveLength(3);
+    const total = result.deliverables.reduce((s, d) => s + (d.weight ?? 0), 0);
+    expect(total).toBeCloseTo(1.0);
+  });
 });
 
 describe('formatGradingSchemeForPrompt', () => {

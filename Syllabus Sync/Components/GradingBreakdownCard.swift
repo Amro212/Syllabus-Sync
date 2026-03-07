@@ -10,9 +10,17 @@ import SwiftUI
 
 struct GradingBreakdownCard: View {
     let entries: [GradingSchemeEntry]
+    /// Optional edit callback. When provided, shows a pencil icon in the header.
+    var onEdit: (() -> Void)? = nil
 
     /// Total of all extracted weights (may be < 1.0 if scheme is partial).
+    /// Capped at 1.0 to prevent display glitches from parent/child overlap.
     private var totalWeight: Double {
+        min(entries.compactMap(\.weight).reduce(0, +), 1.0)
+    }
+
+    /// Raw sum before capping — used to detect overflow.
+    private var rawTotalWeight: Double {
         entries.compactMap(\.weight).reduce(0, +)
     }
 
@@ -21,28 +29,68 @@ struct GradingBreakdownCard: View {
     }
 
     var body: some View {
-        if entries.isEmpty { EmptyView() } else {
-            VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
-                // Header
-                HStack(spacing: Layout.Spacing.xs) {
-                    Image(systemName: "chart.pie.fill")
-                        .font(.lexend(size: 16, weight: .semibold))
-                        .foregroundColor(AppColors.accent)
+        VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
+            // Header
+            HStack(spacing: Layout.Spacing.xs) {
+                Image(systemName: "chart.pie.fill")
+                    .font(.lexend(size: 16, weight: .semibold))
+                    .foregroundStyle(AppColors.accent)
 
-                    Text("Grading Breakdown")
-                        .font(.titleS)
-                        .fontWeight(.semibold)
-                        .foregroundColor(AppColors.textPrimary)
+                Text("Grading Breakdown")
+                    .font(.titleS)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(AppColors.textPrimary)
 
-                    Spacer()
+                Spacer()
 
-                    if hasWeights {
-                        Text("\(Int(totalWeight * 100))% total")
+                if hasWeights {
+                    HStack(spacing: 2) {
+                        if rawTotalWeight > 1.02 {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                        }
+                        Text("\(Int(min(rawTotalWeight, 1.0) * 100))% total")
                             .font(.caption)
-                            .foregroundColor(AppColors.textSecondary)
+                            .foregroundStyle(rawTotalWeight > 1.02 ? .orange : AppColors.textSecondary)
                     }
                 }
 
+                if let onEdit {
+                    Button {
+                        HapticFeedbackManager.shared.lightImpact()
+                        onEdit()
+                    } label: {
+                        Image(systemName: "pencil.circle.fill")
+                            .font(.lexend(size: 20, weight: .regular))
+                            .foregroundStyle(AppColors.accent)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if entries.isEmpty {
+                // Empty state — invite user to add grading
+                Button {
+                    HapticFeedbackManager.shared.lightImpact()
+                    onEdit?()
+                } label: {
+                    HStack(spacing: Layout.Spacing.sm) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.lexend(size: 18, weight: .medium))
+                            .foregroundStyle(AppColors.accent)
+                        Text("Add grading scheme")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundStyle(AppColors.accent)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Layout.Spacing.md)
+                    .background(AppColors.accent.opacity(0.08))
+                    .clipShape(.rect(cornerRadius: Layout.CornerRadius.md))
+                }
+                .buttonStyle(.plain)
+            } else {
                 // Weight bar (stacked horizontal)
                 if hasWeights {
                     GeometryReader { geo in
@@ -57,7 +105,7 @@ struct GradingBreakdownCard: View {
                         }
                     }
                     .frame(height: 8)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .clipShape(.rect(cornerRadius: 4))
                 }
 
                 // Entry rows
@@ -70,7 +118,7 @@ struct GradingBreakdownCard: View {
 
                             Text(entry.name)
                                 .font(.subheadline)
-                                .foregroundColor(AppColors.textPrimary)
+                                .foregroundStyle(AppColors.textPrimary)
                                 .lineLimit(1)
 
                             Spacer()
@@ -79,25 +127,25 @@ struct GradingBreakdownCard: View {
                                 Text("\(Int(weight * 100))%")
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
-                                    .foregroundColor(AppColors.textPrimary)
+                                    .foregroundStyle(AppColors.textPrimary)
                                     .monospacedDigit()
                             } else {
                                 Text("—")
                                     .font(.subheadline)
-                                    .foregroundColor(AppColors.textSecondary)
+                                    .foregroundStyle(AppColors.textSecondary)
                             }
                         }
                     }
                 }
             }
-            .padding(Layout.Spacing.md)
-            .background(AppColors.surface)
-            .cornerRadius(Layout.CornerRadius.lg)
-            .overlay(
-                RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                    .stroke(AppColors.border, lineWidth: 1)
-            )
         }
+        .padding(Layout.Spacing.md)
+        .background(AppColors.surface)
+        .clipShape(.rect(cornerRadius: Layout.CornerRadius.lg))
+        .overlay(
+            RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
+                .stroke(AppColors.border, lineWidth: 1)
+        )
     }
 
     // MARK: - Helpers

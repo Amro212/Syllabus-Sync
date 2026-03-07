@@ -20,8 +20,23 @@ struct CourseDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedTab: CourseTab = .all
-    @State private var showingEditSheet = false
     @State private var showingGradingEdit = false
+    @State private var isEditing = false
+    @State private var editTitle = ""
+    @State private var editInstructor = ""
+    @State private var editColorHex = ""
+    @State private var editEmail = "" // TODO: Persist when instructorEmail field added to Course model
+
+    private let availableColors: [(name: String, hex: String)] = [
+        ("Blue",   "#3478F6"),
+        ("Green",  "#34C759"),
+        ("Purple", "#AF52DE"),
+        ("Orange", "#FF9500"),
+        ("Red",    "#FF3B30"),
+        ("Pink",   "#FF2D55"),
+        ("Teal",   "#5AC8FA"),
+        ("Indigo", "#5856D6")
+    ]
 
     // MARK: - Tab enum
 
@@ -69,11 +84,22 @@ struct CourseDetailView: View {
         gradingRepository.gradingByCourse[course.id] ?? []
     }
 
+    private var liveCourse: Course {
+        courseRepository.courses.first(where: { $0.id == course.id }) ?? course
+    }
+
     private var courseColor: Color {
-        if let hex = course.colorHex {
+        if let hex = liveCourse.colorHex {
             return Color(hex: hex)
         }
         return AppColors.accent
+    }
+
+    private var editingColor: Color {
+        if isEditing, !editColorHex.isEmpty {
+            return Color(hex: editColorHex)
+        }
+        return courseColor
     }
 
     private var upcomingCount: Int {
@@ -105,12 +131,6 @@ struct CourseDetailView: View {
         .scrollIndicators(.hidden)
         .background(AppColors.background)
         .navigationBarHidden(true)
-        .sheet(isPresented: $showingEditSheet) {
-            CourseEditSheet(course: course) { updated in
-                Task { await courseRepository.saveCourse(updated) }
-                showingEditSheet = false
-            }
-        }
         .sheet(isPresented: $showingGradingEdit) {
             GradingEditView(courseId: course.id, entries: gradingEntries)
         }
@@ -122,99 +142,209 @@ struct CourseDetailView: View {
     // MARK: - Header
 
     private var courseHeader: some View {
-        VStack(spacing: 0) {
-            // Color accent strip
-            courseColor
-                .frame(height: 140)
-                .overlay(alignment: .topLeading) {
-                    // Decorative circles
-                    ZStack {
-                        Circle()
-                            .fill(Color.white.opacity(0.08))
-                            .frame(width: 180, height: 180)
-                            .offset(x: -40, y: -60)
-                        Circle()
-                            .fill(Color.white.opacity(0.05))
-                            .frame(width: 120, height: 120)
-                            .offset(x: 200, y: -20)
-                    }
-                }
-                .overlay(alignment: .top) {
-                    // Navigation bar
-                    HStack {
-                        Button {
-                            dismiss()
-                        } label: {
-                            Image(systemName: "chevron.left")
-                                .font(.lexend(size: 16, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 36, height: 36)
-                                .background(.ultraThinMaterial.opacity(0.6))
-                                .background(Color.black.opacity(0.15))
-                                .clipShape(Circle())
-                        }
-
-                        Spacer()
-
-                        Button {
-                            HapticFeedbackManager.shared.lightImpact()
-                            showingEditSheet = true
-                        } label: {
-                            Image(systemName: "pencil")
-                                .font(.lexend(size: 14, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 36, height: 36)
-                                .background(.ultraThinMaterial.opacity(0.6))
-                                .background(Color.black.opacity(0.15))
-                                .clipShape(Circle())
-                        }
-                    }
-                    .padding(.horizontal, Layout.Spacing.lg)
-                    .padding(.top, 56)
-                }
-
-            // Course info card -- overlaps the color strip
-            VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
-                // Course code badge
-                Text(course.code)
-                    .font(.captionL)
-                    .fontWeight(.bold)
-                    .foregroundStyle(courseColor)
-                    .padding(.horizontal, Layout.Spacing.sm)
-                    .padding(.vertical, Layout.Spacing.xs)
-                    .background(courseColor.opacity(0.12))
-                    .clipShape(.rect(cornerRadius: Layout.CornerRadius.sm))
-
-                // Course title
-                Text(course.title ?? course.code)
-                    .font(.titleL)
-                    .fontWeight(.bold)
-                    .foregroundStyle(AppColors.textPrimary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                // Instructor row
-                if let instructor = course.instructor, !instructor.isEmpty {
+        VStack(alignment: .leading, spacing: 0) {
+            // Navigation row
+            HStack(spacing: Layout.Spacing.sm) {
+                Button {
+                    if isEditing { cancelEditing() }
+                    dismiss()
+                } label: {
                     HStack(spacing: Layout.Spacing.xs) {
-                        Image(systemName: "person.circle.fill")
-                            .font(.lexend(size: 14, weight: .regular))
-                            .foregroundStyle(AppColors.textTertiary)
-                        Text(instructor)
+                        Image(systemName: "chevron.left")
+                            .font(.lexend(size: 14, weight: .semibold))
+                        Text("Back")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                    }
+                    .foregroundStyle(AppColors.textPrimary)
+                }
+
+                Spacer()
+
+                if isEditing {
+                    Button {
+                        cancelEditing()
+                        HapticFeedbackManager.shared.lightImpact()
+                    } label: {
+                        Text("Cancel")
                             .font(.subheadline)
                             .foregroundStyle(AppColors.textSecondary)
                     }
+
+                    Button {
+                        saveEditing()
+                        HapticFeedbackManager.shared.mediumImpact()
+                    } label: {
+                        Text("Save")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, Layout.Spacing.md)
+                            .padding(.vertical, Layout.Spacing.xs + 2)
+                            .background(AppColors.accent)
+                            .clipShape(.rect(cornerRadius: Layout.CornerRadius.md))
+                    }
+                } else {
+                    Button {
+                        startEditing()
+                        HapticFeedbackManager.shared.lightImpact()
+                    } label: {
+                        HStack(spacing: Layout.Spacing.xs) {
+                            Image(systemName: "pencil")
+                                .font(.lexend(size: 13, weight: .medium))
+                            Text("Edit")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                        }
+                        .foregroundStyle(AppColors.accent)
+                    }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(Layout.Spacing.lg)
-            .background(AppColors.surface)
-            .clipShape(.rect(
-                topLeadingRadius: Layout.CornerRadius.xl,
-                topTrailingRadius: Layout.CornerRadius.xl
-            ))
-            .offset(y: -Layout.Spacing.xl)
+            .padding(.horizontal, Layout.Spacing.lg)
+            .padding(.vertical, Layout.Spacing.sm)
+
+            // Thin accent color divider
+            editingColor
+                .frame(height: 6)
+                .clipShape(.rect(cornerRadius: 3))
+                .padding(.horizontal, Layout.Spacing.lg)
+                .padding(.bottom, Layout.Spacing.md)
+                .animation(.easeInOut(duration: 0.2), value: editColorHex)
+
+            // Course info section
+            VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
+                // Course code badge
+                Text(liveCourse.code)
+                    .font(.captionL)
+                    .fontWeight(.bold)
+                    .foregroundStyle(editingColor)
+                    .padding(.horizontal, Layout.Spacing.sm)
+                    .padding(.vertical, Layout.Spacing.xs)
+                    .background(editingColor.opacity(0.12))
+                    .clipShape(.rect(cornerRadius: Layout.CornerRadius.sm))
+
+                // Course title
+                if isEditing {
+                    TextField("Course Name", text: $editTitle)
+                        .font(.titleL)
+                        .fontWeight(.bold)
+                        .foregroundStyle(AppColors.textPrimary)
+                        .textFieldStyle(.plain)
+                } else {
+                    Text(liveCourse.title ?? liveCourse.code)
+                        .font(.titleL)
+                        .fontWeight(.bold)
+                        .foregroundStyle(AppColors.textPrimary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                // Instructor
+                HStack(spacing: Layout.Spacing.xs) {
+                    Image(systemName: "person.circle.fill")
+                        .font(.lexend(size: 14, weight: .regular))
+                        .foregroundStyle(AppColors.textTertiary)
+                    if isEditing {
+                        TextField("Instructor Name", text: $editInstructor)
+                            .font(.subheadline)
+                            .foregroundStyle(AppColors.textSecondary)
+                            .textFieldStyle(.plain)
+                    } else {
+                        let hasInstructor = liveCourse.instructor?.isEmpty == false
+                        Text(hasInstructor ? liveCourse.instructor! : "No instructor")
+                            .font(.subheadline)
+                            .foregroundStyle(hasInstructor ? AppColors.textSecondary : AppColors.textTertiary)
+                    }
+                }
+
+                // Instructor email placeholder
+                // TODO: Add instructorEmail to Course model + Supabase schema
+                HStack(spacing: Layout.Spacing.xs) {
+                    Image(systemName: "envelope")
+                        .font(.lexend(size: 14, weight: .regular))
+                        .foregroundStyle(AppColors.textTertiary)
+                    if isEditing {
+                        TextField("Instructor Email", text: $editEmail)
+                            .font(.subheadline)
+                            .foregroundStyle(AppColors.textSecondary)
+                            .textFieldStyle(.plain)
+                            .keyboardType(.emailAddress)
+                            .textContentType(.emailAddress)
+                            .autocapitalization(.none)
+                    } else {
+                        Text("No email added")
+                            .font(.subheadline)
+                            .foregroundStyle(AppColors.textTertiary)
+                    }
+                }
+
+                // View Syllabus CTA placeholder
+                // TODO: Store syllabusURL on Course model + Supabase. Enable button when URL is available.
+                Button {
+                    // TODO: Open syllabus PDF when syllabusURL is stored on Course
+                } label: {
+                    HStack(spacing: Layout.Spacing.xs) {
+                        Image(systemName: "doc.text.fill")
+                            .font(.lexend(size: 14, weight: .medium))
+                        Text("View Syllabus PDF")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                    }
+                    .foregroundStyle(AppColors.textTertiary)
+                    .padding(.horizontal, Layout.Spacing.md)
+                    .padding(.vertical, Layout.Spacing.sm)
+                    .background(AppColors.surfaceSecondary)
+                    .clipShape(.rect(cornerRadius: Layout.CornerRadius.md))
+                }
+                .buttonStyle(.plain)
+                .disabled(true)
+                .padding(.top, Layout.Spacing.xs)
+
+                // Inline color picker (editing only)
+                if isEditing {
+                    VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
+                        Text("Course Color")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundStyle(AppColors.textTertiary)
+
+                        HStack(spacing: Layout.Spacing.sm) {
+                            ForEach(availableColors, id: \.hex) { colorOption in
+                                Button {
+                                    editColorHex = colorOption.hex
+                                    HapticFeedbackManager.shared.lightImpact()
+                                } label: {
+                                    Circle()
+                                        .fill(Color(hex: colorOption.hex))
+                                        .frame(width: 32, height: 32)
+                                        .overlay {
+                                            if editColorHex == colorOption.hex {
+                                                Image(systemName: "checkmark")
+                                                    .font(.lexend(size: 12, weight: .bold))
+                                                    .foregroundStyle(.white)
+                                            }
+                                        }
+                                        .overlay {
+                                            Circle()
+                                                .stroke(
+                                                    editColorHex == colorOption.hex ? Color.white : Color.clear,
+                                                    lineWidth: 2
+                                                )
+                                        }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .padding(.top, Layout.Spacing.sm)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+            .padding(.horizontal, Layout.Spacing.lg)
+            .padding(.bottom, Layout.Spacing.md)
         }
-        .padding(.bottom, -Layout.Spacing.xl) // Compensate for offset
+        .background(AppColors.surface)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isEditing)
     }
 
     // MARK: - Quick Stats
@@ -329,6 +459,30 @@ struct CourseDetailView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, Layout.Spacing.xxxl)
+    }
+
+    // MARK: - Inline Editing
+
+    private func startEditing() {
+        editTitle = liveCourse.title ?? ""
+        editInstructor = liveCourse.instructor ?? ""
+        editColorHex = liveCourse.colorHex ?? ""
+        editEmail = "" // TODO: Load from liveCourse.instructorEmail when field exists
+        isEditing = true
+    }
+
+    private func cancelEditing() {
+        isEditing = false
+    }
+
+    private func saveEditing() {
+        var updated = liveCourse
+        updated.title = editTitle.isEmpty ? nil : editTitle
+        updated.instructor = editInstructor.isEmpty ? nil : editInstructor
+        updated.colorHex = editColorHex.isEmpty ? nil : editColorHex
+        // TODO: Save editEmail when instructorEmail field exists on Course
+        Task { await courseRepository.saveCourse(updated) }
+        isEditing = false
     }
 }
 
@@ -535,134 +689,6 @@ private struct CourseEventRow: View {
         .padding(.vertical, 3)
         .background(event.type.color.opacity(0.1))
         .clipShape(Capsule())
-    }
-}
-
-// MARK: - Course Edit Sheet
-
-private struct CourseEditSheet: View {
-    let course: Course
-    let onSave: (Course) -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var courseName: String = ""
-    @State private var instructorName: String = ""
-    @State private var selectedColorHex: String = ""
-
-    private let availableColors: [(name: String, hex: String)] = [
-        ("Blue",   "#3478F6"),
-        ("Green",  "#34C759"),
-        ("Purple", "#AF52DE"),
-        ("Orange", "#FF9500"),
-        ("Red",    "#FF3B30"),
-        ("Pink",   "#FF2D55"),
-        ("Teal",   "#5AC8FA"),
-        ("Indigo", "#5856D6")
-    ]
-
-    var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(alignment: .leading, spacing: Layout.Spacing.xl) {
-                    // Course Name
-                    VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
-                        Text("Course Name")
-                            .font(.titleS)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(AppColors.textPrimary)
-                        TextField("Introduction to Computer Science", text: $courseName)
-                            .textFieldStyle(.roundedBorder)
-                    }
-
-                    // Instructor
-                    VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
-                        Text("Instructor")
-                            .font(.titleS)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(AppColors.textPrimary)
-                        TextField("Dr. Sarah Chen", text: $instructorName)
-                            .textFieldStyle(.roundedBorder)
-                    }
-
-                    // Color Selection
-                    VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
-                        Text("Course Color")
-                            .font(.titleS)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(AppColors.textPrimary)
-
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Layout.Spacing.md) {
-                            ForEach(availableColors, id: \.hex) { color in
-                                CourseColorButton(
-                                    color: Color(hex: color.hex),
-                                    isSelected: selectedColorHex == color.hex
-                                ) {
-                                    selectedColorHex = color.hex
-                                    HapticFeedbackManager.shared.lightImpact()
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(Layout.Spacing.lg)
-            }
-            .scrollIndicators(.hidden)
-            .background(AppColors.background)
-            .navigationTitle("Edit Course")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundStyle(AppColors.accent)
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Save") {
-                        HapticFeedbackManager.shared.mediumImpact()
-                        var updated = course
-                        updated.title = courseName.isEmpty ? nil : courseName
-                        updated.instructor = instructorName.isEmpty ? nil : instructorName
-                        updated.colorHex = selectedColorHex.isEmpty ? nil : selectedColorHex
-                        onSave(updated)
-                    }
-                    .foregroundStyle(AppColors.accent)
-                    .fontWeight(.semibold)
-                }
-            }
-        }
-        .onAppear {
-            courseName = course.title ?? ""
-            instructorName = course.instructor ?? ""
-            selectedColorHex = course.colorHex ?? ""
-        }
-    }
-}
-
-// MARK: - Color Selection Button
-
-private struct CourseColorButton: View {
-    let color: Color
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            ZStack {
-                Circle()
-                    .fill(color)
-                    .frame(width: 40, height: 40)
-
-                if isSelected {
-                    Circle()
-                        .stroke(AppColors.accent, lineWidth: 3)
-                        .frame(width: 40, height: 40)
-
-                    Image(systemName: "checkmark")
-                        .font(.lexend(size: 16, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-            }
-        }
-        .buttonStyle(.plain)
     }
 }
 

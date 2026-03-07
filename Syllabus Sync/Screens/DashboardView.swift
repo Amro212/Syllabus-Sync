@@ -48,7 +48,6 @@ struct DashboardView: View {
                             MyCoursesSection(
                                 courses: courseRepository.courses,
                                 events: eventStore.events,
-                                gradingByCourse: gradingRepository.gradingByCourse,
                                 onCourseTapped: { course in
                                     navigationManager.navigate(to: .courseDetail(course: course))
                                 }
@@ -1280,66 +1279,49 @@ struct ShimmerRectangle: View {
 private struct MyCoursesSection: View {
     let courses: [Course]
     let events: [EventItem]
-    let gradingByCourse: [String: [GradingSchemeEntry]]
     let onCourseTapped: (Course) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Layout.Spacing.md) {
-            HStack {
+        VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
+            HStack(spacing: Layout.Spacing.xs) {
                 Text("My Courses")
-                    .font(.title2)
-                    .fontWeight(.bold)
+                    .font(.headline)
                     .foregroundStyle(AppColors.textPrimary)
 
-                Spacer()
-
                 if !courses.isEmpty {
-                    Text("\(courses.count)")
-                        .font(.captionL)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(AppColors.accent)
-                        .padding(.horizontal, Layout.Spacing.sm)
-                        .padding(.vertical, Layout.Spacing.xs)
-                        .background(AppColors.accent.opacity(0.1))
-                        .clipShape(.rect(cornerRadius: Layout.CornerRadius.sm))
+                    Text("(\(courses.count))")
+                        .font(.subheadline)
+                        .foregroundStyle(AppColors.textTertiary)
                 }
+
+                Spacer()
             }
 
             if courses.isEmpty {
-                // Empty state
-                VStack(spacing: Layout.Spacing.sm) {
+                HStack(spacing: Layout.Spacing.sm) {
                     Image(systemName: "book.closed")
-                        .font(.system(size: 28))
-                        .foregroundStyle(AppColors.textTertiary)
-
-                    Text("No courses yet")
                         .font(.subheadline)
-                        .foregroundStyle(AppColors.textSecondary)
-
-                    Text("Import a syllabus to see your courses here")
-                        .font(.caption)
                         .foregroundStyle(AppColors.textTertiary)
-                        .multilineTextAlignment(.center)
+                    Text("Import a syllabus to add courses")
+                        .font(.subheadline)
+                        .foregroundStyle(AppColors.textTertiary)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, Layout.Spacing.xl)
+                .padding(.vertical, Layout.Spacing.xs)
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Layout.Spacing.md) {
+                ScrollView(.horizontal) {
+                    HStack(spacing: Layout.Spacing.sm) {
                         ForEach(courses) { course in
-                            CourseCardView(
+                            CourseChipView(
                                 course: course,
                                 eventCount: events.filter { $0.courseCode == course.code }.count,
-                                gradingEntries: gradingByCourse[course.id] ?? [],
                                 onTap: { onCourseTapped(course) }
                             )
                         }
                     }
-                    .padding(.horizontal, 2)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, 1)
+                    .padding(.vertical, 2)
                 }
-                .padding(.horizontal, -Layout.Spacing.md) // bleed to edges
-                .padding(.leading, Layout.Spacing.md)
+                .scrollIndicators(.hidden)
             }
         }
     }

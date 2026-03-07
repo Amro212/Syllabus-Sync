@@ -55,6 +55,11 @@ final class CourseRepository: ObservableObject {
     }
     
     func saveCourse(_ course: Course) async -> Course? {
+        // Optimistic local update for instant UI feedback
+        if let index = courses.firstIndex(where: { $0.id == course.id }) {
+            courses[index] = course
+        }
+
         let result = await dataService.saveCourse(course)
         switch result {
         case .success(let savedCourse):
@@ -62,6 +67,7 @@ final class CourseRepository: ObservableObject {
             return savedCourse
         case .failure(let error):
             print("Failed to save course: \(error)")
+            await refresh() // Revert optimistic update on failure
             return nil
         }
     }

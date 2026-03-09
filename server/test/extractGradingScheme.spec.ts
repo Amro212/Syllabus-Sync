@@ -127,6 +127,167 @@ describe('extractGradingScheme', () => {
     const total = result.deliverables.reduce((s, d) => s + (d.weight ?? 0), 0);
     expect(total).toBeCloseTo(1.0);
   });
+
+  it('never removes specific items whose weight coincidentally sums to another', () => {
+    // Regression: "Final Exam 30%" must NOT be removed because
+    // "Midterm 1 (15%) + Midterm 2 (15%) = 30%".
+    // Only umbrella names like "Exams" should be removal candidates.
+    const text = [
+      'Evaluation Scheme:',
+      'Midterm 1  15%',
+      'Midterm 2  15%',
+      'Final Exam  30%',
+      'Assignments  40%',
+      'Exams  60%',
+      'Homework  40%',
+    ].join('\n');
+
+    const result = extractGradingScheme(text);
+    const names = result.deliverables.map(d => d.name.toLowerCase());
+    // "Exams" and "Homework" are umbrella names and can be removed
+    // "Final Exam" is a specific assessment and must be kept
+    expect(names).toContain('final exam');
+    expect(names).toContain('midterm 1');
+    expect(names).toContain('midterm 2');
+    expect(names).toContain('assignments');
+  });
+
+  it('does not remove "Final Exam" even when two midterms sum to its weight', () => {
+    const text = [
+      'Grading Breakdown:',
+      'Midterm 1  15%',
+      'Midterm 2  15%',
+      'Final Exam  30%',
+      'Participation  40%',
+      'Exams  60%',
+    ].join('\n');
+
+    const result = extractGradingScheme(text);
+    const names = result.deliverables.map(d => d.name.toLowerCase());
+    expect(names).toContain('final exam');
+    expect(names).toContain('midterm 1');
+    expect(names).toContain('midterm 2');
+    expect(names).toContain('participation');
+    expect(names).not.toContain('exams');
+    const total = result.deliverables.reduce((s, d) => s + (d.weight ?? 0), 0);
+    expect(total).toBeCloseTo(1.0);
+  });
+
+  it('removes multiple umbrella parents when needed', () => {
+    const text = [
+      'Evaluation Scheme:',
+      'Assignment 1  10%',
+      'Assignment 2  10%',
+      'Assignment 3  10%',
+      'Assignments  30%',
+      'Midterm  30%',
+      'Final Exam  40%',
+      'Exams  70%',
+    ].join('\n');
+
+    const result = extractGradingScheme(text);
+    const names = result.deliverables.map(d => d.name.toLowerCase());
+    expect(names).not.toContain('assignments');
+    expect(names).not.toContain('exams');
+    expect(names).toContain('assignment 1');
+    expect(names).toContain('assignment 2');
+    expect(names).toContain('assignment 3');
+    expect(names).toContain('midterm');
+    expect(names).toContain('final exam');
+    const total = result.deliverables.reduce((s, d) => s + (d.weight ?? 0), 0);
+    expect(total).toBeCloseTo(1.0);
+  });
+
+  it('keeps non-umbrella entries untouched even with >100% total when no umbrella matches', () => {
+    // If total > 100% but no entry is an umbrella name, nothing is removed.
+    // This is intentional: we return the raw data and let the AI handle it.
+    const text = [
+      'Grading Breakdown:',
+      'Research Paper  40%',
+      'Group Project  35%',
+      'Class Presentation  30%',
+    ].join('\n');
+
+    const result = extractGradingScheme(text);
+    expect(result.deliverables).toHaveLength(3);
+    const total = result.deliverables.reduce((s, d) => s + (d.weight ?? 0), 0);
+    // 105% — all specific items, no umbrella to remove
+    expect(total).toBeCloseTo(1.05);
+  });
+
+  it('handles CIS*2750-style syllabus: tab-separated tables, colons in names, blocks false positives', () => {
+    // Regression: The extractor must handle real OCR tab-separated table rows
+    // where assignment names contain colons (e.g. "AO: Unit testing...")
+    // and special chars (e.g. "(C + Python)"), and must not pick up
+    // "component (60%)" from the Final Grade Calculation policy paragraph.
+    const text = [
+      'CIS*2750 Software Systems Development and Integration',
+      'Class Time / Location: ue/Thu 4:00-5:20 pm | MACN 105',
+      '',
+      'Assessments and Grade Calculation',
+      'Exams',
+      'Item\tWeight\tDue / Date',
+      'Midterm 1\t15%\tSaturday, Feb 7',
+      'Midterm 2\t15%\tSaturday, Mar 14',
+      'Final exam\t30%\tApril 14, 11:30 am - 1:30 pm',
+      'Assignments',
+      'Item\tWeight\tDue / Date',
+      'AO: Unit testing a provided C library\t5%\tJan 16 @11:59 pm',
+      'A1: C library creation following API\t10%\tFeb 6 @11:59 pm',
+      'A2: Python CLI, Integration (C + Python)\t10%\tMar 6 @11:59 pm',
+      'A3: Text-based UI, Persistence, Modularity, Demo\t15%\tMar 27 @11:59 pm',
+      'Assignment Alignment with Learning Outcomes',
+      'LO5',
+      'Assignment Policies',
+      'Submissions must be made via GitLab.',
+      '',
+      'Final Grade Calculation',
+      'Your final course grade is normally the sum of the assignment component (40%) and the exam',
+      'component (60%).',
+    ].join('\n');
+
+    const result = extractGradingScheme(text);
+    const names = result.deliverables.map(d => d.name.toLowerCase());
+
+    // Must find all 7 real deliverables (3 exams + 4 assignments)
+    expect(result.deliverables.length).toBe(7);
+    expect(names).toContain('midterm 1');
+    expect(names).toContain('midterm 2');
+    expect(names).toContain('final exam');
+    // Assignment names include the colon prefix from OCR
+    expect(names.some(n => n.includes('unit testing'))).toBe(true);
+    expect(names.some(n => n.includes('c library creation'))).toBe(true);
+    expect(names.some(n => n.includes('python cli'))).toBe(true);
+    expect(names.some(n => n.includes('text-based ui'))).toBe(true);
+
+    // Must NOT contain false positives from policy sections
+    expect(names.some(n => n.includes('component'))).toBe(false);
+    expect(names.some(n => n.includes('coursework'))).toBe(false);
+
+    // Total should be 100%
+    const total = result.deliverables.reduce((s, d) => s + (d.weight ?? 0), 0);
+    expect(total).toBeCloseTo(1.0);
+
+    // Should have identified a raw section (not fallback full-doc scan)
+    expect(result.rawSection).toBeTruthy();
+  });
+
+  it('blocks blacklisted names like "grade", "total", "score"', () => {
+    const text = [
+      'Evaluation Scheme:',
+      'Assignments  40%',
+      'Final Exam   30%',
+      'Participation  30%',
+      'Total  100%',
+      'Grade  100%',
+    ].join('\n');
+
+    const result = extractGradingScheme(text);
+    const names = result.deliverables.map(d => d.name.toLowerCase());
+    expect(names).not.toContain('total');
+    expect(names).not.toContain('grade');
+    expect(result.deliverables).toHaveLength(3);
+  });
 });
 
 describe('formatGradingSchemeForPrompt', () => {

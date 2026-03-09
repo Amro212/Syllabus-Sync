@@ -29,6 +29,8 @@ const MARKER_PATTERNS: Array<{ type: EventMarkerType; regex: RegExp }> = [
 	{ type: 'LECTURE', regex: /\blectures?\b/i },
 	{ type: 'LECTURE', regex: /\bclass(?:es)?\s+meet(?:ings)?\b/i },
 	{ type: 'LECTURE', regex: /\bmeeting\s+times?\b/i },
+	{ type: 'LECTURE', regex: /\bclass\s+times?\b/i },
+	{ type: 'LECTURE', regex: /\bclass\s+time\s*\/\s*location\b/i },
 	{ type: 'EXAM', regex: /\bexam\b/i },
 ];
 

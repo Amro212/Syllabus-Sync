@@ -61,6 +61,7 @@ struct SupabaseGradingEntry: Codable, Identifiable {
 
 /// Insert/Update DTO (without server-generated fields)
 struct SupabaseGradingEntryInsert: Encodable {
+    let id: UUID
     let userId: UUID
     let courseId: UUID
     let name: String
@@ -69,6 +70,7 @@ struct SupabaseGradingEntryInsert: Encodable {
     let sortOrder: Int
 
     enum CodingKeys: String, CodingKey {
+        case id
         case userId = "user_id"
         case courseId = "course_id"
         case name
@@ -79,6 +81,7 @@ struct SupabaseGradingEntryInsert: Encodable {
 
     static func fromDomain(_ entry: GradingSchemeEntry, courseId: UUID, userId: UUID) -> SupabaseGradingEntryInsert {
         SupabaseGradingEntryInsert(
+            id: UUID(uuidString: entry.id) ?? UUID(),
             userId: userId,
             courseId: courseId,
             name: entry.name,

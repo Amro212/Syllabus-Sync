@@ -118,28 +118,7 @@ final class ImportViewModel: ObservableObject {
             } else {
                 // All events have dates — auto-approve immediately
                 await eventStore.autoApprove(events: events)
-
-                // Extract and save courses from events, then persist grading
-                let uniqueCourseCodes = Set(events.map { $0.courseCode })
-                for courseCode in uniqueCourseCodes {
-                    let savedCourse: Course
-                    if let existing = await courseRepository.fetchCourse(byCode: courseCode) {
-                        savedCourse = existing
-                    } else {
-                        let course = Course(id: UUID().uuidString, code: courseCode)
-                        savedCourse = await courseRepository.saveCourse(course) ?? course
-                    }
-                    // Persist grading scheme for this course
-                    if !gradingScheme.isEmpty {
-                        let courseEntries = gradingScheme.filter {
-                            // Filter by courseCode match if entries are generic (no courseId yet)
-                            $0.courseId == nil || $0.courseId == savedCourse.id
-                        }
-                        if !courseEntries.isEmpty {
-                            await gradingRepository.save(entries: courseEntries, forCourseId: savedCourse.id)
-                        }
-                    }
-                }
+                await persistImportedCoursesAndGrading(for: events)
             }
 
             preprocessedParserInputText = parser.latestPreprocessedText
@@ -221,25 +200,7 @@ final class ImportViewModel: ObservableObject {
                 needsReview = true
             } else {
                 await eventStore.autoApprove(events: events)
-
-                let uniqueCourseCodes = Set(events.map { $0.courseCode })
-                for code in uniqueCourseCodes {
-                    let savedCourse: Course
-                    if let existing = await courseRepository.fetchCourse(byCode: code) {
-                        savedCourse = existing
-                    } else {
-                        let course = Course(id: UUID().uuidString, code: code)
-                        savedCourse = await courseRepository.saveCourse(course) ?? course
-                    }
-                    if !gradingScheme.isEmpty {
-                        let courseEntries = gradingScheme.filter {
-                            $0.courseId == nil || $0.courseId == savedCourse.id
-                        }
-                        if !courseEntries.isEmpty {
-                            await gradingRepository.save(entries: courseEntries, forCourseId: savedCourse.id)
-                        }
-                    }
-                }
+                await persistImportedCoursesAndGrading(for: events)
             }
 
             rawAIResponse = parser.rawResponse
@@ -428,26 +389,7 @@ final class ImportViewModel: ObservableObject {
     func completeReviewAndSave(events reviewedEvents: [EventItem]) async {
         self.events = reviewedEvents
         await eventStore.autoApprove(events: reviewedEvents)
-
-        let uniqueCourseCodes = Set(reviewedEvents.map { $0.courseCode })
-        for courseCode in uniqueCourseCodes {
-            let savedCourse: Course
-            if let existing = await courseRepository.fetchCourse(byCode: courseCode) {
-                savedCourse = existing
-            } else {
-                let course = Course(id: UUID().uuidString, code: courseCode)
-                savedCourse = await courseRepository.saveCourse(course) ?? course
-            }
-            // Persist grading scheme for this course
-            if !gradingScheme.isEmpty {
-                let courseEntries = gradingScheme.filter {
-                    $0.courseId == nil || $0.courseId == savedCourse.id
-                }
-                if !courseEntries.isEmpty {
-                    await gradingRepository.save(entries: courseEntries, forCourseId: savedCourse.id)
-                }
-            }
-        }
+        await persistImportedCoursesAndGrading(for: reviewedEvents)
 
         needsReview = false
         parsedEventsForReview = []
@@ -504,6 +446,28 @@ final class ImportViewModel: ObservableObject {
         }
 
         return (error.localizedDescription, .unknown)
+    }
+
+    private func persistImportedCoursesAndGrading(for importedEvents: [EventItem]) async {
+        let uniqueCourseCodes = Set(importedEvents.map(\.courseCode))
+        var savedCoursesByCode: [String: Course] = [:]
+
+        for courseCode in uniqueCourseCodes {
+            if let existing = await courseRepository.fetchCourse(byCode: courseCode) {
+                savedCoursesByCode[courseCode] = existing
+            } else {
+                let course = Course(id: UUID().uuidString, code: courseCode)
+                savedCoursesByCode[courseCode] = await courseRepository.saveCourse(course) ?? course
+            }
+        }
+
+        guard !gradingScheme.isEmpty else { return }
+        guard uniqueCourseCodes.count == 1, let onlyCourseCode = uniqueCourseCodes.first, let savedCourse = savedCoursesByCode[onlyCourseCode] else {
+            print("ImportViewModel: skipped grading persistence because the import resolved to multiple course codes")
+            return
+        }
+
+        await gradingRepository.save(entries: gradingScheme, forCourseId: savedCourse.id)
     }
 
     private func logImportError(state: ImportErrorState, underlying: Error) {

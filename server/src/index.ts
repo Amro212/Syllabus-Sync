@@ -443,22 +443,6 @@ export default {
 						...validationConfig,
 						gradingScheme: gradingScheme?.deliverables,
 					});
-					if (validationResult.events.length === 0) {
-						const status = 422;
-						logRequest(env, 'info', {
-							ts: nowIso(), requestId, route: path, method, status,
-							durationMs: Date.now() - startedAt,
-							error: validationResult.errors.join(' | ') || 'No valid events after validation',
-						});
-						return new Response(JSON.stringify({
-							error: 'Validation failed',
-							details: validationResult.errors
-						}), {
-							status,
-							headers: { 'Content-Type': 'application/json', ...corsHeaders },
-						});
-					}
-
 					const warnings = [...validationResult.warnings];
 					if (!validationResult.valid) {
 						warnings.push(...validationResult.errors);
@@ -478,6 +462,22 @@ export default {
 								`Schema coverage: injected ${coverage.injected.length} missing deliverable(s): ${coverage.injected.join(', ')}`
 							);
 						}
+					}
+
+					if (coveredEvents.length === 0) {
+						const status = 422;
+						logRequest(env, 'info', {
+							ts: nowIso(), requestId, route: path, method, status,
+							durationMs: Date.now() - startedAt,
+							error: validationResult.errors.join(' | ') || 'No valid events after validation',
+						});
+						return new Response(JSON.stringify({
+							error: 'Validation failed',
+							details: validationResult.errors
+						}), {
+							status,
+							headers: { 'Content-Type': 'application/json', ...corsHeaders },
+						});
 					}
 
 					// Post-process: split multi-day recurrence rules into separate events

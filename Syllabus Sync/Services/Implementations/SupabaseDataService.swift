@@ -446,19 +446,30 @@ class SupabaseDataService: DataService {
         }
         
         do {
-            // Delete existing entries for this course
-            try await supabase
+            struct ExistingGradingEntryID: Decodable {
+                let id: UUID
+            }
+
+            let existingRows: [ExistingGradingEntryID] = try await supabase
                 .from("grading_entries")
-                .delete()
+                .select("id")
                 .eq("user_id", value: userId)
                 .eq("course_id", value: courseUUID)
                 .execute()
+                .value
             
             guard !entries.isEmpty else {
+                try await supabase
+                    .from("grading_entries")
+                    .delete()
+                    .eq("user_id", value: userId)
+                    .eq("course_id", value: courseUUID)
+                    .execute()
                 return .success(data: [])
             }
             
-            // Insert new entries with sort order
+            // Upsert desired rows first so a later delete cannot wipe out
+            // the existing grading scheme if the replacement write fails.
             let insertData = entries.enumerated().map { index, entry in
                 SupabaseGradingEntryInsert.fromDomain(
                     GradingSchemeEntry(
@@ -474,14 +485,32 @@ class SupabaseDataService: DataService {
                 )
             }
             
-            let inserted: [SupabaseGradingEntry] = try await supabase
+            let upserted: [SupabaseGradingEntry] = try await supabase
                 .from("grading_entries")
-                .insert(insertData)
+                .upsert(insertData)
                 .select()
                 .execute()
                 .value
+
+            let desiredIDs = Set(insertData.map(\.id))
+            let staleIDs = existingRows
+                .map(\.id)
+                .filter { !desiredIDs.contains($0) }
+
+            if !staleIDs.isEmpty {
+                try await supabase
+                    .from("grading_entries")
+                    .delete()
+                    .eq("user_id", value: userId)
+                    .eq("course_id", value: courseUUID)
+                    .in("id", values: staleIDs)
+                    .execute()
+            }
             
-            return .success(data: inserted.map { $0.toDomain() })
+            let saved = upserted
+                .map { $0.toDomain() }
+                .sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
+            return .success(data: saved)
         } catch {
             return .failure(error: .databaseError(error.localizedDescription))
         }

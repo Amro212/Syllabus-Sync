@@ -122,13 +122,7 @@ struct DashboardView: View {
             .background(AppColors.background)
         }
         .task {
-            // Load user-specific preference
-            loadUserPreference()
-            
-            await eventStore.fetchEvents()
-            if !eventStore.events.isEmpty {
-                updateUserPreference(true)
-            }
+            await loadDashboardData()
         }
         .onChange(of: eventStore.events) { events in
              if !events.isEmpty {
@@ -170,7 +164,21 @@ struct DashboardView: View {
         guard let userId = SupabaseAuthService.shared.currentUser?.id else { return }
         hasAddedEvents = UserDefaults.standard.bool(forKey: "hasAddedEvents_\(userId)")
     }
-    
+
+    private func loadDashboardData() async {
+        loadUserPreference()
+        guard SupabaseAuthService.shared.isAuthenticated else { return }
+
+        async let eventsLoad: Void = eventStore.fetchEvents()
+        async let coursesLoad: Void = courseRepository.refresh()
+        async let gradingLoad: Void = gradingRepository.fetchAll()
+        _ = await (eventsLoad, coursesLoad, gradingLoad)
+
+        if !eventStore.events.isEmpty {
+            updateUserPreference(true)
+        }
+    }
+
     private func updateUserPreference(_ value: Bool) {
         guard let userId = SupabaseAuthService.shared.currentUser?.id else { return }
         hasAddedEvents = value

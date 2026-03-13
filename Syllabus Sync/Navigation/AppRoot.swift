@@ -119,6 +119,12 @@ class AppNavigationManager: ObservableObject {
     }
 }
 
+private extension AppNavigationManager {
+    var isSignedInShellRoute: Bool {
+        [.dashboard, .reminders, .importSyllabus, .profile].contains(currentRoute)
+    }
+}
+
 // MARK: - App Root View
 
 /// Main app root that handles all navigation and routing
@@ -170,17 +176,24 @@ struct AppRoot: View {
         .environmentObject(courseRepository)
         .environmentObject(gradingRepository)
         .modifier(ThemeEnvironment(themeManager: themeManager))
-        .task {
-            // Load user data when app launches and user is authenticated
-            if SupabaseAuthService.shared.isAuthenticated {
-                await eventStore.fetchEvents()
-                await courseRepository.refresh()
-                await gradingRepository.fetchAll()
-            }
+        .task(id: navigationManager.currentRoute) {
+            await loadAuthenticatedDataIfNeeded()
         }
         .onAppear {
             print("🏠 AppRoot appeared, currentRoute: \(navigationManager.currentRoute)")
         }
+    }
+
+    private func loadAuthenticatedDataIfNeeded() async {
+        guard navigationManager.isSignedInShellRoute else { return }
+        guard SupabaseAuthService.shared.isAuthenticated else { return }
+
+        // Route changes happen after launch/auth decisions, so this avoids
+        // missing the initial load when session restoration finishes later.
+        async let eventsLoad: Void = eventStore.fetchEvents()
+        async let coursesLoad: Void = courseRepository.refresh()
+        async let gradingLoad: Void = gradingRepository.fetchAll()
+        _ = await (eventsLoad, coursesLoad, gradingLoad)
     }
     
     @ViewBuilder

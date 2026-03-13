@@ -39,23 +39,10 @@ struct DashboardView: View {
                         
                         // New modular dashboard structure matching wireframe
                         // Always show the structure, even if empty
-                        VStack(spacing: Layout.Spacing.xl) {
+                        VStack(spacing: Layout.Spacing.lg) {
                             greetingHeader
-                            
-                            QuickInsightCardView(events: eventStore.events, isNewUser: !hasAddedEvents && eventStore.events.isEmpty)
-                            
-                            // My Courses horizontal scroll
-                            MyCoursesSection(
-                                courses: courseRepository.courses,
-                                events: eventStore.events,
-                                onCourseTapped: { course in
-                                    navigationManager.navigate(to: .courseDetail(course: course))
-                                }
-                            )
-                            
-                            WeekAtGlanceView(events: eventStore.events, isNewUser: !hasAddedEvents && eventStore.events.isEmpty)
-                            
-                            UpcomingDeadlinesView(
+
+                            DashboardSummaryClusterView(
                                 events: eventStore.events,
                                 isNewUser: !hasAddedEvents && eventStore.events.isEmpty,
                                 onEventTapped: { event in
@@ -63,9 +50,17 @@ struct DashboardView: View {
                                     navigationManager.switchTab(to: .reminders)
                                 }
                             )
+
+                            MyCoursesSection(
+                                courses: courseRepository.courses,
+                                events: eventStore.events,
+                                onCourseTapped: { course in
+                                    navigationManager.navigate(to: .courseDetail(course: course))
+                                }
+                            )
                         }
                         .padding(.horizontal, Layout.Spacing.md)
-                        .padding(.vertical, Layout.Spacing.xl)
+                        .padding(.vertical, Layout.Spacing.lg)
                         .transition(.opacity)
                     }
                     .padding(.top, 60)
@@ -207,15 +202,66 @@ struct DashboardView: View {
     // MARK: - Greeting
     
     private var greetingHeader: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(timeBasedGreeting)
-                .font(.lexend(size: 24, weight: .bold))
-                .foregroundColor(AppColors.textPrimary)
-            Text(todayEventSummary)
-                .font(.lexend(size: 14, weight: .regular))
-                .foregroundColor(AppColors.textSecondary)
+        let summaryItems = headerSummaryItems
+
+        return ZStack(alignment: .topTrailing) {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(AppColors.surface)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(AppColors.border.opacity(0.45), lineWidth: 1)
+                }
+
+            VStack(alignment: .leading, spacing: Layout.Spacing.md) {
+                Text(timeBasedGreeting)
+                    .font(.lexend(size: 30, weight: .bold))
+                    .foregroundStyle(AppColors.textPrimary)
+
+                Text(todayEventSummary)
+                    .font(.lexend(size: 15, weight: .regular))
+                    .foregroundStyle(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !summaryItems.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: Layout.Spacing.sm) {
+                            ForEach(summaryItems) { item in
+                                DashboardHeaderPill(item: item)
+                            }
+                        }
+                        .padding(.horizontal, 1)
+                    }
+                    .scrollIndicators(.hidden)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Layout.Spacing.lg)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var headerSummaryItems: [DashboardHeaderPill.Item] {
+        let upcomingCount = eventStore.events.filter {
+            $0.start >= Date() && $0.start <= Calendar.current.date(byAdding: .hour, value: 48, to: Date())!
+        }.count
+
+        return [
+            DashboardHeaderPill.Item(
+                icon: "calendar",
+                title: Date().formatted(.dateTime.weekday(.wide)),
+                value: Date().formatted(.dateTime.month(.abbreviated).day())
+            ),
+            DashboardHeaderPill.Item(
+                icon: "books.vertical.fill",
+                title: "Courses",
+                value: "\(courseRepository.courses.count)"
+            ),
+            DashboardHeaderPill.Item(
+                icon: "bolt.fill",
+                title: "Due Soon",
+                value: "\(upcomingCount)"
+            )
+        ]
     }
     
     private var timeBasedGreeting: String {
@@ -257,750 +303,806 @@ struct DashboardView: View {
 
 // MARK: - Dashboard Components
 
-private struct WeekAtGlanceView: View {
+private struct DashboardSummaryClusterView: View {
     let events: [EventItem]
     let isNewUser: Bool
-    
-    private var thisWeekEvents: [EventItem] {
+    let onEventTapped: (EventItem) -> Void
+
+    private var insight: DashboardHeroInsight {
+        let now = Date()
+        let calendar = Calendar.current
+        let tomorrowStart = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now
+        let twoDaysFromNow = calendar.date(byAdding: .hour, value: 48, to: now) ?? now
+        let urgentEvents = events
+            .filter { $0.start >= now && $0.start <= twoDaysFromNow }
+            .sorted { $0.start < $1.start }
+
+        if isNewUser && events.isEmpty {
+            return DashboardHeroInsight(
+                eyebrow: "Quick Insights",
+                title: "Your dashboard is ready",
+                description: "Import a syllabus and your weekly summary will start surfacing deadlines, pacing, and course hotspots automatically.",
+                icon: "sparkles",
+                tint: AppColors.accent
+            )
+        }
+
+        if let firstUrgent = urgentEvents.first, firstUrgent.start < tomorrowStart {
+            return DashboardHeroInsight(
+                eyebrow: "Deadline Today",
+                title: firstUrgent.title,
+                description: "\(firstUrgent.courseCode) needs attention today. Open Reminders to review the details and stay ahead of the cutoff.",
+                icon: "exclamationmark.circle.fill",
+                tint: AppColors.eventExam
+            )
+        }
+
+        if urgentEvents.count >= 2, let nearest = urgentEvents.first {
+            return DashboardHeroInsight(
+                eyebrow: "Heavy Window",
+                title: "\(urgentEvents.count) items due soon",
+                description: "Your next pressure point is \(nearest.title) for \(nearest.courseCode). A quick head start today will smooth the rest of the week.",
+                icon: "hourglass",
+                tint: AppColors.warning
+            )
+        }
+
+        if let next = urgentEvents.first {
+            return DashboardHeroInsight(
+                eyebrow: "Deadline Tomorrow",
+                title: next.title,
+                description: "\(next.courseCode) is the next important item on deck. You still have time to finish it cleanly before it gets urgent.",
+                icon: "clock.badge.fill",
+                tint: AppColors.accentSecondary
+            )
+        }
+
+        return DashboardHeroInsight(
+            eyebrow: "Quick Insights",
+            title: "You have breathing room",
+            description: "Nothing urgent lands in the next 48 hours. This is a good moment to get ahead on readings, prep, or the next assignment block.",
+            icon: "leaf.fill",
+            tint: AppColors.success
+        )
+    }
+
+    private var weeklyStats: [DashboardWeeklyStat] {
         let calendar = Calendar.current
         let now = Date()
         let startOfWeek = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? now
         let endOfWeek = calendar.date(byAdding: .day, value: 7, to: startOfWeek) ?? now
-        
-        return events.filter { event in
-            // Only show upcoming events (not past ones), matching RemindersView behavior
-            event.start >= now && event.start < endOfWeek
-        }
-    }
-    
-    private var stats: [(icon: String, count: Int, label: String)] {
-        var assignments = 0
-        var labs = 0
-        var exams = 0
-        var quizzes = 0
-        var lectures = 0
-        var other = 0
-        
-        for event in thisWeekEvents {
-            switch event.type {
-            case .assignment: assignments += 1
-            case .lab: labs += 1
-            case .midterm, .final: exams += 1
-            case .quiz: quizzes += 1
-            case .lecture: lectures += 1
-            case .tutorial: other += 1
-            case .officeHours: other += 1
-            case .importantDate: other += 1
-            case .other: other += 1
-            }
-        }
-        
-        var result: [(icon: String, count: Int, label: String)] = []
-        if assignments > 0 { result.append(("doc.text.fill", assignments, assignments == 1 ? "Assignment due" : "Assignments due")) }
-        if labs > 0 { result.append(("flask.fill", labs, labs == 1 ? "Lab this week" : "Labs this week")) }
-        if exams > 0 { result.append(("graduationcap.fill", exams, exams == 1 ? "Exam approaching" : "Exams approaching")) }
-        if quizzes > 0 { result.append(("questionmark.circle.fill", quizzes, quizzes == 1 ? "Quiz this week" : "Quizzes this week")) }
-        if lectures > 0 { result.append(("person.3.fill", lectures, lectures == 1 ? "Lecture this week" : "Lectures this week")) }
-        if other > 0 { result.append(("calendar.badge.clock", other, other == 1 ? "Other event" : "Other events")) }
-        return result
-    }
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: Layout.Spacing.md) {
-            Text("This Week at a Glance")
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(AppColors.textPrimary)
-            
-            if stats.isEmpty {
-                // Empty State Card
-                VStack(spacing: Layout.Spacing.md) {
-                    Image(systemName: isNewUser ? "text.book.closed.fill" : "checkmark.circle.fill")
-                        .font(.lexend(size: 48, weight: .regular))
-                        .foregroundColor(AppColors.accent.opacity(0.8))
-                        .padding(.top, Layout.Spacing.lg)
-                    
-                    Text(isNewUser ? "Welcome to Syllabus Sync!" : "No events this week")
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .foregroundColor(AppColors.textPrimary)
-                    
-                    Text(isNewUser ? "It looks a little empty here. Start by adding your first course or assignment using the '+' button below!" : "You're clear for the week! Great time to study ahead.")
-                        .font(.body)
-                        .foregroundColor(AppColors.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, Layout.Spacing.lg)
-                        .padding(.bottom, Layout.Spacing.lg)
-                }
-                .frame(maxWidth: .infinity)
-                .background(AppColors.surface)
-                .cornerRadius(20)
-                
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Layout.Spacing.md) {
-                        ForEach(Array(stats.enumerated()), id: \.offset) { _, stat in
-                            GlanceStatCard(icon: stat.icon, count: stat.count, label: stat.label)
-                        }
-                    }
-                    .padding(.horizontal, 2)
-                    .padding(.vertical, 4)
-                }
-                .padding(.horizontal, -Layout.Spacing.md)
-                .padding(.leading, Layout.Spacing.md)
-            }
-        }
-    }
-}
+        let weekEvents = events.filter { $0.start >= now && $0.start < endOfWeek }
 
-private struct GlanceStatCard: View {
-    let icon: String
-    let count: Int
-    let label: String
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Icon container at top-left
-            Image(systemName: icon)
-                .font(.lexend(size: 22, weight: .medium))
-                .foregroundColor(AppColors.accent)
-                .frame(width: 44, height: 44)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(AppColors.accent.opacity(0.2))
-                )
-            
-            Spacer()
-            
-            // Count and Label at bottom
-            Text("\(count)")
-                .font(.lexend(size: 42, weight: .bold))
-                .foregroundColor(AppColors.textPrimary)
-            
-            Text(label)
-                .font(.subheadline)
-                .foregroundColor(AppColors.textSecondary)
-                .lineLimit(1)
+        let grouped = Dictionary(grouping: weekEvents, by: \.type)
+        return EventItem.EventType.allCases.compactMap { type in
+            guard let groupedEvents = grouped[type], !groupedEvents.isEmpty else { return nil }
+            return DashboardWeeklyStat(
+                icon: type.dashboardIcon,
+                count: groupedEvents.count,
+                label: type.dashboardLabel(count: groupedEvents.count),
+                tint: type.dashboardTint
+            )
         }
-        .frame(width: 150, height: 170, alignment: .topLeading)
-        .padding(16)
-        .background(AppColors.surface)
-        .cornerRadius(20)
     }
-}
 
-// MARK: - Upcoming Deadlines
-
-private struct UpcomingDeadlinesView: View {
-    let events: [EventItem]
-    let isNewUser: Bool
-    let onEventTapped: (EventItem) -> Void
-    
     private var upcomingEvents: [EventItem] {
         let now = Date()
         let weekFromNow = Calendar.current.date(byAdding: .day, value: 7, to: now) ?? now
-        
+
         return events
             .filter { $0.start >= now && $0.start <= weekFromNow }
             .sorted { $0.start < $1.start }
             .prefix(5)
             .map { $0 }
     }
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: Layout.Spacing.md) {
-            Text("Upcoming Deadlines")
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(AppColors.textPrimary)
-            
-            if upcomingEvents.isEmpty {
-                VStack(spacing: Layout.Spacing.md) {
-                    Image(systemName: isNewUser ? "calendar.badge.plus" : "calendar.badge.checkmark")
-                        .font(.lexend(size: 40, weight: .regular))
-                        .foregroundColor(AppColors.textSecondary)
-                        .padding(.top, Layout.Spacing.md)
-                    
-                    Text(isNewUser ? "No deadlines yet! Tap the '+' button to add your first task or event." : "No upcoming deadlines")
-                        .font(.body)
-                        .foregroundColor(AppColors.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, Layout.Spacing.lg)
-                        .padding(.bottom, Layout.Spacing.md)
-                }
-                .frame(maxWidth: .infinity)
-                .background(AppColors.surface)
-                .cornerRadius(20)
-            } else {
-                VStack(spacing: Layout.Spacing.sm) {
-                    ForEach(upcomingEvents) { event in
-                        DeadlineRow(event: event, onTap: { onEventTapped(event) })
-                    }
-                }
-            }
+        VStack(spacing: Layout.Spacing.md) {
+            DashboardHeroCard(insight: insight)
+
+            DashboardPriorityBoard(
+                weeklyStats: weeklyStats,
+                upcomingEvents: upcomingEvents,
+                isNewUser: isNewUser,
+                onEventTapped: onEventTapped
+            )
         }
     }
 }
 
-private struct DeadlineRow: View {
-    let event: EventItem
-    let onTap: () -> Void
-    
-    private var iconColor: Color {
-        switch event.type {
-        case .assignment: return Color.blue
-        case .lab: return Color.green
-        case .midterm, .final: return Color.red
-        case .quiz: return Color.orange
-        case .lecture: return Color.gray
-        case .tutorial: return Color.teal
-        case .officeHours: return Color.indigo
-        case .importantDate: return Color.orange
-        case .other: return Color.gray
-        }
+private struct DashboardHeaderPill: View {
+    struct Item: Identifiable {
+        let id = UUID()
+        let icon: String
+        let title: String
+        let value: String
     }
-    
-    private var icon: String {
-        switch event.type {
-        case .assignment: return "doc.text.fill"
-        case .lab: return "flask.fill"
-        case .midterm, .final: return "graduationcap.fill"
-        case .quiz: return "questionmark.circle.fill"
-        case .lecture: return "person.3.fill"
-        case .tutorial: return "person.2.fill"
-        case .officeHours: return "clock.fill"
-        case .importantDate: return "exclamationmark.triangle.fill"
-        case .other: return "calendar"
-        }
-    }
-    
-    private var formattedDate: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d, h:mm a"
-        return formatter.string(from: event.start)
-    }
-    
+
+    let item: Item
+
     var body: some View {
-        Button(action: {
-            HapticFeedbackManager.shared.lightImpact()
-            onTap()
-        }) {
-            HStack(spacing: Layout.Spacing.md) {
-                // Color-coded icon
-                Image(systemName: icon)
-                    .font(.lexend(size: 20, weight: .semibold))
-                    .foregroundColor(iconColor)
-                    .frame(width: 48, height: 48)
-                    .background(
-                        RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
-                            .fill(iconColor.opacity(0.2))
-                    )
-                
-                // Content
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(event.title)
-                        .font(.body)
-                        .fontWeight(.medium)
-                        .foregroundColor(AppColors.textPrimary)
-                        .lineLimit(1)
-                    
-                    Text(event.courseCode)
-                        .font(.caption)
-                        .foregroundColor(AppColors.textSecondary)
-                        .lineLimit(1)
-                }
-                
-                Spacer()
-                
-                // Date
-                Text(formattedDate)
+        HStack(spacing: Layout.Spacing.sm) {
+            Image(systemName: item.icon)
+                .font(.lexend(size: 13, weight: .semibold))
+                .foregroundStyle(AppColors.textPrimary)
+                .frame(width: 28, height: 28)
+                .background(AppColors.surface.opacity(0.8), in: Circle())
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.title)
                     .font(.caption)
-                    .foregroundColor(AppColors.textSecondary)
-            }
-            .padding(Layout.Spacing.sm)
-            .background(AppColors.surface)
-            .cornerRadius(Layout.CornerRadius.md)
-            .shadow(color: AppColors.shadow.opacity(0.06), radius: 4, x: 0, y: 2)
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-}
-
-// MARK: - Quick Insight Card
-
-private struct QuickInsightCardView: View {
-    let events: [EventItem]
-    let isNewUser: Bool
-    
-    private var insight: (title: String, description: String, icon: String, gradientColors: [Color]) {
-        if isNewUser && events.isEmpty {
-            return (
-                "Your personal study assistant",
-                "Once you add your courses and assignments, we'll provide smart insights to help you stay on track!",
-                "lightbulb.fill",
-                [AppColors.accent.opacity(0.3), AppColors.accent.opacity(0.1)]
-            )
-        }
-        
-        // Date logic fix: Check "Today" specifically
-        let now = Date()
-        let calendar = Calendar.current
-        
-        // Start of today
-        let startOfToday = calendar.startOfDay(for: now)
-        // End of today (start of tomorrow)
-        let startOfTomorrow = calendar.date(byAdding: .day, value: 1, to: startOfToday)!
-        // Use for 48 hour window
-        let twoDaysFromNow = calendar.date(byAdding: .day, value: 2, to: now)!
-        
-        let urgentEvents = events.filter { $0.start >= now && $0.start <= twoDaysFromNow }
-        let urgentCount = urgentEvents.count
-        
-        // Check for Deadline Today specifically
-        if let firstUrgent = urgentEvents.sorted(by: { $0.start < $1.start }).first,
-           firstUrgent.start < startOfTomorrow {
-             return (
-                "Deadline Today",
-                "Don't forget: \(firstUrgent.title) for \(firstUrgent.courseCode) is due today!",
-                "exclamationmark.circle.fill", // More urgent icon
-                 [Color.red.opacity(0.3), Color.red.opacity(0.1)] // Urgent color
-             )
-        }
-        
-        if urgentCount >= 2 {
-            let suggestedEvent = urgentEvents.sorted { $0.start > $1.start }.first
-            let suggestion = suggestedEvent.map { "Consider starting your \($0.title) for \($0.courseCode) today." } ?? ""
-            
-            return (
-                "Heavy Workload Ahead",
-                "You have \(urgentCount) deadlines in the next 48 hours. \(suggestion)",
-                "hourglass",
-                 [Color.orange.opacity(0.3), Color.orange.opacity(0.1)]
-            )
-        } else if urgentCount == 1, let next = urgentEvents.first {
-             // If we reached here, it's not today, so it must be tomorrow
-            return (
-                "Deadline Tomorrow",
-                "Don't forget: \(next.title) for \(next.courseCode) is due soon.",
-                 "clock.fill",
-                 [Color.yellow.opacity(0.3), Color.yellow.opacity(0.1)]
-            )
-        } else {
-            return (
-                "You're On Track! 🎉",
-                "No urgent deadlines in the next 48 hours. Great time to get ahead!",
-                 "hand.thumbsup.fill",
-                 [Color.green.opacity(0.3), Color.green.opacity(0.1)]
-            )
-        }
-    }
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: Layout.Spacing.md) {
-            Text("Quick Insights")
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(AppColors.textPrimary)
-            
-            HStack(alignment: .top, spacing: Layout.Spacing.md) {
-                // Dynamic icon
-                Image(systemName: insight.icon)
-                    .font(.lexend(size: 24, weight: .regular))
-                    .foregroundColor(.white)
-                    .frame(width: 48, height: 48)
-                    .background(
-                        RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
-                            // Use the primary color of the gradient for the icon bg, simplifed to accent for now or logic based
-                            .fill(AppColors.accent)
-                    )
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(insight.title)
-                        .font(.body)
-                        .fontWeight(.semibold)
-                        .foregroundColor(AppColors.textPrimary)
-                    
-                    Text(insight.description)
-                        .font(.subheadline)
-                        .foregroundColor(AppColors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(Layout.Spacing.md)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                LinearGradient(
-                    gradient: Gradient(colors: insight.gradientColors),
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .cornerRadius(Layout.CornerRadius.lg)
-            .shadow(color: AppColors.shadow.opacity(0.08), radius: 6, x: 0, y: 2)
-        }
-    }
-}
-
-// MARK: - Dashboard Header Summary (Legacy - kept for potential future use)
-
-private struct DashboardHeaderSummaryView: View {
-    let events: [EventItem]
-    
-    private var greeting: String {
-        let hour = Calendar.current.component(.hour, from: Date())
-        switch hour {
-        case 0..<12:
-            return "Good morning"
-        case 12..<17:
-            return "Good afternoon"
-        default:
-            return "Good evening"
-        }
-    }
-    
-    private var thisWeekEvents: [EventItem] {
-        let calendar = Calendar.current
-        let now = Date()
-        let startOfWeek = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? now
-        let endOfWeek = calendar.date(byAdding: .day, value: 7, to: startOfWeek) ?? now
-        
-        return events.filter { event in
-            event.start >= startOfWeek && event.start < endOfWeek
-        }
-    }
-    
-    private var eventCounts: (assignments: Int, labs: Int, exams: Int) {
-        var assignments = 0
-        var labs = 0
-        var exams = 0
-        
-        for event in thisWeekEvents {
-            switch event.type {
-            case .assignment:
-                assignments += 1
-            case .lab:
-                labs += 1
-            case .midterm, .final:
-                exams += 1
-            default:
-                break
+                    .foregroundStyle(AppColors.textSecondary)
+                Text(item.value)
+                    .font(.captionL)
+                    .foregroundStyle(AppColors.textPrimary)
             }
         }
-        
-        return (assignments, labs, exams)
-    }
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: Layout.Spacing.md) {
-            // Greeting
-            Text("\(greeting) 👋")
-                .font(.title2)
-                .fontWeight(.semibold)
-                .foregroundColor(AppColors.textPrimary)
-            
-            // Context
-            Text("Here's what your week looks like:")
-                .font(.body)
-                .foregroundColor(AppColors.textSecondary)
-            
-            // Stats Pills
-            HStack(spacing: Layout.Spacing.sm) {
-                let counts = eventCounts
-                if counts.assignments > 0 {
-                    StatPill(count: counts.assignments, label: counts.assignments == 1 ? "Assignment" : "Assignments", icon: "doc.text.fill")
-                }
-                if counts.labs > 0 {
-                    StatPill(count: counts.labs, label: counts.labs == 1 ? "Lab" : "Labs", icon: "flask.fill")
-                }
-                if counts.exams > 0 {
-                    StatPill(count: counts.exams, label: counts.exams == 1 ? "Exam" : "Exams", icon: "graduationcap.fill")
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct StatPill: View {
-    let count: Int
-    let label: String
-    let icon: String
-    
-    var body: some View {
-        HStack(spacing: Layout.Spacing.xs) {
-            Image(systemName: icon)
-                .font(.lexend(size: 12, weight: .semibold))
-            Text("\(count) \(label)")
-                .font(.caption)
-                .fontWeight(.medium)
-        }
-        .foregroundColor(AppColors.textPrimary)
         .padding(.horizontal, Layout.Spacing.sm)
-        .padding(.vertical, Layout.Spacing.xs)
+        .padding(.vertical, 10)
         .background(
-            RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                .fill(AppColors.surface)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(AppColors.surface.opacity(0.6))
                 .overlay(
-                    RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                        .stroke(AppColors.border, lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(AppColors.border.opacity(0.3), lineWidth: 1)
                 )
         )
     }
 }
 
-// MARK: - Week Carousel
+private struct DashboardHeroInsight {
+    let eyebrow: String
+    let title: String
+    let description: String
+    let icon: String
+    let tint: Color
+}
 
-private struct DashboardWeekCarouselView: View {
-    let events: [EventItem]
-    let onDayTapped: (Date) -> Void
-    
-    @State private var selectedDayIndex: Int = 0
-    
-    private var weekDays: [Date] {
-        let calendar = Calendar.current
-        let today = Date()
-        let startOfWeek = calendar.dateInterval(of: .weekOfYear, for: today)?.start ?? today
-        
-        return (0..<7).compactMap { offset in
-            calendar.date(byAdding: .day, value: offset, to: startOfWeek)
-        }
-    }
-    
+private struct DashboardHeroCard: View {
+    let insight: DashboardHeroInsight
+
     var body: some View {
         VStack(alignment: .leading, spacing: Layout.Spacing.md) {
-            Text("This Week's Schedule")
-                .font(.titleS)
-                .fontWeight(.semibold)
-                .foregroundColor(AppColors.textPrimary)
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Layout.Spacing.md) {
-                    ForEach(Array(weekDays.enumerated()), id: \.offset) { index, date in
-                        DayCard(
-                            date: date,
-                            events: eventsForDay(date),
-                            onTap: { onDayTapped(date) }
-                        )
-                    }
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
+                    Text(insight.eyebrow.uppercased())
+                        .font(.captionL)
+                        .foregroundStyle(insight.tint)
+
+                    Text(insight.title)
+                        .font(.lexend(size: 24, weight: .bold))
+                        .foregroundStyle(AppColors.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(insight.description)
+                        .font(.bodyS)
+                        .foregroundStyle(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.horizontal, 2) // Prevent shadow clipping
-                .padding(.vertical, 4)
+
+                Spacer(minLength: Layout.Spacing.md)
+
+                ZStack {
+                    Circle()
+                        .fill(insight.tint.opacity(0.18))
+                        .frame(width: 58, height: 58)
+
+                    Image(systemName: insight.icon)
+                        .font(.lexend(size: 24, weight: .semibold))
+                        .foregroundStyle(insight.tint)
+                }
             }
-            .padding(.horizontal, -Layout.Spacing.md) // Extend to edge
-            .padding(.leading, Layout.Spacing.md)
         }
-    }
-    
-    private func eventsForDay(_ date: Date) -> [EventItem] {
-        let calendar = Calendar.current
-        return events.filter { event in
-            calendar.isDate(event.start, inSameDayAs: date)
-        }.prefix(3).map { $0 }
+        .padding(Layout.Spacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(AppColors.surface)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(AppColors.border.opacity(0.42), lineWidth: 1)
+                }
+        )
+        .shadow(color: AppColors.shadow.opacity(0.09), radius: 16, x: 0, y: 10)
     }
 }
 
-private struct DayCard: View {
-    let date: Date
-    let events: [EventItem]
-    let onTap: () -> Void
-    
-    @State private var isPressed = false
-    
-    private var isToday: Bool {
-        Calendar.current.isDateInToday(date)
-    }
-    
-    private var dayName: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEE"
-        return formatter.string(from: date)
-    }
-    
-    private var dayNumber: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d"
-        return formatter.string(from: date)
-    }
-    
-    var body: some View {
-        Button(action: {
-            HapticFeedbackManager.shared.lightImpact()
-            onTap()
-        }) {
-            VStack(spacing: Layout.Spacing.sm) {
-                // Date Header
-                VStack(spacing: 2) {
-                    Text(dayName)
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundColor(isToday ? Color.white : AppColors.textSecondary)
-                    
-                    Text(dayNumber)
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .foregroundColor(isToday ? Color.white : AppColors.textPrimary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, Layout.Spacing.sm)
-                .background(
-                    isToday
-                        ? LinearGradient(
-                            gradient: Gradient(colors: [
-                                Color(red: 0.886, green: 0.714, blue: 0.275),
-                                Color(red: 0.816, green: 0.612, blue: 0.118)
-                            ]),
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                        : LinearGradient(
-                            gradient: Gradient(colors: [AppColors.surface, AppColors.surface]),
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                )
-                .cornerRadius(Layout.CornerRadius.md)
-                
-                // Events Preview
-                VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
-                    if events.isEmpty {
-                        Text("No events")
-                            .font(.caption2)
-                            .foregroundColor(AppColors.textSecondary)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.vertical, Layout.Spacing.sm)
-                    } else {
-                        ForEach(events.prefix(3)) { event in
-                            HStack(spacing: 4) {
-                                Circle()
-                                    .fill(colorForEventType(event.type))
-                                    .frame(width: 6, height: 6)
-                                
-                                Text(event.title)
-                                    .font(.caption2)
-                                    .lineLimit(1)
-                                    .foregroundColor(AppColors.textPrimary)
-                            }
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, Layout.Spacing.sm)
-                .padding(.bottom, Layout.Spacing.sm)
-            }
-            .frame(width: 120)
-            .background(AppColors.surface)
-            .cornerRadius(Layout.CornerRadius.lg)
-            .overlay(
-                RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                    .stroke(isToday ? AppColors.accent.opacity(0.3) : AppColors.border, lineWidth: isToday ? 2 : 1)
-            )
-            .shadow(color: AppColors.shadow.opacity(0.08), radius: 8, x: 0, y: 4)
-        }
-        .buttonStyle(PlainButtonStyle())
-        .scaleEffect(isPressed ? 0.95 : 1.0)
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
-        .onLongPressGesture(minimumDuration: 0.0, maximumDistance: .infinity, pressing: { pressing in
-            isPressed = pressing
-        }, perform: {})
-    }
-    
-    private func colorForEventType(_ type: EventItem.EventType) -> Color {
-        switch type {
-        case .assignment:
-            return Color.blue
-        case .lab:
-            return Color.purple
-        case .midterm, .final:
-            return Color.red
-        case .quiz:
-            return Color.orange
-        case .lecture:
-            return Color.green
-        case .tutorial:
-            return Color.teal
-        case .officeHours:
-            return Color.indigo
-        case .importantDate:
-            return Color.orange
-        case .other:
-            return Color.gray
-        }
-    }
-}
-
-// MARK: - Upcoming Highlights
-
-private struct DashboardHighlightsView: View {
-    let events: [EventItem]
+private struct DashboardPriorityBoard: View {
+    let weeklyStats: [DashboardWeeklyStat]
+    let upcomingEvents: [EventItem]
+    let isNewUser: Bool
     let onEventTapped: (EventItem) -> Void
-    
-    private var upcomingEvents: [EventItem] {
-        let now = Date()
-        let weekFromNow = Calendar.current.date(byAdding: .day, value: 7, to: now) ?? now
-        
-        return events
-            .filter { $0.start >= now && $0.start <= weekFromNow }
-            .sorted { $0.start < $1.start }
-            .prefix(5)
-            .map { $0 }
+
+    private var primaryEvent: EventItem? {
+        upcomingEvents.first
     }
-    
+
+    private var secondaryEvents: [EventItem] {
+        Array(upcomingEvents.dropFirst())
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Layout.Spacing.md) {
-            Text("Upcoming Highlights")
-                .font(.titleS)
-                .fontWeight(.semibold)
-                .foregroundColor(AppColors.textPrimary)
-            
-            if upcomingEvents.isEmpty {
-                Text("No upcoming events in the next 7 days")
-                    .font(.body)
-                    .foregroundColor(AppColors.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, Layout.Spacing.xl)
-            } else {
-                VStack(spacing: Layout.Spacing.sm) {
-                    ForEach(upcomingEvents) { event in
-                        HighlightCard(event: event, onTap: { onEventTapped(event) })
-                    }
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Focus This Week")
+                        .font(.titleS)
+                        .foregroundStyle(AppColors.textPrimary)
+                    Text("Deadlines first, then the overall pace of the week.")
+                        .font(.captionL)
+                        .foregroundStyle(AppColors.textSecondary)
                 }
+
+                Spacer()
+            }
+
+            if let primaryEvent {
+                DashboardPrimaryDeadlineCard(event: primaryEvent, onTap: {
+                    onEventTapped(primaryEvent)
+                })
+            } else {
+                DashboardNoDeadlineCard(isNewUser: isNewUser)
+            }
+
+            DashboardWeeklySnapshotCard(stats: weeklyStats, isNewUser: isNewUser)
+
+            if !secondaryEvents.isEmpty {
+                DashboardSecondaryDeadlinesCard(events: secondaryEvents, onEventTapped: onEventTapped)
             }
         }
     }
 }
 
-private struct HighlightCard: View {
+private struct DashboardPrimaryDeadlineCard: View {
     let event: EventItem
     let onTap: () -> Void
-    
-    @State private var isPressed = false
-    
-    private var daysUntil: String {
+
+    private var relativeText: String {
         let calendar = Calendar.current
-        let now = Date()
-        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: event.start)).day ?? 0
-        
-        if days == 0 {
-            return "today"
-        } else if days == 1 {
-            return "tomorrow"
-        } else {
-            return "in \(days) days"
+        let dayDifference = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: Date()),
+            to: calendar.startOfDay(for: event.start)
+        ).day ?? 0
+
+        switch dayDifference {
+        case ..<0:
+            return "Past due"
+        case 0:
+            return "Due today"
+        case 1:
+            return "Due tomorrow"
+        default:
+            return "In \(dayDifference) days"
         }
     }
-    
-    private var icon: String {
-        switch event.type {
+
+    private var dateText: String {
+        event.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+    }
+
+    private var timeText: String {
+        event.start.formatted(.dateTime.hour().minute())
+    }
+
+    var body: some View {
+        Button {
+            HapticFeedbackManager.shared.lightImpact()
+            onTap()
+        } label: {
+            VStack(alignment: .leading, spacing: Layout.Spacing.md) {
+                HStack {
+                    Label("Upcoming Deadline", systemImage: "sparkles")
+                        .font(.captionL)
+                        .foregroundStyle(AppColors.textSecondary)
+
+                    Spacer()
+
+                    Text(relativeText)
+                        .font(.captionL)
+                        .foregroundStyle(event.type.dashboardTint)
+                        .padding(.horizontal, Layout.Spacing.sm)
+                        .padding(.vertical, Layout.Spacing.xs)
+                        .background(event.type.dashboardTint.opacity(0.12), in: Capsule())
+                }
+
+                HStack(alignment: .top, spacing: Layout.Spacing.md) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(event.title)
+                            .font(.titleS)
+                            .foregroundStyle(AppColors.textPrimary)
+                            .multilineTextAlignment(.leading)
+
+                        Text(event.courseCode)
+                            .font(.bodyS)
+                            .foregroundStyle(AppColors.textSecondary)
+
+                        HStack(spacing: Layout.Spacing.sm) {
+                            DashboardMetaBadge(icon: "calendar", text: dateText)
+                            DashboardMetaBadge(icon: "clock", text: timeText)
+                        }
+                    }
+
+                    Spacer(minLength: Layout.Spacing.sm)
+
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(event.type.dashboardTint.opacity(0.14))
+                            .frame(width: 58, height: 58)
+
+                        Image(systemName: event.type.dashboardIcon)
+                            .font(.lexend(size: 24, weight: .semibold))
+                            .foregroundStyle(event.type.dashboardTint)
+                    }
+                }
+            }
+            .padding(Layout.Spacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .fill(AppColors.surface)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 26, style: .continuous)
+                            .stroke(AppColors.border.opacity(0.4), lineWidth: 1)
+                    }
+            )
+            .shadow(color: AppColors.shadow.opacity(0.08), radius: 12, x: 0, y: 8)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct DashboardWeeklySnapshotCard: View {
+    let stats: [DashboardWeeklyStat]
+    let isNewUser: Bool
+
+    private let compactColumns = [
+        GridItem(.flexible(), spacing: Layout.Spacing.sm),
+        GridItem(.flexible(), spacing: Layout.Spacing.sm)
+    ]
+
+    private var totalCount: Int {
+        stats.reduce(0) { $0 + $1.count }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.md) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("This Week at a Glance")
+                        .font(.titleS)
+                        .foregroundStyle(AppColors.textPrimary)
+                    Text(stats.isEmpty ? "Your weekly load will appear here." : "\(totalCount) item\(totalCount == 1 ? "" : "s") mapped across the week.")
+                        .font(.captionL)
+                        .foregroundStyle(AppColors.textSecondary)
+                }
+
+                Spacer()
+            }
+
+            if stats.isEmpty {
+                DashboardEmptySnapshotCard(
+                    icon: isNewUser ? "text.book.closed.fill" : "checkmark.circle.fill",
+                    title: isNewUser ? "Nothing imported yet" : "Your week is quiet",
+                    message: isNewUser
+                        ? "Import a syllabus and the dashboard will start surfacing upcoming work automatically."
+                        : "No tasks are queued for the rest of this week. Use the space to get ahead while the pressure is low."
+                )
+            } else if stats.count == 1, let stat = stats.first {
+                DashboardSingleWeeklyMetricCard(stat: stat)
+            } else if stats.count <= 4 {
+                LazyVGrid(columns: compactColumns, spacing: Layout.Spacing.sm) {
+                    ForEach(stats) { stat in
+                        DashboardWeeklyMetricCard(stat: stat)
+                    }
+                }
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Layout.Spacing.sm) {
+                        ForEach(stats) { stat in
+                            DashboardWeeklyMetricCard(stat: stat)
+                                .frame(width: 168)
+                        }
+                    }
+                    .padding(.horizontal, 1)
+                }
+                .scrollIndicators(.hidden)
+            }
+        }
+        .padding(Layout.Spacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(AppColors.surface)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(AppColors.border.opacity(0.38), lineWidth: 1)
+                }
+        )
+    }
+}
+
+private struct DashboardSecondaryDeadlinesCard: View {
+    let events: [EventItem]
+    let onEventTapped: (EventItem) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
+            HStack {
+                Text("Also Coming Up")
+                    .font(.titleS)
+                    .foregroundStyle(AppColors.textPrimary)
+                Spacer()
+                Text("\(events.count)")
+                    .font(.captionL)
+                    .foregroundStyle(AppColors.textSecondary)
+            }
+
+            ForEach(events) { event in
+                DashboardDeadlineRow(event: event, onTap: {
+                    onEventTapped(event)
+                })
+            }
+        }
+        .padding(Layout.Spacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(AppColors.surface)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(AppColors.border.opacity(0.38), lineWidth: 1)
+                }
+        )
+    }
+}
+
+private struct DashboardNoDeadlineCard: View {
+    let isNewUser: Bool
+
+    var body: some View {
+        HStack(spacing: Layout.Spacing.md) {
+            ZStack {
+                Circle()
+                    .fill(AppColors.accent.opacity(0.14))
+                    .frame(width: 52, height: 52)
+
+                Image(systemName: isNewUser ? "calendar.badge.plus" : "checkmark.circle.fill")
+                    .font(.lexend(size: 22, weight: .semibold))
+                    .foregroundStyle(AppColors.accent)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(isNewUser ? "No deadlines yet" : "No urgent deadlines")
+                    .font(.titleS)
+                    .foregroundStyle(AppColors.textPrimary)
+                Text(isNewUser ? "Start by importing a syllabus and the dashboard will build your focus list." : "Nothing upcoming in the next seven days. You can use this space to plan ahead.")
+                    .font(.bodyS)
+                    .foregroundStyle(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+        }
+        .padding(Layout.Spacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(AppColors.surface)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(AppColors.border.opacity(0.38), lineWidth: 1)
+                }
+        )
+    }
+}
+
+private struct DashboardWeeklyStat: Identifiable {
+    let id = UUID()
+    let icon: String
+    let count: Int
+    let label: String
+    let tint: Color
+}
+
+private struct DashboardWeeklyMetricCard: View {
+    let stat: DashboardWeeklyStat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
+            HStack {
+                Image(systemName: stat.icon)
+                    .font(.lexend(size: 16, weight: .semibold))
+                    .foregroundStyle(stat.tint)
+                    .frame(width: 34, height: 34)
+                    .background(stat.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                Spacer()
+
+                Text("\(stat.count)")
+                    .font(.lexend(size: 28, weight: .bold))
+                    .foregroundStyle(AppColors.textPrimary)
+            }
+
+            Text(stat.label)
+                .font(.bodyS)
+                .foregroundStyle(AppColors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(Layout.Spacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(AppColors.surfaceSecondary.opacity(0.58))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(stat.tint.opacity(0.18), lineWidth: 1)
+                }
+        )
+    }
+}
+
+private struct DashboardSingleWeeklyMetricCard: View {
+    let stat: DashboardWeeklyStat
+
+    var body: some View {
+        HStack(spacing: Layout.Spacing.md) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(stat.tint.opacity(0.14))
+                    .frame(width: 54, height: 54)
+
+                Image(systemName: stat.icon)
+                    .font(.lexend(size: 22, weight: .semibold))
+                    .foregroundStyle(stat.tint)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(stat.count) \(stat.label)")
+                    .font(.titleS)
+                    .foregroundStyle(AppColors.textPrimary)
+                Text("Your weekly load is concentrated in one category, so the dashboard keeps the rest of the space focused on deadlines.")
+                    .font(.bodyS)
+                    .foregroundStyle(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+        }
+        .padding(Layout.Spacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(AppColors.surfaceSecondary.opacity(0.58))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(stat.tint.opacity(0.18), lineWidth: 1)
+                }
+        )
+    }
+}
+
+private struct DashboardEmptySnapshotCard: View {
+    let icon: String
+    let title: String
+    let message: String
+
+    var body: some View {
+        HStack(spacing: Layout.Spacing.md) {
+            ZStack {
+                Circle()
+                    .fill(AppColors.accent.opacity(0.12))
+                    .frame(width: 48, height: 48)
+
+                Image(systemName: icon)
+                    .font(.lexend(size: 20, weight: .medium))
+                    .foregroundStyle(AppColors.accent)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.body)
+                    .foregroundStyle(AppColors.textPrimary)
+                Text(message)
+                    .font(.bodyS)
+                    .foregroundStyle(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+        }
+        .padding(Layout.Spacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(AppColors.surfaceSecondary.opacity(0.58))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(AppColors.border.opacity(0.3), lineWidth: 1)
+                }
+        )
+    }
+}
+
+private struct DashboardDeadlineRow: View {
+    let event: EventItem
+    let onTap: () -> Void
+
+    private var dayStamp: String {
+        let calendar = Calendar.current
+        let dayDifference = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: Date()),
+            to: calendar.startOfDay(for: event.start)
+        ).day ?? 0
+
+        switch dayDifference {
+        case ..<0:
+            return "Past due"
+        case 0:
+            return "Today"
+        case 1:
+            return "Tomorrow"
+        default:
+            return event.start.formatted(.dateTime.weekday(.abbreviated))
+        }
+    }
+
+    private var timeStamp: String {
+        event.start.formatted(.dateTime.hour().minute())
+    }
+
+    var body: some View {
+        Button {
+            HapticFeedbackManager.shared.lightImpact()
+            onTap()
+        } label: {
+            HStack(spacing: Layout.Spacing.md) {
+                Image(systemName: event.type.dashboardIcon)
+                    .font(.lexend(size: 16, weight: .semibold))
+                    .foregroundStyle(event.type.dashboardTint)
+                    .frame(width: 38, height: 38)
+                    .background(event.type.dashboardTint.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(event.title)
+                        .font(.body)
+                        .foregroundStyle(AppColors.textPrimary)
+                        .lineLimit(1)
+                    Text("\(event.courseCode) • \(timeStamp)")
+                        .font(.captionL)
+                        .foregroundStyle(AppColors.textSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Text(dayStamp)
+                    .font(.captionL)
+                    .foregroundStyle(event.type.dashboardTint)
+                    .padding(.horizontal, Layout.Spacing.sm)
+                    .padding(.vertical, Layout.Spacing.xs)
+                    .background(event.type.dashboardTint.opacity(0.12), in: Capsule())
+            }
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct DashboardMetaBadge: View {
+    let icon: String
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.caption)
+            Text(text)
+                .font(.caption)
+        }
+        .foregroundStyle(AppColors.textSecondary)
+        .padding(.horizontal, Layout.Spacing.sm)
+        .padding(.vertical, Layout.Spacing.xs)
+        .background(AppColors.surfaceSecondary.opacity(0.7), in: Capsule())
+    }
+}
+
+private struct MyCoursesSection: View {
+    let courses: [Course]
+    let events: [EventItem]
+    let onCourseTapped: (Course) -> Void
+
+    private var totalEventCount: Int {
+        events.count
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.md) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("My Courses")
+                        .font(.titleS)
+                        .foregroundStyle(AppColors.textPrimary)
+                    Text(courses.isEmpty ? "Import a syllabus to start building your course spaces." : "\(courses.count) course\(courses.count == 1 ? "" : "s") connected to \(totalEventCount) upcoming item\(totalEventCount == 1 ? "" : "s").")
+                        .font(.captionL)
+                        .foregroundStyle(AppColors.textSecondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "books.vertical.fill")
+                    .font(.lexend(size: 18, weight: .medium))
+                    .foregroundStyle(AppColors.accent)
+                    .frame(width: 38, height: 38)
+                    .background(AppColors.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+
+            if courses.isEmpty {
+                DashboardEmptySnapshotCard(
+                    icon: "book.closed",
+                    title: "No course spaces yet",
+                    message: "Once your syllabus is imported, this rail becomes a quick jump point into each course view."
+                )
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Layout.Spacing.sm) {
+                        ForEach(courses) { course in
+                            CourseChipView(
+                                course: course,
+                                eventCount: events.filter { $0.courseCode == course.code }.count,
+                                onTap: { onCourseTapped(course) }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 1)
+                }
+                .scrollIndicators(.hidden)
+            }
+        }
+        .padding(Layout.Spacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(AppColors.surface)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(AppColors.border.opacity(0.38), lineWidth: 1)
+                }
+        )
+    }
+}
+
+private extension EventItem.EventType {
+    var dashboardTint: Color {
+        switch self {
+        case .assignment:
+            return AppColors.eventAssignment
+        case .quiz:
+            return AppColors.eventQuiz
+        case .midterm, .final:
+            return AppColors.eventExam
+        case .lab:
+            return AppColors.eventLab
+        case .lecture:
+            return AppColors.eventLecture
+        case .tutorial:
+            return AppColors.info
+        case .officeHours:
+            return AppColors.accentSecondary
+        case .importantDate:
+            return AppColors.warning
+        case .other:
+            return AppColors.accent
+        }
+    }
+
+    var dashboardIcon: String {
+        switch self {
         case .assignment:
             return "doc.text.fill"
-        case .lab:
-            return "flask.fill"
-        case .midterm, .final:
-            return "graduationcap.fill"
         case .quiz:
             return "questionmark.circle.fill"
+        case .midterm, .final:
+            return "graduationcap.fill"
+        case .lab:
+            return "flask.fill"
         case .lecture:
-            return "person.fill"
+            return "person.3.fill"
         case .tutorial:
             return "person.2.fill"
         case .officeHours:
@@ -1011,201 +1113,61 @@ private struct HighlightCard: View {
             return "calendar"
         }
     }
-    
-    var body: some View {
-        Button(action: {
-            HapticFeedbackManager.shared.lightImpact()
-            onTap()
-        }) {
-            HStack(spacing: Layout.Spacing.md) {
-                // Icon
-                Image(systemName: icon)
-                    .font(.lexend(size: 20, weight: .semibold))
-                    .foregroundColor(AppColors.accent)
-                    .frame(width: 40, height: 40)
-                    .background(
-                        Circle()
-                            .fill(AppColors.accent.opacity(0.1))
-                    )
-                
-                // Content
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(event.title)
-                        .font(.body)
-                        .fontWeight(.medium)
-                        .foregroundColor(AppColors.textPrimary)
-                        .lineLimit(1)
-                    
-                    HStack(spacing: Layout.Spacing.xs) {
-                        Text(event.courseCode)
-                            .font(.caption)
-                            .foregroundColor(AppColors.textSecondary)
-                        
-                        Text("•")
-                            .font(.caption)
-                            .foregroundColor(AppColors.textSecondary)
-                        
-                        Text(daysUntil)
-                            .font(.caption)
-                            .foregroundColor(AppColors.accent)
-                            .fontWeight(.medium)
-                    }
-                }
-                
-                Spacer()
-                
-                // Chevron
-                Image(systemName: "chevron.right")
-                    .font(.lexend(size: 14, weight: .semibold))
-                    .foregroundColor(AppColors.textSecondary)
-            }
-            .padding(Layout.Spacing.md)
-            .background(AppColors.surface)
-            .cornerRadius(Layout.CornerRadius.lg)
-            .overlay(
-                RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                    .stroke(AppColors.border, lineWidth: 1)
-            )
-        }
-        .buttonStyle(PlainButtonStyle())
-        .scaleEffect(isPressed ? 0.98 : 1.0)
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
-        .onLongPressGesture(minimumDuration: 0.0, maximumDistance: .infinity, pressing: { pressing in
-            isPressed = pressing
-        }, perform: {})
-    }
-}
 
-// MARK: - Insights
-
-private struct DashboardInsightsView: View {
-    let events: [EventItem]
-    
-    private var thisWeekEvents: [EventItem] {
-        let calendar = Calendar.current
-        let now = Date()
-        let startOfWeek = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? now
-        let endOfWeek = calendar.date(byAdding: .day, value: 7, to: startOfWeek) ?? now
-        
-        return events.filter { event in
-            event.start >= startOfWeek && event.start < endOfWeek
-        }
-    }
-    
-    private var todayEvents: [EventItem] {
-        events.filter { Calendar.current.isDateInToday($0.start) }
-    }
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: Layout.Spacing.md) {
-            Text("Insights")
-                .font(.titleS)
-                .fontWeight(.semibold)
-                .foregroundColor(AppColors.textPrimary)
-            
-            VStack(spacing: Layout.Spacing.sm) {
-                // Week overview insight - only show if there are events this week
-                if !thisWeekEvents.isEmpty {
-                    let count = thisWeekEvents.count
-                    InsightCard(
-                        icon: "calendar.badge.clock",
-                        text: "You have \(count) event\(count == 1 ? "" : "s") scheduled this week",
-                        accentColor: Color.purple
-                    )
-                }
-                
-                // Today insight
-                if todayEvents.isEmpty {
-                    InsightCard(
-                        icon: "checkmark.circle.fill",
-                        text: "No due items for today 🎉",
-                        accentColor: Color.blue
-                    )
-                } else {
-                    InsightCard(
-                        icon: "clock.fill",
-                        text: "You have \(todayEvents.count) event\(todayEvents.count == 1 ? "" : "s") due today",
-                        accentColor: Color.orange
-                    )
-                }
-            }
+    func dashboardLabel(count: Int) -> String {
+        switch self {
+        case .assignment:
+            return count == 1 ? "assignment due" : "assignments due"
+        case .quiz:
+            return count == 1 ? "quiz scheduled" : "quizzes scheduled"
+        case .midterm, .final:
+            return count == 1 ? "exam approaching" : "exams approaching"
+        case .lab:
+            return count == 1 ? "lab block" : "lab blocks"
+        case .lecture:
+            return count == 1 ? "lecture" : "lectures"
+        case .tutorial:
+            return count == 1 ? "tutorial" : "tutorials"
+        case .officeHours:
+            return count == 1 ? "office hour" : "office hours"
+        case .importantDate:
+            return count == 1 ? "important date" : "important dates"
+        case .other:
+            return count == 1 ? "other item" : "other items"
         }
     }
 }
 
-private struct InsightCard: View {
-    let icon: String
-    let text: String
-    let accentColor: Color
-    
-    var body: some View {
-        HStack(spacing: Layout.Spacing.md) {
-            Image(systemName: icon)
-                .font(.lexend(size: 18, weight: .semibold))
-                .foregroundColor(accentColor)
-                .frame(width: 36, height: 36)
-                .background(
-                    Circle()
-                        .fill(accentColor.opacity(0.1))
-                )
-            
-            Text(text)
-                .font(.body)
-                .foregroundColor(AppColors.textPrimary)
-                .lineLimit(2)
-            
-            Spacer()
-        }
-        .padding(Layout.Spacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                .fill(AppColors.surface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                        .stroke(AppColors.border, lineWidth: 1)
-                )
-        )
-    }
-}
-
-// MARK: - Event List (Deprecated - moved to Reminders tab)
-
-
-// MARK: - Dashboard Shimmer
+// MARK: - Shared Shimmer
 
 struct DashboardShimmerView: View {
-    @State private var animateShimmer = false
-    
     var body: some View {
         VStack(spacing: Layout.Spacing.xl) {
-            // Header Section
             VStack(spacing: Layout.Spacing.lg) {
                 HStack {
                     Text("Refreshing...")
                         .font(.titleM)
-                        .fontWeight(.semibold)
-                        .foregroundColor(AppColors.textSecondary)
-                    
+                        .foregroundStyle(AppColors.textSecondary)
+
                     Spacer()
-                    
+
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle(tint: AppColors.accent))
                         .scaleEffect(0.8)
                 }
-                
+
                 Rectangle()
                     .fill(AppColors.separator)
                     .frame(height: 1)
             }
             .padding(.top, Layout.Spacing.lg)
-            
-            // Content Shimmer
+
             VStack(spacing: Layout.Spacing.lg) {
                 ForEach(0..<3, id: \.self) { _ in
                     ShimmerCard()
                 }
             }
-            
+
             Spacer()
         }
         .padding(.horizontal, Layout.Spacing.md)
@@ -1213,25 +1175,23 @@ struct DashboardShimmerView: View {
 }
 
 struct ShimmerCard: View {
-    @State private var animateGradient = false
-    
     var body: some View {
         VStack(alignment: .leading, spacing: Layout.Spacing.md) {
             HStack {
                 ShimmerRectangle(width: 60, height: 60)
-                    .clipShape(RoundedRectangle(cornerRadius: Layout.CornerRadius.sm))
-                
+                    .clipShape(.rect(cornerRadius: Layout.CornerRadius.sm))
+
                 VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
                     ShimmerRectangle(width: 120, height: 16)
                     ShimmerRectangle(width: 80, height: 14)
                 }
-                
+
                 Spacer()
-                
+
                 ShimmerRectangle(width: 30, height: 30)
                     .clipShape(Circle())
             }
-            
+
             VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
                 ShimmerRectangle(width: .infinity, height: 12)
                 ShimmerRectangle(width: 200, height: 12)
@@ -1239,11 +1199,11 @@ struct ShimmerCard: View {
         }
         .padding(Layout.Spacing.md)
         .background(AppColors.surface)
-        .cornerRadius(Layout.CornerRadius.md)
-        .overlay(
+        .clipShape(.rect(cornerRadius: Layout.CornerRadius.md))
+        .overlay {
             RoundedRectangle(cornerRadius: Layout.CornerRadius.md)
                 .stroke(AppColors.border, lineWidth: 1)
-        )
+        }
         .cardShadowLight()
     }
 }
@@ -1252,12 +1212,7 @@ struct ShimmerRectangle: View {
     let width: CGFloat?
     let height: CGFloat
     @State private var animateGradient = false
-    
-    init(width: CGFloat?, height: CGFloat) {
-        self.width = width
-        self.height = height
-    }
-    
+
     var body: some View {
         Rectangle()
             .fill(
@@ -1272,66 +1227,12 @@ struct ShimmerRectangle: View {
                 )
             )
             .frame(width: width, height: height)
-            .cornerRadius(Layout.CornerRadius.xs)
+            .clipShape(.rect(cornerRadius: Layout.CornerRadius.xs))
             .onAppear {
                 withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
                     animateGradient.toggle()
                 }
             }
-    }
-}
-
-
-// MARK: - My Courses Section
-
-private struct MyCoursesSection: View {
-    let courses: [Course]
-    let events: [EventItem]
-    let onCourseTapped: (Course) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
-            HStack(spacing: Layout.Spacing.xs) {
-                Text("My Courses")
-                    .font(.headline)
-                    .foregroundStyle(AppColors.textPrimary)
-
-                if !courses.isEmpty {
-                    Text("(\(courses.count))")
-                        .font(.subheadline)
-                        .foregroundStyle(AppColors.textTertiary)
-                }
-
-                Spacer()
-            }
-
-            if courses.isEmpty {
-                HStack(spacing: Layout.Spacing.sm) {
-                    Image(systemName: "book.closed")
-                        .font(.subheadline)
-                        .foregroundStyle(AppColors.textTertiary)
-                    Text("Import a syllabus to add courses")
-                        .font(.subheadline)
-                        .foregroundStyle(AppColors.textTertiary)
-                }
-                .padding(.vertical, Layout.Spacing.xs)
-            } else {
-                ScrollView(.horizontal) {
-                    HStack(spacing: Layout.Spacing.sm) {
-                        ForEach(courses) { course in
-                            CourseChipView(
-                                course: course,
-                                eventCount: events.filter { $0.courseCode == course.code }.count,
-                                onTap: { onCourseTapped(course) }
-                            )
-                        }
-                    }
-                    .padding(.horizontal, 1)
-                    .padding(.vertical, 2)
-                }
-                .scrollIndicators(.hidden)
-            }
-        }
     }
 }
 

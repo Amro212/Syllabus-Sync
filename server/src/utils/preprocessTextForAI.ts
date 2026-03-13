@@ -75,7 +75,7 @@ const CONTENT_SECTION_PATTERNS: RegExp[] = [
 	/\bimportant\s+dates\b/i,
 	/\bevaluation\s+(scheme|breakdown|criteria)\b/i,
 	/\bgrading\s+(scheme|breakdown)\b/i,
-	/\bassessment\s+(schedule|breakdown|overview)\b/i,
+	/\bassessment\s+(schedule|breakdown|overview|details?)\b/i,
 	/\bdeliver(?:able|y)\b/i,
 	/\bdue\s+dates?\b/i,
 	/\bcourse\s+schedule\b/i,
@@ -106,7 +106,7 @@ function looksLikeHeading(line: string): boolean {
 		if (upperCount / alphaChars.length > 0.8) return true;
 	}
 	// Very short line (likely a title)
-	if (trimmed.length <= 60 && /^[\w\s&/,()-]+$/.test(trimmed)) return true;
+	if (trimmed.length <= 60 && /^[\w\s&/,().*-]+$/.test(trimmed)) return true;
 	return false;
 }
 
@@ -129,7 +129,7 @@ export function preprocessTextForAI(text: string): string {
 
 	return text
 		.split(/\r?\n/)
-		.map((line) => {
+		.map((line): string | null => {
 			// Check for section transitions on heading-like lines
 			if (looksLikeHeading(line)) {
 				const kind = classifyHeading(line);
@@ -143,16 +143,23 @@ export function preprocessTextForAI(text: string): string {
 
 			return processLine(line, inBoilerplate);
 		})
+		// Strip lines that belong to boilerplate sections entirely.
+		// This prevents gpt-4o-mini from losing focus on long documents filled
+		// with policy text (academic integrity, accessibility, etc.) that never
+		// contains dates or deliverables.
+		.filter((line): line is string => line !== null)
 		.join('\n');
 }
 
-function processLine(line: string, suppressTags: boolean): string {
-	if (!line) {
-		return line;
+function processLine(line: string, suppressTags: boolean): string | null {
+	// When inside a boilerplate section, strip the line from AI input entirely.
+	// Policy / legal text never contains event dates and only inflates the
+	// context window, causing the model to miss real schedule information.
+	if (suppressTags) {
+		return null;
 	}
 
-	// When inside a boilerplate section, skip tagging
-	if (suppressTags) {
+	if (!line) {
 		return line;
 	}
 

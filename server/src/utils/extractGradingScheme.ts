@@ -39,6 +39,8 @@ const GRADING_SECTION_RX: RegExp[] = [
 	/\bmarks?\s+(distribution|breakdown|allocation)\b/i,
 	/\bweighting\s+of\s+(grades?|marks?|components?)\b/i,
 	/\bassessments?\s+and\s+grad/i,
+	/\bmarking\s+schemes?\b/i,
+	/\bassessment\s+details?\b/i,
 ];
 
 /** Headings that clearly end the grading section. */
@@ -107,7 +109,7 @@ function isBlacklistedName(name: string): boolean {
  * Separator can be punctuation OR 2+ spaces.
  */
 const WEIGHT_LINE_RX =
-	/^[-*•|>\s]*(?<name>[A-Za-z][A-Za-z0-9 /&,()':.+-]{1,60}?)\s*(?:[|:.…–—\-\t]+\s*|\s{2,})(?<pct>\d{1,3})\s*%/;
+	/^[-*•|>\s]*(?<name>[A-Za-z][A-Za-z0-9 /&,()':.+*-]{1,60}?)\s*(?:[|:.…–—\-\t]+\s*|\s{2,})(?<pct>\d{1,3})\s*%/;
 
 /**
  * Fallback: percentage appears after name with colon/parenthesis.
@@ -116,13 +118,13 @@ const WEIGHT_LINE_RX =
  *   "- Labs: 25%"
  */
 const WEIGHT_INLINE_RX =
-	/^[-*•|>\s]*(?<name>[A-Za-z][A-Za-z0-9 /&,()':.+-]{1,60}?)\s*[:(]\s*(?<pct>\d{1,3})\s*%/;
+	/^[-*•|>\s]*(?<name>[A-Za-z][A-Za-z0-9 /&,()':.+*-]{1,60}?)\s*[:(]\s*(?<pct>\d{1,3})\s*%/;
 
 /**
  * Reverse pattern: "30% — Assignments" or "30% Final Exam"
  */
 const WEIGHT_REVERSE_RX =
-	/^[-*•|>\s]*(?<pct>\d{1,3})\s*%\s*[—\-–:|\s]+\s*(?<name>[A-Za-z][A-Za-z0-9 /&,()':.+-]{1,60})/;
+	/^[-*•|>\s]*(?<pct>\d{1,3})\s*%\s*[—\-–:|\s]+\s*(?<name>[A-Za-z][A-Za-z0-9 /&,()':.+*-]{1,60})/;
 
 // ── Type inference ──────────────────────────────────────────────
 
@@ -155,7 +157,7 @@ function looksLikeHeading(line: string): boolean {
 		const upper = (t.match(/[A-Z]/g) || []).length;
 		if (upper / alpha.length > 0.8) return true;
 	}
-	if (t.length <= 60 && /^[\w\s&/,()'-]+$/.test(t)) return true;
+	if (t.length <= 60 && /^[\w\s&/,()'.*-]+$/.test(t)) return true;
 	return false;
 }
 

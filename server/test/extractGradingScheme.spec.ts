@@ -288,6 +288,81 @@ describe('extractGradingScheme', () => {
     expect(names).not.toContain('grade');
     expect(result.deliverables).toHaveLength(3);
   });
+
+  it('handles ENGG*3100-style syllabus: asterisk in names, inline (%) format in Assessment Details', () => {
+    // Regression: "Interim Design Report*" and "Final Design Report*" were
+    // missed because the * character was not in the name character class.
+    // The grading table uses bare numbers without %, but the Assessment Details
+    // section has inline (20%) format which should be matched.
+    const text = [
+      'ENGG*3100 Engineering and Design III',
+      '',
+      '6 Assessments',
+      '6.1 Marking Schemes & Distributions',
+      'Name\tScheme A (%)',
+      'Course Learning Activities\t10',
+      'Design Process Reviews\t10',
+      'Design Proposal\t10',
+      'Interim Design Report*\t20',
+      'Technical Memo\t10',
+      'Cost Memo\t5',
+      'Design Presentation\t10',
+      'Final Design Report*\t25',
+      'Total\t100',
+      '6.2 Assessment Details',
+      'Course Learning Activities (10%)',
+      'Date: Mon, Jan 7 - Fri, Apr 5, In weekly lectures and design labs',
+      'Design Process Reviews including Project Management (10%)',
+      'Date: Mon, Jan 14 - Fri, Apr 5, In weekly design labs',
+      'Team and Project Selection (0%)',
+      'Date: Sun, Jan 20, 10:00 PM',
+      'Design Proposal (10%)',
+      'Date: Sun, Jan 27, 10:00 PM',
+      'Interim Design Report* (20%)',
+      'Date: Thu, Feb 14, 10:00 PM',
+      'Interim Design Reflection (0%)',
+      'Date: Sun, Feb 17, 10:00 PM',
+      'Technical Memo (10%)',
+      'Date: Thu, Mar 7, 10:00 PM',
+      'Cost Memo (5%)',
+      'Date: Thu, Mar 14, 10:00 PM',
+      'Design Presentation (10%)',
+      'Date: Mon, Mar 18 - Fri, Mar 22',
+      'Final Design Report* (25%)',
+      'Date: Sat, Apr 6, 10:00 PM',
+      'Final Design Reflection (0%)',
+      'Date: Sun, Apr 7, 10:00 PM',
+      '',
+      '7 Course Statements',
+      'Passing Grade: In order to pass the course, a student must obtain a final grade of 50% or higher.',
+    ].join('\n');
+
+    const result = extractGradingScheme(text);
+    const names = result.deliverables.map(d => d.name.toLowerCase());
+
+    // Must find all 8 real deliverables (0% items are filtered out by pct > 0)
+    expect(result.deliverables.length).toBe(8);
+    expect(names).toContain('course learning activities');
+    expect(names.some(n => n.includes('design process reviews'))).toBe(true);
+    expect(names).toContain('design proposal');
+    expect(names.some(n => n.includes('interim design report'))).toBe(true);
+    expect(names).toContain('technical memo');
+    expect(names).toContain('cost memo');
+    expect(names).toContain('design presentation');
+    expect(names.some(n => n.includes('final design report'))).toBe(true);
+
+    // Total should be 100%
+    const total = result.deliverables.reduce((s, d) => s + (d.weight ?? 0), 0);
+    expect(total).toBeCloseTo(1.0);
+
+    // Must NOT include 0% items or "Total" or "grade"
+    expect(names.some(n => n.includes('reflection'))).toBe(false);
+    expect(names.some(n => n.includes('team and project'))).toBe(false);
+    expect(names).not.toContain('total');
+
+    // Should have identified a raw section
+    expect(result.rawSection).toBeTruthy();
+  });
 });
 
 describe('formatGradingSchemeForPrompt', () => {

@@ -215,6 +215,25 @@ describe('extractGradingScheme', () => {
     expect(total).toBeCloseTo(1.05);
   });
 
+  it('keeps singular deliverables even when other weights add up to the same value', () => {
+    const text = [
+      'Grading Breakdown:',
+      'Project  30%',
+      'Midterm  15%',
+      'Final Exam  15%',
+      'Essay  40%',
+      'Participation  20%',
+    ].join('\n');
+
+    const result = extractGradingScheme(text);
+    const names = result.deliverables.map(d => d.name.toLowerCase());
+
+    expect(names).toContain('project');
+    expect(names).toContain('midterm');
+    expect(names).toContain('final exam');
+    expect(result.deliverables).toHaveLength(5);
+  });
+
   it('handles CIS*2750-style syllabus: tab-separated tables, colons in names, blocks false positives', () => {
     // Regression: The extractor must handle real OCR tab-separated table rows
     // where assignment names contain colons (e.g. "AO: Unit testing...")

@@ -1004,8 +1004,12 @@ private struct MyCoursesSection: View {
     let events: [EventItem]
     let onCourseTapped: (Course) -> Void
 
+    private var upcomingEvents: [EventItem] {
+        events.filter { !$0.needsDate && $0.start >= Date() }
+    }
+
     private var totalEventCount: Int {
-        events.count
+        upcomingEvents.count
     }
 
     var body: some View {
@@ -1041,7 +1045,7 @@ private struct MyCoursesSection: View {
                         ForEach(courses) { course in
                             CourseChipView(
                                 course: course,
-                                eventCount: events.filter { $0.courseCode == course.code }.count,
+                                eventCount: upcomingEvents.filter { $0.courseCode == course.code }.count,
                                 onTap: { onCourseTapped(course) }
                             )
                         }

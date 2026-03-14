@@ -191,7 +191,7 @@ struct SocialHubView: View {
             ForEach(SocialHubViewModel.Tab.allCases, id: \.self) { tab in
                 Button {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        viewModel.selectedTab = tab
+                        viewModel.selectTab(tab)
                     }
                     HapticFeedbackManager.shared.lightImpact()
                 } label: {
@@ -230,7 +230,7 @@ struct SocialHubView: View {
             TextField(
                 viewModel.selectedTab == .friends
                     ? "Quick Search..."
-                    : "Search for new connections...",
+                    : "Search usernames or browse recommendations...",
                 text: viewModel.selectedTab == .friends
                     ? $viewModel.friendsSearchText
                     : $viewModel.discoverSearchText
@@ -240,10 +240,7 @@ struct SocialHubView: View {
             .autocapitalization(.none)
             .autocorrectionDisabled()
             .onChange(of: viewModel.discoverSearchText) { _, _ in
-                Task {
-                    try? await Task.sleep(nanoseconds: 300_000_000) // debounce
-                    await viewModel.searchDiscover()
-                }
+                viewModel.handleDiscoverSearchChange()
             }
         }
         .padding(.horizontal, Layout.Spacing.md)
@@ -417,7 +414,7 @@ struct SocialHubView: View {
                         .foregroundColor(AppColors.textPrimary)
                         .lineLimit(1)
 
-                    Text(friend.courseName ?? "")
+                    Text(friend.courseName.map { "Shared course: \($0)" } ?? "Tap to view schedule")
                         .font(.lexend(size: 12, weight: .regular))
                         .foregroundColor(AppColors.textTertiary)
                         .lineLimit(1)
@@ -438,19 +435,29 @@ struct SocialHubView: View {
     @ViewBuilder
     private var discoverTabContent: some View {
         VStack(alignment: .leading, spacing: Layout.Spacing.md) {
-            if viewModel.isSearching {
+            if viewModel.isLoadingDiscover {
                 discoverShimmer
             } else if viewModel.discoverResults.isEmpty {
                 if viewModel.discoverSearchText.count >= 2 {
                     emptySearchState
                 } else {
-                    discoverPromptState
+                    emptyRecommendationsState
                 }
             } else {
-                Text("PEOPLE YOU MAY KNOW")
-                    .font(.lexend(size: 13, weight: .bold))
-                    .foregroundColor(AppColors.textPrimary)
-                    .tracking(1)
+                VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
+                    Text(viewModel.discoverSearchText.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2
+                        ? "SEARCH RESULTS"
+                        : "RECOMMENDED FOR YOU")
+                        .font(.lexend(size: 13, weight: .bold))
+                        .foregroundColor(AppColors.textPrimary)
+                        .tracking(1)
+
+                    Text(viewModel.discoverSearchText.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2
+                        ? "Ranked by mutual friends and shared courses."
+                        : "People with overlap in your network or classes.")
+                        .font(.lexend(size: 12, weight: .regular))
+                        .foregroundColor(AppColors.textTertiary)
+                }
 
                 ForEach(viewModel.discoverResults) { user in
                     discoverUserRow(user)
@@ -460,80 +467,72 @@ struct SocialHubView: View {
     }
 
     private func discoverUserRow(_ user: DiscoverUserDisplay) -> some View {
-        HStack(spacing: Layout.Spacing.md) {
-            // Avatar
-            avatarCircle(
-                initials: AvatarColor.initials(from: user.username),
-                colorHex: AvatarColor.hex(for: user.id),
-                size: 48
-            )
+        VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
+            HStack(alignment: .top, spacing: Layout.Spacing.md) {
+                avatarCircle(
+                    initials: AvatarColor.initials(from: user.username),
+                    colorHex: AvatarColor.hex(for: user.id),
+                    size: 48
+                )
 
-            // Info
-            VStack(alignment: .leading, spacing: 2) {
-                Text(user.displayName ?? user.username)
-                    .font(.lexend(size: 15, weight: .bold))
-                    .foregroundColor(AppColors.textPrimary)
+                VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
+                    Text(user.displayName ?? user.username)
+                        .font(.lexend(size: 15, weight: .bold))
+                        .foregroundColor(AppColors.textPrimary)
 
-                if user.mutualFriendsCount > 0 {
-                    Text("\(user.mutualFriendsCount) MUTUAL FRIENDS")
-                        .font(.lexend(size: 11, weight: .bold))
-                        .foregroundColor(AppColors.accent)
-                        .tracking(0.5)
+                    if let displayName = user.displayName, displayName != user.username {
+                        Text("@\(user.username)")
+                            .font(.lexend(size: 12, weight: .medium))
+                            .foregroundColor(AppColors.textSecondary)
+                    }
+
+                    HStack(spacing: Layout.Spacing.xs) {
+                        if user.hasMutualFriends {
+                            discoverBadge(
+                                icon: "person.2.fill",
+                                text: "\(user.mutualFriendsCount) mutual \(user.mutualFriendsCount == 1 ? "friend" : "friends")",
+                                highlighted: true
+                            )
+                        }
+
+                        if user.hasSharedCourses {
+                            discoverBadge(
+                                icon: "book.closed.fill",
+                                text: "\(user.sharedCourseCodes.count) shared \(user.sharedCourseCodes.count == 1 ? "course" : "courses")",
+                                highlighted: false
+                            )
+                        }
+                    }
                 }
 
-                if let courses = user.coursesText {
-                    Text("Courses: \(courses)")
-                        .font(.lexend(size: 12, weight: .regular))
-                        .foregroundColor(AppColors.textTertiary)
-                        .lineLimit(1)
-                }
+                Spacer(minLength: Layout.Spacing.sm)
+
+                discoverActionButton(for: user)
             }
 
-            Spacer()
+            if user.hasSharedCourses {
+                HStack(spacing: Layout.Spacing.xs) {
+                    ForEach(user.sharedCoursePreview, id: \.self) { courseCode in
+                        sharedCourseChip(courseCode)
+                    }
 
-            // Action button
-            switch user.requestState {
-            case .none:
-                Button {
-                    Task { await viewModel.sendRequest(to: user) }
-                } label: {
-                    Text("ADD\nFRIEND")
-                        .font(.lexend(size: 11, weight: .bold))
-                        .multilineTextAlignment(.center)
-                        .foregroundColor(Color(red: 0.129, green: 0.110, blue: 0.067))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                                .fill(AppColors.accent)
-                        )
+                    if user.remainingSharedCourseCount > 0 {
+                        sharedCourseChip("+\(user.remainingSharedCourseCount) more")
+                    }
                 }
-            case .requested:
-                Button {
-                    Task { await viewModel.cancelRequest(to: user) }
-                } label: {
-                    Text("REQUESTED")
-                        .font(.lexend(size: 11, weight: .bold))
-                        .foregroundColor(AppColors.textSecondary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                                .stroke(AppColors.textTertiary, lineWidth: 1)
-                        )
-                }
-            case .friends:
-                Text("FRIENDS")
-                    .font(.lexend(size: 11, weight: .bold))
-                    .foregroundColor(AppColors.accent)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
             }
         }
         .padding(Layout.Spacing.md)
         .background(
             RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
                 .fill(AppColors.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
+                .stroke(
+                    user.isRecommended ? AppColors.accent.opacity(0.28) : AppColors.border.opacity(0.18),
+                    lineWidth: 1
+                )
         )
     }
 
@@ -601,17 +600,17 @@ struct SocialHubView: View {
         .padding(.vertical, Layout.Spacing.xxl)
     }
 
-    private var discoverPromptState: some View {
+    private var emptyRecommendationsState: some View {
         VStack(spacing: Layout.Spacing.md) {
-            Image(systemName: "magnifyingglass")
+            Image(systemName: "person.2.wave.2")
                 .font(.lexend(size: 36, weight: .regular))
                 .foregroundColor(AppColors.textTertiary)
 
-            Text("Find new connections")
+            Text("No recommendations yet")
                 .font(.lexend(size: 16, weight: .medium))
                 .foregroundColor(AppColors.textSecondary)
 
-            Text("Search by username to discover classmates")
+            Text("Add classmates and courses will start surfacing mutual connections here.")
                 .font(.lexend(size: 13, weight: .regular))
                 .foregroundColor(AppColors.textTertiary)
                 .multilineTextAlignment(.center)
@@ -634,9 +633,80 @@ struct SocialHubView: View {
         VStack(spacing: Layout.Spacing.md) {
             ForEach(0..<4, id: \.self) { _ in
                 ShimmerView()
-                    .frame(height: 80)
+                    .frame(height: 112)
                     .clipShape(RoundedRectangle(cornerRadius: Layout.CornerRadius.lg))
             }
         }
+    }
+
+    private func discoverActionButton(for user: DiscoverUserDisplay) -> some View {
+        Group {
+            switch user.requestState {
+            case .none:
+                Button {
+                    Task { await viewModel.sendRequest(to: user) }
+                } label: {
+                    Text("ADD FRIEND")
+                        .font(.lexend(size: 11, weight: .bold))
+                        .foregroundColor(Color(red: 0.129, green: 0.110, blue: 0.067))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
+                                .fill(AppColors.accent)
+                        )
+                }
+            case .requested:
+                Button {
+                    Task { await viewModel.cancelRequest(to: user) }
+                } label: {
+                    Text("REQUESTED")
+                        .font(.lexend(size: 11, weight: .bold))
+                        .foregroundColor(AppColors.textSecondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
+                                .stroke(AppColors.textTertiary, lineWidth: 1)
+                        )
+                }
+            case .friends:
+                Text("FRIENDS")
+                    .font(.lexend(size: 11, weight: .bold))
+                    .foregroundColor(AppColors.accent)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+            }
+        }
+    }
+
+    private func discoverBadge(icon: String, text: String, highlighted: Bool) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .semibold))
+
+            Text(text)
+                .font(.lexend(size: 11, weight: .semibold))
+                .lineLimit(1)
+        }
+        .foregroundColor(highlighted ? Color(red: 0.129, green: 0.110, blue: 0.067) : AppColors.textSecondary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(highlighted ? AppColors.accent.opacity(0.9) : AppColors.surfaceSecondary)
+        )
+    }
+
+    private func sharedCourseChip(_ label: String) -> some View {
+        Text(label)
+            .font(.lexend(size: 11, weight: .medium))
+            .foregroundColor(AppColors.textSecondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(
+                Capsule()
+                    .fill(AppColors.surfaceSecondary)
+            )
     }
 }

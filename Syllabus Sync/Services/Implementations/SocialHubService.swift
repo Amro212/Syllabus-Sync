@@ -12,6 +12,28 @@ import Supabase
 @MainActor
 final class SocialHubService {
 
+    private struct DiscoverBaseContext {
+        let friendIds: Set<String>
+        let myCourseCodes: Set<String>
+        let outgoingPendingIds: Set<String>
+        let incomingPendingIds: Set<String>
+    }
+
+    private struct DiscoverMutualContext {
+        let friendIdsByUser: [String: Set<String>]
+        let sharedCoursesByUser: [String: [String]]
+    }
+
+    private struct CourseMembershipRow: Decodable {
+        let userId: String
+        let code: String
+
+        enum CodingKeys: String, CodingKey {
+            case userId = "user_id"
+            case code
+        }
+    }
+
     static let shared = SocialHubService()
 
     private let supabase: SupabaseClient
@@ -72,71 +94,73 @@ final class SocialHubService {
 
     // MARK: - Search Users (Discover)
 
-    /// Search users by username prefix, excluding self and existing friends
+    /// Search users by username prefix and rank them using mutual social context.
     func searchUsers(prefix: String) async -> [DiscoverUserDisplay] {
         guard let uid = currentUserId else {
             print("⚠️ Cannot search: not authenticated")
             return []
         }
-        guard prefix.count >= 2 else {
+        let trimmedPrefix = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedPrefix.count >= 2 else {
             print("⚠️ Search query too short: \(prefix.count) chars")
             return []
         }
 
         do {
-            // Find users matching prefix
             let matches: [UserProfile] = try await supabase
                 .from("users")
-                .select("id, username, updated_at")
-                .ilike("username", pattern: "\(prefix)%")
+                .select("id, username, display_name, updated_at")
+                .ilike("username", pattern: "\(trimmedPrefix)%")
                 .neq("id", value: uid)
                 .limit(20)
                 .execute()
                 .value
 
-            print("🔍 Found \(matches.count) users matching '\(prefix)'")
-
             if matches.isEmpty { return [] }
 
-            // Get current friends to mark them
-            let friendIds = await fetchFriendUserIds()
-
-            // Get outgoing pending requests to mark "Requested" state
-            let outgoing: [FriendRequest] = try await supabase
-                .from("friend_requests")
-                .select()
-                .eq("from_user_id", value: uid)
-                .eq("status", value: "pending")
-                .execute()
-                .value
-            let pendingToIds = Set(outgoing.map(\.toUserId))
-
-            return matches.compactMap { user in
-                guard let username = user.username, !username.isEmpty else { return nil }
-
-                let state: DiscoverRequestState
-                if friendIds.contains(user.id) {
-                    state = .friends
-                } else if pendingToIds.contains(user.id) {
-                    state = .requested
-                } else {
-                    state = .none
-                }
-
-                return DiscoverUserDisplay(
-                    id: user.id,
-                    username: username,
-                    displayName: nil,
-                    mutualFriendsCount: 0, // placeholder
-                    coursesText: nil,
-                    requestState: state
-                )
-            }
+            let context = try await fetchDiscoverBaseContext(for: uid)
+            let users = try await buildDiscoverUsers(
+                from: matches,
+                baseContext: context,
+                includeFriends: true
+            )
+            return sortDiscoverUsers(users)
         } catch let error as URLError {
             print("⚠️ Network error searching users: \(error)")
             return []
         } catch {
             print("⚠️ Search users failed: \(error)")
+            return []
+        }
+    }
+
+    /// Recommended users based on mutual friends or shared courses.
+    func fetchRecommendedUsers() async -> [DiscoverUserDisplay] {
+        guard let uid = currentUserId else {
+            print("⚠️ Cannot load discover recommendations: not authenticated")
+            return []
+        }
+
+        do {
+            let baseContext = try await fetchDiscoverBaseContext(for: uid)
+            let candidateIds = try await fetchRecommendedCandidateIds(
+                currentUserId: uid,
+                friendIds: baseContext.friendIds,
+                myCourseCodes: baseContext.myCourseCodes
+            )
+
+            guard !candidateIds.isEmpty else { return [] }
+
+            let profiles = try await fetchUserProfiles(ids: candidateIds)
+            let users = try await buildDiscoverUsers(
+                from: profiles,
+                baseContext: baseContext,
+                includeFriends: false
+            )
+            let recommendedOnly = users.filter(\.isRecommended)
+            return sortDiscoverUsers(recommendedOnly)
+        } catch {
+            print("⚠️ Fetch recommended users failed: \(error)")
             return []
         }
     }
@@ -307,7 +331,7 @@ final class SocialHubService {
             let senderIds = requests.map(\.fromUserId)
             let profiles: [UserProfile] = try await supabase
                 .from("users")
-                .select("id, username, updated_at")
+                .select("id, username, display_name, updated_at")
                 .in("id", values: senderIds)
                 .execute()
                 .value
@@ -321,7 +345,7 @@ final class SocialHubService {
                     id: req.id,
                     fromUserId: req.fromUserId,
                     username: username,
-                    displayName: nil,
+                    displayName: profile?.displayName,
                     contextLine: "WANTS TO CONNECT"
                 )
             }
@@ -369,43 +393,290 @@ final class SocialHubService {
                 .execute()
                 .value
 
-            print("🔍 DEBUG: Found \(friendships.count) friendships for user \(uid)")
-
             if friendships.isEmpty { return [] }
 
             let friendIds = friendships.map { $0.userAId == uid ? $0.userBId : $0.userAId }
-            print("🔍 DEBUG: Friend IDs: \(friendIds)")
+            let courseCodesByUser = try await fetchCourseCodesByUser(for: [uid] + friendIds)
+            let myCourseCodes = courseCodesByUser[uid, default: []]
 
             let profiles: [UserProfile] = try await supabase
                 .from("users")
-                .select("id, username, updated_at")
+                .select("id, username, display_name, updated_at")
                 .in("id", values: friendIds)
                 .execute()
                 .value
 
-            print("🔍 DEBUG: Fetched \(profiles.count) profiles: \(profiles.map { "\($0.id): \($0.username ?? "nil")" })")
-
             let profileMap = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
 
-            let result = friendships.compactMap { f in
+            return friendships.compactMap { f in
                 let friendId = f.userAId == uid ? f.userBId : f.userAId
                 let profile = profileMap[friendId]
                 let username = profile?.username ?? "unknown"
-                print("🔍 DEBUG: Friendship \(f.id) -> friendId: \(friendId), username: \(username)")
+                let sharedCourse = Array(myCourseCodes.intersection(courseCodesByUser[friendId, default: []])).sorted().first
                 return FriendDisplay(
                     id: f.id,
                     userId: friendId,
                     username: username,
-                    displayName: nil,
-                    courseName: nil
+                    displayName: profile?.displayName,
+                    courseName: sharedCourse
                 )
             }
-
-            print("🔍 DEBUG: Returning \(result.count) friend displays")
-            return result
         } catch {
             print("⚠️ Fetch friends failed: \(error)")
             return []
+        }
+    }
+
+    private func fetchDiscoverBaseContext(for userId: String) async throws -> DiscoverBaseContext {
+        async let friendIdsTask = fetchFriendUserIds()
+        async let pendingTask = fetchPendingRequestUserIds(for: userId)
+        async let myCoursesTask = fetchCourseCodesByUser(for: [userId])
+
+        let friendIds = await friendIdsTask
+        let pending = try await pendingTask
+        let myCourses = try await myCoursesTask
+
+        return DiscoverBaseContext(
+            friendIds: friendIds,
+            myCourseCodes: myCourses[userId, default: []],
+            outgoingPendingIds: pending.outgoing,
+            incomingPendingIds: pending.incoming
+        )
+    }
+
+    private func fetchRecommendedCandidateIds(
+        currentUserId: String,
+        friendIds: Set<String>,
+        myCourseCodes: Set<String>
+    ) async throws -> [String] {
+        var candidateIds: Set<String> = []
+
+        if !friendIds.isEmpty {
+            let friendIdList = Array(friendIds)
+            async let friendshipsByA: [Friendship] = supabase
+                .from("friends")
+                .select()
+                .in("user_a_id", values: friendIdList)
+                .execute()
+                .value
+            async let friendshipsByB: [Friendship] = supabase
+                .from("friends")
+                .select()
+                .in("user_b_id", values: friendIdList)
+                .execute()
+                .value
+
+            let connectedToMyFriends = deduplicatedFriendships(
+                try await friendshipsByA,
+                try await friendshipsByB
+            )
+
+            for friendship in connectedToMyFriends {
+                let candidateA = friendship.userAId
+                let candidateB = friendship.userBId
+                if candidateA != currentUserId && !friendIds.contains(candidateA) {
+                    candidateIds.insert(candidateA)
+                }
+                if candidateB != currentUserId && !friendIds.contains(candidateB) {
+                    candidateIds.insert(candidateB)
+                }
+            }
+        }
+
+        if !myCourseCodes.isEmpty {
+            let sharedCourseRows: [CourseMembershipRow] = try await supabase
+                .from("courses")
+                .select("user_id, code")
+                .in("code", values: Array(myCourseCodes))
+                .neq("user_id", value: currentUserId)
+                .execute()
+                .value
+
+            for row in sharedCourseRows where !friendIds.contains(row.userId) {
+                candidateIds.insert(row.userId)
+            }
+        }
+
+        candidateIds.remove(currentUserId)
+        return Array(candidateIds)
+    }
+
+    private func fetchUserProfiles(ids: [String]) async throws -> [UserProfile] {
+        guard !ids.isEmpty else { return [] }
+
+        return try await supabase
+            .from("users")
+            .select("id, username, display_name, updated_at")
+            .in("id", values: ids)
+            .execute()
+            .value
+    }
+
+    private func buildDiscoverUsers(
+        from profiles: [UserProfile],
+        baseContext: DiscoverBaseContext,
+        includeFriends: Bool
+    ) async throws -> [DiscoverUserDisplay] {
+        let candidateIds = profiles.map(\.id)
+        let mutualContext = try await fetchDiscoverMutualContext(
+            candidateIds: candidateIds,
+            currentFriendIds: baseContext.friendIds,
+            myCourseCodes: baseContext.myCourseCodes
+        )
+
+        return profiles.compactMap { profile in
+            let userId = profile.id
+            guard let username = profile.username, !username.isEmpty else { return nil }
+            if baseContext.incomingPendingIds.contains(userId) { return nil }
+
+            let requestState: DiscoverRequestState
+            if baseContext.friendIds.contains(userId) {
+                guard includeFriends else { return nil }
+                requestState = .friends
+            } else if baseContext.outgoingPendingIds.contains(userId) {
+                requestState = .requested
+            } else {
+                requestState = .none
+            }
+
+            let mutualFriendIds = mutualContext.friendIdsByUser[userId, default: []]
+                .intersection(baseContext.friendIds)
+            let sharedCourseCodes = mutualContext.sharedCoursesByUser[userId, default: []]
+
+            return DiscoverUserDisplay(
+                id: userId,
+                username: username,
+                displayName: profile.displayName,
+                mutualFriendsCount: mutualFriendIds.count,
+                sharedCourseCodes: sharedCourseCodes,
+                requestState: requestState
+            )
+        }
+    }
+
+    private func fetchDiscoverMutualContext(
+        candidateIds: [String],
+        currentFriendIds: Set<String>,
+        myCourseCodes: Set<String>
+    ) async throws -> DiscoverMutualContext {
+        let normalizedCandidateIds = Array(Set(candidateIds))
+        guard !normalizedCandidateIds.isEmpty else {
+            return DiscoverMutualContext(friendIdsByUser: [:], sharedCoursesByUser: [:])
+        }
+
+        let relevantFriendIds = Array(Set(normalizedCandidateIds).union(currentFriendIds))
+        async let courseCodesTask = fetchCourseCodesByUser(for: normalizedCandidateIds)
+        async let friendshipsByA: [Friendship] = relevantFriendIds.isEmpty ? [] : supabase
+            .from("friends")
+            .select()
+            .in("user_a_id", values: relevantFriendIds)
+            .execute()
+            .value
+        async let friendshipsByB: [Friendship] = relevantFriendIds.isEmpty ? [] : supabase
+            .from("friends")
+            .select()
+            .in("user_b_id", values: relevantFriendIds)
+            .execute()
+            .value
+
+        let courseCodesByUser = try await courseCodesTask
+        let friendships = deduplicatedFriendships(
+            try await friendshipsByA,
+            try await friendshipsByB
+        )
+
+        var friendIdsByUser: [String: Set<String>] = [:]
+        for friendship in friendships {
+            friendIdsByUser[friendship.userAId, default: []].insert(friendship.userBId)
+            friendIdsByUser[friendship.userBId, default: []].insert(friendship.userAId)
+        }
+
+        var sharedCoursesByUser: [String: [String]] = [:]
+        for userId in normalizedCandidateIds {
+            let sharedCourses = Array(myCourseCodes.intersection(courseCodesByUser[userId, default: []])).sorted()
+            if !sharedCourses.isEmpty {
+                sharedCoursesByUser[userId] = sharedCourses
+            }
+        }
+
+        return DiscoverMutualContext(
+            friendIdsByUser: friendIdsByUser,
+            sharedCoursesByUser: sharedCoursesByUser
+        )
+    }
+
+    private func fetchPendingRequestUserIds(for userId: String) async throws -> (outgoing: Set<String>, incoming: Set<String>) {
+        async let outgoingTask: [FriendRequest] = supabase
+            .from("friend_requests")
+            .select()
+            .eq("from_user_id", value: userId)
+            .eq("status", value: "pending")
+            .execute()
+            .value
+        async let incomingTask: [FriendRequest] = supabase
+            .from("friend_requests")
+            .select()
+            .eq("to_user_id", value: userId)
+            .eq("status", value: "pending")
+            .execute()
+            .value
+
+        let outgoing = try await outgoingTask
+        let incoming = try await incomingTask
+        return (Set(outgoing.map(\.toUserId)), Set(incoming.map(\.fromUserId)))
+    }
+
+    private func fetchCourseCodesByUser(for userIds: [String]) async throws -> [String: Set<String>] {
+        let normalizedUserIds = Array(Set(userIds))
+        guard !normalizedUserIds.isEmpty else { return [:] }
+
+        let rows: [CourseMembershipRow] = try await supabase
+            .from("courses")
+            .select("user_id, code")
+            .in("user_id", values: normalizedUserIds)
+            .execute()
+            .value
+
+        var courseCodesByUser: [String: Set<String>] = [:]
+        for row in rows {
+            let normalizedCode = row.code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            guard !normalizedCode.isEmpty else { continue }
+            courseCodesByUser[row.userId, default: []].insert(normalizedCode)
+        }
+        return courseCodesByUser
+    }
+
+    private func deduplicatedFriendships(_ lhs: [Friendship], _ rhs: [Friendship]) -> [Friendship] {
+        let friendships = lhs + rhs
+        var seenIds: Set<String> = []
+        var unique: [Friendship] = []
+        for friendship in friendships where seenIds.insert(friendship.id).inserted {
+            unique.append(friendship)
+        }
+        return unique
+    }
+
+    private func sortDiscoverUsers(_ users: [DiscoverUserDisplay]) -> [DiscoverUserDisplay] {
+        users.sorted { lhs, rhs in
+            let lhsState = requestSortOrder(for: lhs.requestState)
+            let rhsState = requestSortOrder(for: rhs.requestState)
+            if lhsState != rhsState { return lhsState < rhsState }
+            if lhs.isRecommended != rhs.isRecommended { return lhs.isRecommended && !rhs.isRecommended }
+            if lhs.mutualFriendsCount != rhs.mutualFriendsCount {
+                return lhs.mutualFriendsCount > rhs.mutualFriendsCount
+            }
+            if lhs.sharedCourseCodes.count != rhs.sharedCourseCodes.count {
+                return lhs.sharedCourseCodes.count > rhs.sharedCourseCodes.count
+            }
+            return lhs.username.localizedCaseInsensitiveCompare(rhs.username) == .orderedAscending
+        }
+    }
+
+    private func requestSortOrder(for state: DiscoverRequestState) -> Int {
+        switch state {
+        case .none: return 0
+        case .requested: return 1
+        case .friends: return 2
         }
     }
 

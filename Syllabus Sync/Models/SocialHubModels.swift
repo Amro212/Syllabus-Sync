@@ -13,11 +13,13 @@ import Foundation
 struct UserProfile: Identifiable, Codable, Equatable {
     let id: String
     let username: String?
+    let displayName: String?
     let updatedAt: String?
 
     enum CodingKeys: String, CodingKey {
         case id
         case username
+        case displayName = "display_name"
         case updatedAt = "updated_at"
     }
 }
@@ -119,8 +121,28 @@ struct DiscoverUserDisplay: Identifiable, Equatable {
     let username: String
     let displayName: String?
     let mutualFriendsCount: Int
-    let coursesText: String? // e.g. "CS 101, MATH 221"
+    let sharedCourseCodes: [String]
     let requestState: DiscoverRequestState
+
+    var hasMutualFriends: Bool {
+        mutualFriendsCount > 0
+    }
+
+    var hasSharedCourses: Bool {
+        !sharedCourseCodes.isEmpty
+    }
+
+    var isRecommended: Bool {
+        hasMutualFriends || hasSharedCourses
+    }
+
+    var sharedCoursePreview: [String] {
+        Array(sharedCourseCodes.prefix(2))
+    }
+
+    var remainingSharedCourseCount: Int {
+        max(0, sharedCourseCodes.count - sharedCoursePreview.count)
+    }
 }
 
 enum DiscoverRequestState: Equatable {

@@ -11,6 +11,8 @@ import SwiftUI
 @MainActor
 final class SocialHubViewModel: ObservableObject {
 
+    private var discoverSearchTask: Task<Void, Never>?
+
     // MARK: - Tab State
 
     enum Tab: String, CaseIterable {
@@ -38,10 +40,9 @@ final class SocialHubViewModel: ObservableObject {
 
     var filteredFriends: [FriendDisplay] {
         if friendsSearchText.isEmpty { return friends }
-        let query = friendsSearchText.lowercased()
         return friends.filter {
-            $0.username.lowercased().contains(query) ||
-            ($0.displayName?.lowercased().contains(query) ?? false)
+            $0.username.localizedStandardContains(friendsSearchText) ||
+            ($0.displayName?.localizedStandardContains(friendsSearchText) ?? false)
         }
     }
 
@@ -49,7 +50,7 @@ final class SocialHubViewModel: ObservableObject {
 
     @Published var discoverSearchText = ""
     @Published var discoverResults: [DiscoverUserDisplay] = []
-    @Published var isSearching = false
+    @Published var isLoadingDiscover = false
 
     // MARK: - Friend Schedule
 
@@ -67,6 +68,10 @@ final class SocialHubViewModel: ObservableObject {
 
     private let service = SocialHubService.shared
 
+    deinit {
+        discoverSearchTask?.cancel()
+    }
+
     // MARK: - Initial Load
 
     func loadInitialData() async {
@@ -80,6 +85,7 @@ final class SocialHubViewModel: ObservableObject {
         }
 
         await refreshFriendsTab()
+        await refreshDiscover()
     }
 
     // MARK: - Username
@@ -130,6 +136,7 @@ final class SocialHubViewModel: ObservableObject {
         isSavingUsername = false
         HapticFeedbackManager.shared.success()
         await refreshFriendsTab()
+        await refreshDiscover()
     }
 
     // MARK: - Friends Tab Refresh
@@ -143,6 +150,13 @@ final class SocialHubViewModel: ObservableObject {
         isLoadingFriends = false
     }
 
+    func selectTab(_ tab: Tab) {
+        selectedTab = tab
+
+        guard tab == .discover, !isLoadingDiscover else { return }
+        Task { await refreshDiscover() }
+    }
+
     // MARK: - Friend Request Actions
 
     func acceptRequest(_ request: PendingRequestDisplay) async {
@@ -153,6 +167,7 @@ final class SocialHubViewModel: ObservableObject {
         HapticFeedbackManager.shared.success()
         showToastMessage("✓ Friend request accepted!")
         await refreshFriendsTab()
+        await refreshDiscover()
     }
 
     func declineRequest(_ request: PendingRequestDisplay) async {
@@ -164,52 +179,45 @@ final class SocialHubViewModel: ObservableObject {
         // Optimistically update UI
         pendingRequests.removeAll { $0.id == request.id }
         showToastMessage("Request declined")
+        await refreshDiscover()
     }
 
     // MARK: - Discover
 
-    func searchDiscover() async {
-        let query = discoverSearchText.trimmingCharacters(in: .whitespaces)
+    func handleDiscoverSearchChange() {
+        discoverSearchTask?.cancel()
+
+        let query = discoverSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard query.count >= 2 else {
-            discoverResults = []
+            discoverSearchTask = Task { await refreshDiscover() }
             return
         }
 
-        isSearching = true
-        discoverResults = await service.searchUsers(prefix: query)
-        isSearching = false
-
-        // Show helpful message if no results
-        if discoverResults.isEmpty && !isSearching {
-            // We'll handle this in the UI empty state
+        discoverSearchTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.refreshDiscover()
         }
+    }
+
+    func refreshDiscover() async {
+        isLoadingDiscover = true
+        let query = discoverSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if query.count >= 2 {
+            discoverResults = await service.searchUsers(prefix: query)
+        } else {
+            discoverResults = await service.fetchRecommendedUsers()
+        }
+        isLoadingDiscover = false
     }
 
     func sendRequest(to user: DiscoverUserDisplay) async {
         // Optimistically update UI first
-        if let idx = discoverResults.firstIndex(where: { $0.id == user.id }) {
-            discoverResults[idx] = DiscoverUserDisplay(
-                id: user.id,
-                username: user.username,
-                displayName: user.displayName,
-                mutualFriendsCount: user.mutualFriendsCount,
-                coursesText: user.coursesText,
-                requestState: .requested
-            )
-        }
+        updateDiscoverUser(user, requestState: .requested)
 
         if let error = await service.sendFriendRequest(toUserId: user.id) {
             // Revert optimistic update on error
-            if let idx = discoverResults.firstIndex(where: { $0.id == user.id }) {
-                discoverResults[idx] = DiscoverUserDisplay(
-                    id: user.id,
-                    username: user.username,
-                    displayName: user.displayName,
-                    mutualFriendsCount: user.mutualFriendsCount,
-                    coursesText: user.coursesText,
-                    requestState: .none
-                )
-            }
+            updateDiscoverUser(user, requestState: .none)
             showToastMessage(error)
             return
         }
@@ -227,16 +235,7 @@ final class SocialHubViewModel: ObservableObject {
 
         // Optimistically update UI
         let originalState = user.requestState
-        if let idx = discoverResults.firstIndex(where: { $0.id == user.id }) {
-            discoverResults[idx] = DiscoverUserDisplay(
-                id: user.id,
-                username: user.username,
-                displayName: user.displayName,
-                mutualFriendsCount: user.mutualFriendsCount,
-                coursesText: user.coursesText,
-                requestState: .none
-            )
-        }
+        updateDiscoverUser(user, requestState: .none)
 
         // We need to find the request ID to cancel it
         do {
@@ -260,21 +259,13 @@ final class SocialHubViewModel: ObservableObject {
 
             guard let reqId = rows.first?.id else {
                 showToastMessage("Request not found")
+                updateDiscoverUser(user, requestState: originalState)
                 return
             }
 
             if let error = await service.cancelFriendRequest(requestId: reqId) {
                 // Revert optimistic update on error
-                if let idx = discoverResults.firstIndex(where: { $0.id == user.id }) {
-                    discoverResults[idx] = DiscoverUserDisplay(
-                        id: user.id,
-                        username: user.username,
-                        displayName: user.displayName,
-                        mutualFriendsCount: user.mutualFriendsCount,
-                        coursesText: user.coursesText,
-                        requestState: originalState
-                    )
-                }
+                updateDiscoverUser(user, requestState: originalState)
                 showToastMessage(error)
                 return
             }
@@ -283,16 +274,7 @@ final class SocialHubViewModel: ObservableObject {
             showToastMessage("Request cancelled")
         } catch {
             // Revert optimistic update on error
-            if let idx = discoverResults.firstIndex(where: { $0.id == user.id }) {
-                discoverResults[idx] = DiscoverUserDisplay(
-                    id: user.id,
-                    username: user.username,
-                    displayName: user.displayName,
-                    mutualFriendsCount: user.mutualFriendsCount,
-                    coursesText: user.coursesText,
-                    requestState: originalState
-                )
-            }
+            updateDiscoverUser(user, requestState: originalState)
             showToastMessage("Unable to cancel request")
         }
     }
@@ -316,6 +298,18 @@ final class SocialHubViewModel: ObservableObject {
         showFriendSchedule = false
         selectedFriend = nil
         friendEvents = []
+    }
+
+    private func updateDiscoverUser(_ user: DiscoverUserDisplay, requestState: DiscoverRequestState) {
+        guard let idx = discoverResults.firstIndex(where: { $0.id == user.id }) else { return }
+        discoverResults[idx] = DiscoverUserDisplay(
+            id: user.id,
+            username: user.username,
+            displayName: user.displayName,
+            mutualFriendsCount: user.mutualFriendsCount,
+            sharedCourseCodes: user.sharedCourseCodes,
+            requestState: requestState
+        )
     }
 
     // MARK: - Toast

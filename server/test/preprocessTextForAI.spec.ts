@@ -23,7 +23,7 @@ describe('preprocessTextForAI', () => {
     expect(result).not.toContain('[EVENT:FINAL]');
   });
 
-  it('suppresses tags inside boilerplate sections', () => {
+  it('strips boilerplate lines entirely from output', () => {
     const text = [
       'Academic Integrity:',
       'If you miss the midterm exam, you must provide documentation.',
@@ -31,7 +31,10 @@ describe('preprocessTextForAI', () => {
     ].join('\n');
 
     const result = preprocessTextForAI(text);
-    // midterm and exam mentions should NOT be tagged
+    // Boilerplate body lines must be completely absent — not just untagged.
+    // An empty output is correct here: zero schedule information == zero output.
+    expect(result).not.toContain('midterm exam');
+    expect(result).not.toContain('Plagiarism');
     expect(result).not.toContain('[EVENT:MIDTERM]');
     expect(result).not.toContain('[EVENT:EXAM]');
   });
@@ -46,8 +49,10 @@ describe('preprocessTextForAI', () => {
     ].join('\n');
 
     const result = preprocessTextForAI(text);
+    // Boilerplate body must be gone
+    expect(result).not.toContain('Plagiarism');
+    // Midterm after the content heading must be tagged
     const lines = result.split('\n');
-    // The midterm line after "Course Schedule:" should be tagged
     expect(lines.some(l => l.includes('[EVENT:MIDTERM]'))).toBe(true);
   });
 

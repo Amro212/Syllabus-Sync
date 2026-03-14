@@ -107,11 +107,41 @@ struct EventItem: Identifiable, Codable, Equatable {
 extension EventItem.EventType: CaseIterable {}
 
 /// A grading scheme entry returned by the parsing service.
-struct GradingSchemeEntry: Decodable, Equatable, Identifiable {
-    var id: String { name }
-    let name: String
-    let weight: Double?
-    let type: String // raw EventType string from server
+/// Also used as the persistent domain model for saved grading data.
+struct GradingSchemeEntry: Codable, Equatable, Identifiable {
+    let id: String
+    var name: String
+    var weight: Double?
+    var type: String // raw EventType string from server
+    var courseId: String?
+    var sortOrder: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, weight, type, courseId, sortOrder
+    }
+
+    /// Memberwise initialiser used by app code & Supabase DTO mapping.
+    init(id: String = UUID().uuidString, name: String, weight: Double?, type: String, courseId: String? = nil, sortOrder: Int? = nil) {
+        self.id = id
+        self.name = name
+        self.weight = weight
+        self.type = type
+        self.courseId = courseId
+        self.sortOrder = sortOrder
+    }
+
+    /// Backward-compatible decoder: when the server omits `id`, `courseId`,
+    /// or `sortOrder` we fall back to sensible defaults so the existing
+    /// parse-response path keeps working.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        weight = try container.decodeIfPresent(Double.self, forKey: .weight)
+        type = try container.decode(String.self, forKey: .type)
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        courseId = try container.decodeIfPresent(String.self, forKey: .courseId)
+        sortOrder = try container.decodeIfPresent(Int.self, forKey: .sortOrder)
+    }
 }
 
 /// Diagnostics metadata surfaced by the parsing service.

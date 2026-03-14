@@ -12,6 +12,8 @@ struct DashboardView: View {
     @EnvironmentObject var eventStore: EventStore
     @EnvironmentObject var importViewModel: ImportViewModel
     @EnvironmentObject var themeManager: ThemeManager
+    @EnvironmentObject var courseRepository: CourseRepository
+    @EnvironmentObject var gradingRepository: GradingRepository
     @StateObject private var errorHandler = ErrorHandler()
     @State private var isRefreshing = false
     @State private var showShimmer = false
@@ -41,6 +43,15 @@ struct DashboardView: View {
                             greetingHeader
                             
                             QuickInsightCardView(events: eventStore.events, isNewUser: !hasAddedEvents && eventStore.events.isEmpty)
+                            
+                            // My Courses horizontal scroll
+                            MyCoursesSection(
+                                courses: courseRepository.courses,
+                                events: eventStore.events,
+                                onCourseTapped: { course in
+                                    navigationManager.navigate(to: .courseDetail(course: course))
+                                }
+                            )
                             
                             WeekAtGlanceView(events: eventStore.events, isNewUser: !hasAddedEvents && eventStore.events.isEmpty)
                             
@@ -111,13 +122,7 @@ struct DashboardView: View {
             .background(AppColors.background)
         }
         .task {
-            // Load user-specific preference
-            loadUserPreference()
-            
-            await eventStore.fetchEvents()
-            if !eventStore.events.isEmpty {
-                updateUserPreference(true)
-            }
+            await loadDashboardData()
         }
         .onChange(of: eventStore.events) { events in
              if !events.isEmpty {
@@ -159,7 +164,21 @@ struct DashboardView: View {
         guard let userId = SupabaseAuthService.shared.currentUser?.id else { return }
         hasAddedEvents = UserDefaults.standard.bool(forKey: "hasAddedEvents_\(userId)")
     }
-    
+
+    private func loadDashboardData() async {
+        loadUserPreference()
+        guard SupabaseAuthService.shared.isAuthenticated else { return }
+
+        async let eventsLoad: Void = eventStore.fetchEvents()
+        async let coursesLoad: Void = courseRepository.refresh()
+        async let gradingLoad: Void = gradingRepository.fetchAll()
+        _ = await (eventsLoad, coursesLoad, gradingLoad)
+
+        if !eventStore.events.isEmpty {
+            updateUserPreference(true)
+        }
+    }
+
     private func updateUserPreference(_ value: Bool) {
         guard let userId = SupabaseAuthService.shared.currentUser?.id else { return }
         hasAddedEvents = value
@@ -174,6 +193,8 @@ struct DashboardView: View {
         }
 
         await eventStore.refresh()
+        await courseRepository.refresh()
+        await gradingRepository.fetchAll()
 
         await MainActor.run {
             withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
@@ -1261,6 +1282,59 @@ struct ShimmerRectangle: View {
 }
 
 
+// MARK: - My Courses Section
+
+private struct MyCoursesSection: View {
+    let courses: [Course]
+    let events: [EventItem]
+    let onCourseTapped: (Course) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
+            HStack(spacing: Layout.Spacing.xs) {
+                Text("My Courses")
+                    .font(.headline)
+                    .foregroundStyle(AppColors.textPrimary)
+
+                if !courses.isEmpty {
+                    Text("(\(courses.count))")
+                        .font(.subheadline)
+                        .foregroundStyle(AppColors.textTertiary)
+                }
+
+                Spacer()
+            }
+
+            if courses.isEmpty {
+                HStack(spacing: Layout.Spacing.sm) {
+                    Image(systemName: "book.closed")
+                        .font(.subheadline)
+                        .foregroundStyle(AppColors.textTertiary)
+                    Text("Import a syllabus to add courses")
+                        .font(.subheadline)
+                        .foregroundStyle(AppColors.textTertiary)
+                }
+                .padding(.vertical, Layout.Spacing.xs)
+            } else {
+                ScrollView(.horizontal) {
+                    HStack(spacing: Layout.Spacing.sm) {
+                        ForEach(courses) { course in
+                            CourseChipView(
+                                course: course,
+                                eventCount: events.filter { $0.courseCode == course.code }.count,
+                                onTap: { onCourseTapped(course) }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 1)
+                    .padding(.vertical, 2)
+                }
+                .scrollIndicators(.hidden)
+            }
+        }
+    }
+}
+
 // MARK: - Preview
 
 #Preview {
@@ -1268,6 +1342,8 @@ struct ShimmerRectangle: View {
         .environmentObject(AppNavigationManager())
         .environmentObject(ThemeManager())
         .environmentObject(EventStore())
+        .environmentObject(CourseRepository())
+        .environmentObject(GradingRepository())
         .environmentObject(ImportViewModel(
             extractor: PDFKitExtractor(),
             parser: SyllabusParserRemote(apiClient: URLSessionAPIClient(
@@ -1277,6 +1353,8 @@ struct ShimmerRectangle: View {
                     maxRetryCount: 1
                 )
             )),
-            eventStore: EventStore()
+            eventStore: EventStore(),
+            courseRepository: CourseRepository(),
+            gradingRepository: GradingRepository()
         ))
 }

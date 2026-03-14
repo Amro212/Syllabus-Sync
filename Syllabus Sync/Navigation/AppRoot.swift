@@ -18,7 +18,7 @@ private let defaultAPIBaseURL: URL = {
 // MARK: - App Routes
 
 /// Centralized route management for the entire app
-enum AppRoute: Hashable, CaseIterable {
+enum AppRoute: Hashable {
     case launch
     case onboarding
     case auth
@@ -28,14 +28,9 @@ enum AppRoute: Hashable, CaseIterable {
     case preview
     case parseReview
     case calendar
-    case courseDetail(course: MockCourse)
+    case courseDetail(course: Course)
     case profile
     case networkingTest
-    
-    // Static cases for easier iteration (excluding parameterized routes)
-    static var allCases: [AppRoute] {
-        return [.launch, .onboarding, .auth, .dashboard, .reminders, .importSyllabus, .preview, .parseReview, .calendar, .profile]
-    }
     
     var title: String {
         switch self {
@@ -124,6 +119,12 @@ class AppNavigationManager: ObservableObject {
     }
 }
 
+private extension AppNavigationManager {
+    var isSignedInShellRoute: Bool {
+        [.dashboard, .reminders, .importSyllabus, .profile].contains(currentRoute)
+    }
+}
+
 // MARK: - App Root View
 
 /// Main app root that handles all navigation and routing
@@ -132,9 +133,13 @@ struct AppRoot: View {
     @StateObject private var themeManager = ThemeManager()
     @StateObject private var eventStore: EventStore
     @StateObject private var importViewModel: ImportViewModel
+    @StateObject private var courseRepository: CourseRepository
+    @StateObject private var gradingRepository: GradingRepository
 
     init() {
         let store = EventStore()
+        let gradingRepo = GradingRepository()
+        let courseRepo = CourseRepository()
         let parser = {
             let config = URLSessionAPIClient.Configuration(
                 baseURL: defaultAPIBaseURL,
@@ -146,10 +151,14 @@ struct AppRoot: View {
             return SyllabusParserRemote(apiClient: client)
         }()
         _eventStore = StateObject(wrappedValue: store)
+        _gradingRepository = StateObject(wrappedValue: gradingRepo)
+        _courseRepository = StateObject(wrappedValue: courseRepo)
         _importViewModel = StateObject(wrappedValue: ImportViewModel(
             extractor: PDFKitExtractor(),
             parser: parser,
-            eventStore: store
+            eventStore: store,
+            courseRepository: courseRepo,
+            gradingRepository: gradingRepo
         ))
     }
 
@@ -164,16 +173,27 @@ struct AppRoot: View {
         .environmentObject(themeManager)
         .environmentObject(eventStore)
         .environmentObject(importViewModel)
+        .environmentObject(courseRepository)
+        .environmentObject(gradingRepository)
         .modifier(ThemeEnvironment(themeManager: themeManager))
-        .task {
-            // Load user data when app launches and user is authenticated
-            if SupabaseAuthService.shared.isAuthenticated {
-                await eventStore.fetchEvents()
-            }
+        .task(id: navigationManager.currentRoute) {
+            await loadAuthenticatedDataIfNeeded()
         }
         .onAppear {
             print("🏠 AppRoot appeared, currentRoute: \(navigationManager.currentRoute)")
         }
+    }
+
+    private func loadAuthenticatedDataIfNeeded() async {
+        guard navigationManager.isSignedInShellRoute else { return }
+        guard SupabaseAuthService.shared.isAuthenticated else { return }
+
+        // Route changes happen after launch/auth decisions, so this avoids
+        // missing the initial load when session restoration finishes later.
+        async let eventsLoad: Void = eventStore.fetchEvents()
+        async let coursesLoad: Void = courseRepository.refresh()
+        async let gradingLoad: Void = gradingRepository.fetchAll()
+        _ = await (eventsLoad, coursesLoad, gradingLoad)
     }
     
     @ViewBuilder
@@ -193,9 +213,9 @@ struct AppRoot: View {
                 TabNavigationView()
                     .transition(.slide)
             default:
-                // For other routes, show placeholder
-                RoutePlaceholderView(route: navigationManager.currentRoute)
-                    .transition(.scale)
+                // Safety fallback — subsidiary routes are pushed via NavigationStack
+                TabNavigationView()
+                    .transition(.slide)
             }
         }
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: navigationManager.currentRoute)
@@ -224,6 +244,7 @@ struct AppRoot: View {
             CalendarView()
         case .courseDetail(let course):
             CourseDetailView(course: course)
+                .navigationBarHidden(true)
         case .profile:
             ProfileView()
         case .networkingTest:
@@ -469,434 +490,6 @@ private struct FABOption: View {
         .offset(y: isVisible ? 0 : 6)
         .animation(.spring(response: 0.22, dampingFraction: 0.84).delay(rowDelay), value: isVisible)
         .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isPressed)
-    }
-}
-
-// MARK: - Placeholder Views
-
-/// Calendar placeholder view
-struct CalendarPlaceholderView: View {
-    var body: some View {
-        NavigationView {
-            VStack {
-                Spacer()
-                Text("📅")
-                    .font(.lexend(size: 80, weight: .regular))
-                Text("Calendar View")
-                    .font(.titleL)
-                    .fontWeight(.bold)
-                    .foregroundColor(AppColors.textPrimary)
-                Text("Coming Soon")
-                    .font(.body)
-                    .foregroundColor(AppColors.textSecondary)
-                Spacer()
-            }
-            .background(AppColors.background)
-            .navigationTitle("Calendar")
-            .navigationBarTitleDisplayMode(.large)
-        }
-    }
-}
-
-/// Reminders placeholder view
-struct RemindersPlaceholderView: View {
-    var body: some View {
-        NavigationView {
-            VStack {
-                Spacer()
-                Text("🔔")
-                    .font(.lexend(size: 80, weight: .regular))
-                Text("Reminders View")
-                    .font(.titleL)
-                    .fontWeight(.bold)
-                    .foregroundColor(AppColors.textPrimary)
-                Text("Coming Soon")
-                    .font(.body)
-                    .foregroundColor(AppColors.textSecondary)
-                Spacer()
-            }
-            .background(AppColors.background)
-            .navigationTitle("Reminders")
-            .navigationBarTitleDisplayMode(.large)
-        }
-    }
-}
-
-/// Generic placeholder view for any route
-struct RoutePlaceholderView: View {
-    let route: AppRoute
-    @EnvironmentObject var navigationManager: AppNavigationManager
-    
-    var body: some View {
-        ScrollView {
-            VStack(spacing: Layout.Spacing.xl) {
-                AppIcon(route.systemImage, size: .xlarge, style: .filled)
-                
-                VStack(spacing: Layout.Spacing.md) {
-                    Text(route.title)
-                        .font(.titleL)
-                        .foregroundColor(AppColors.textPrimary)
-                    
-                    Text("This is a placeholder view for the \(route.title) screen.")
-                        .font(.body)
-                        .foregroundColor(AppColors.textSecondary)
-                        .multilineTextAlignment(.center)
-                }
-                
-                NavigationTestSection()
-            }
-            .padding(Layout.Spacing.lg)
-        }
-        .background(AppColors.background)
-        .navigationTitle(route.title)
-        .navigationBarTitleDisplayMode(.large)
-    }
-}
-
-/// Onboarding placeholder with flow simulation
-struct OnboardingPlaceholderView: View {
-    @EnvironmentObject var navigationManager: AppNavigationManager
-    @State private var currentStep = 0
-    private let steps = ["Welcome", "Features", "Permissions", "Get Started"]
-    
-    var body: some View {
-        VStack(spacing: Layout.Spacing.xxl) {
-            Spacer()
-            
-            AppIcon("hand.wave", size: .xlarge, style: .filled)
-            
-            VStack(spacing: Layout.Spacing.lg) {
-                Text("Welcome to Syllabus Sync")
-                    .font(.titleXL)
-                    .foregroundColor(AppColors.textPrimary)
-                    .multilineTextAlignment(.center)
-                
-                Text("Step \(currentStep + 1) of \(steps.count): \(steps[currentStep])")
-                    .font(.body)
-                    .foregroundColor(AppColors.textSecondary)
-                
-                ProgressView(value: Double(currentStep + 1), total: Double(steps.count))
-                    .progressViewStyle(LinearProgressViewStyle(tint: AppColors.accent))
-                    .padding(.horizontal, Layout.Spacing.xl)
-            }
-            
-            Spacer()
-            
-            VStack(spacing: Layout.Spacing.md) {
-                if currentStep < steps.count - 1 {
-                    HapticPrimaryCTAButton("Next", icon: "arrow.right", hapticType: .lightImpact) {
-                        withAnimation(.spring()) {
-                            currentStep += 1
-                        }
-                    }
-                } else {
-                    HapticPrimaryCTAButton("Get Started", icon: "arrow.right", hapticType: .success) {
-                        navigationManager.setRoot(to: .auth)
-                    }
-                }
-                
-                if currentStep > 0 {
-                    HapticSecondaryButton("Back", icon: "arrow.left", hapticType: .lightImpact) {
-                        withAnimation(.spring()) {
-                            currentStep -= 1
-                        }
-                    }
-                }
-            }
-            .padding(Layout.Spacing.lg)
-        }
-        .background(AppColors.background)
-    }
-}
-
-/// Auth placeholder with form simulation
-struct AuthPlaceholderView: View {
-    @EnvironmentObject var navigationManager: AppNavigationManager
-    @State private var isSignUp = false
-    @State private var isLoading = false
-    @State private var email = ""
-    @State private var password = ""
-    
-    var body: some View {
-        ScrollView {
-            VStack(spacing: Layout.Spacing.xl) {
-                AppIcon("person.circle", size: .xlarge, style: .filled)
-                
-                VStack(spacing: Layout.Spacing.lg) {
-                    Text(isSignUp ? "Create Account" : "Welcome Back")
-                        .font(.titleL)
-                        .foregroundColor(AppColors.textPrimary)
-                    
-                    SegmentedTabs(
-                        items: [false, true],
-                        selectedItem: isSignUp,
-                        itemTitle: { $0 ? "Sign Up" : "Login" }
-                    ) { isSignUpTab in
-                        isSignUp = isSignUpTab
-                    }
-                }
-                
-                VStack(spacing: Layout.Spacing.md) {
-                    TextField("Email", text: $email)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .autocapitalization(.none)
-                        .keyboardType(.emailAddress)
-                    
-                    SecureField("Password", text: $password)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                }
-                .padding(.horizontal, Layout.Spacing.lg)
-                
-                VStack(spacing: Layout.Spacing.md) {
-                    HapticPrimaryCTAButton(
-                        isSignUp ? "Create Account" : "Sign In",
-                        icon: "arrow.right",
-                        isLoading: isLoading,
-                        hapticType: .success
-                    ) {
-                        simulateAuth()
-                    }
-                    
-                    HapticSecondaryButton("Back to Welcome", icon: "arrow.left", hapticType: .lightImpact) {
-                        navigationManager.setRoot(to: .onboarding)
-                    }
-                }
-                .padding(Layout.Spacing.lg)
-                
-                NavigationTestSection()
-            }
-        }
-        .background(AppColors.background)
-        .navigationTitle(isSignUp ? "Sign Up" : "Sign In")
-    }
-    
-    private func simulateAuth() {
-        isLoading = true
-        HapticFeedbackManager.shared.lightImpact()
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            isLoading = false
-            HapticFeedbackManager.shared.success()
-            navigationManager.setRoot(to: .dashboard)
-        }
-    }
-}
-
-/// Dashboard placeholder with navigation options
-struct DashboardPlaceholderView: View {
-    @EnvironmentObject var navigationManager: AppNavigationManager
-    
-    var body: some View {
-        ScrollView {
-            VStack(spacing: Layout.Spacing.xl) {
-                AppIcon("house", size: .xlarge, style: .filled)
-                
-                VStack(spacing: Layout.Spacing.md) {
-                    Text("Dashboard")
-                        .font(.titleL)
-                        .foregroundColor(AppColors.textPrimary)
-                    
-                    Text("Your academic overview")
-                        .font(.body)
-                        .foregroundColor(AppColors.textSecondary)
-                }
-                
-                QuickActionsGrid()
-                
-                NavigationTestSection()
-            }
-            .padding(Layout.Spacing.lg)
-        }
-        .background(AppColors.background)
-        .navigationTitle("Dashboard")
-    }
-}
-
-/// Import placeholder
-struct ImportPlaceholderView: View {
-    var body: some View {
-        RoutePlaceholderView(route: .importSyllabus)
-    }
-}
-
-/// Preview placeholder
-struct PreviewPlaceholderView: View {
-    var body: some View {
-        RoutePlaceholderView(route: .preview)
-    }
-}
-
-/// Course detail placeholder
-struct CourseDetailPlaceholderView: View {
-    let courseCode: String
-    
-    var body: some View {
-        ScrollView {
-            VStack(spacing: Layout.Spacing.xl) {
-                AppIcon("book", size: .xlarge, style: .filled)
-                
-                VStack(spacing: Layout.Spacing.md) {
-                    Text("Course Details")
-                        .font(.titleL)
-                        .foregroundColor(AppColors.textPrimary)
-                    
-                    Text("Course Code: \(courseCode)")
-                        .font(.body)
-                        .foregroundColor(AppColors.textSecondary)
-                        .padding(.horizontal, Layout.Spacing.md)
-                        .padding(.vertical, Layout.Spacing.sm)
-                        .background(AppColors.surfaceSecondary)
-                        .cornerRadius(Layout.CornerRadius.sm)
-                }
-                
-                NavigationTestSection()
-            }
-            .padding(Layout.Spacing.lg)
-        }
-        .background(AppColors.background)
-        .navigationTitle("Course Details")
-    }
-}
-
-// MARK: - Test Components
-
-/// Quick actions grid for dashboard testing
-struct QuickActionsGrid: View {
-    @EnvironmentObject var navigationManager: AppNavigationManager
-    
-    var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: Layout.Spacing.md) {
-            // Import Syllabus - switches tabs
-            CardView(style: .elevated) {
-                Button(action: {
-                    navigationManager.switchTab(to: .importSyllabus)
-                }) {
-                    VStack(spacing: Layout.Spacing.sm) {
-                        AppIcon("plus.circle", size: .medium, style: .filled)
-                        Text("Import Syllabus")
-                            .font(.captionL)
-                            .foregroundColor(AppColors.textPrimary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(Layout.Spacing.md)
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-            
-            // Preview Events - stays in dashboard tab with NavigationLink
-            CardView(style: .elevated) {
-                NavigationLink(value: AppRoute.preview) {
-                    VStack(spacing: Layout.Spacing.sm) {
-                        AppIcon("eye", size: .medium, style: .filled)
-                        Text("Preview Events")
-                            .font(.captionL)
-                            .foregroundColor(AppColors.textPrimary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(Layout.Spacing.md)
-                }
-                .buttonStyle(PlainButtonStyle())
-                .simultaneousGesture(
-                    TapGesture().onEnded {
-                        HapticFeedbackManager.shared.lightImpact()
-                    }
-                )
-            }
-            
-            // Course Details - stays in dashboard tab with NavigationLink
-            CardView(style: .elevated) {
-                NavigationLink(value: AppRoute.courseDetail(course: MockCourse.sampleCourses[0])) {
-                    VStack(spacing: Layout.Spacing.sm) {
-                        AppIcon("book", size: .medium, style: .filled)
-                        Text("Course Details")
-                            .font(.captionL)
-                            .foregroundColor(AppColors.textPrimary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(Layout.Spacing.md)
-                }
-                .buttonStyle(PlainButtonStyle())
-                .simultaneousGesture(
-                    TapGesture().onEnded {
-                        HapticFeedbackManager.shared.lightImpact()
-                    }
-                )
-            }
-            
-            // Profile - switches tabs
-            CardView(style: .elevated) {
-                Button(action: {
-                    navigationManager.switchTab(to: .profile)
-                }) {
-                    VStack(spacing: Layout.Spacing.sm) {
-                        AppIcon("person.crop.circle", size: .medium, style: .filled)
-                        Text("Profile")
-                            .font(.captionL)
-                            .foregroundColor(AppColors.textPrimary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(Layout.Spacing.md)
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-        }
-    }
-}
-
-/// Navigation testing section for all screens
-struct NavigationTestSection: View {
-    @EnvironmentObject var navigationManager: AppNavigationManager
-    
-    var body: some View {
-        CardView(style: .outlined) {
-            VStack(alignment: .leading, spacing: Layout.Spacing.lg) {
-                HStack {
-                    Image(systemName: "map")
-                        .foregroundColor(AppColors.accent)
-                    Text("Navigation Test Center")
-                        .font(.titleS)
-                        .foregroundColor(AppColors.textPrimary)
-                    Spacer()
-                }
-                
-                Text("Test navigation to any screen:")
-                    .font(.body)
-                    .foregroundColor(AppColors.textSecondary)
-                
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: Layout.Spacing.sm) {
-                    ForEach(AppRoute.allCases, id: \.self) { route in
-                        SmallButton(route.title, style: .secondary) {
-                            navigationManager.navigate(to: route)
-                        }
-                    }
-                }
-                
-                Divider()
-                
-                HStack(spacing: Layout.Spacing.sm) {
-                    SmallButton("← Back", style: .secondary) {
-                        // Use proper navigation instead of direct routing
-                        if navigationManager.navigationPath.isEmpty {
-                            // If no navigation stack, go to dashboard
-                            navigationManager.setRoot(to: .dashboard)
-                        } else {
-                            // Pop back in navigation stack
-                            navigationManager.popBack()
-                        }
-                    }
-                    
-                    SmallButton("🏠 Root", style: .secondary) {
-                        navigationManager.popToRoot()
-                    }
-                    
-                    Spacer()
-                    
-                    SmallButton("Auth Reset", style: .destructive) {
-                        navigationManager.setRoot(to: .onboarding)
-                    }
-                }
-            }
-        }
     }
 }
 

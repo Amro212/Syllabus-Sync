@@ -82,6 +82,23 @@ protocol DataService {
     /// Delete all events for a course
     func deleteEvents(forCourseCode courseCode: String) async -> DataResult<Void>
     
+    // MARK: - Grading Entry Operations
+    
+    /// Fetch all grading entries for the current user
+    func fetchAllGradingEntries() async -> DataResult<[GradingSchemeEntry]>
+    
+    /// Fetch grading entries for a specific course
+    func fetchGradingEntries(forCourseId courseId: String) async -> DataResult<[GradingSchemeEntry]>
+    
+    /// Save (replace) grading entries for a course — deletes existing, inserts new
+    func saveGradingEntries(_ entries: [GradingSchemeEntry], forCourseId courseId: String) async -> DataResult<[GradingSchemeEntry]>
+    
+    /// Delete a single grading entry
+    func deleteGradingEntry(id: String) async -> DataResult<Void>
+    
+    /// Delete all grading entries for a course
+    func deleteGradingEntries(forCourseId courseId: String) async -> DataResult<Void>
+    
     // MARK: - Batch Operations
     
     /// Delete all user data

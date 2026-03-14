@@ -559,6 +559,127 @@ export function groundEventsAgainstScheme(
 }
 
 /**
+ * Ensures every deliverable in the deterministic grading scheme has at
+ * least one matching event in the AI output.  If a deliverable is
+ * missing, a placeholder event with `needsDate: true` is injected so
+ * the client always receives the full grading picture.
+ *
+ * This is the **consistency guarantee**: no matter how the AI behaves,
+ * every weighted deliverable the regex found will appear in the final
+ * event list.
+ *
+ * Match logic (in priority order):
+ *  1. Exact name match (case-insensitive)
+ *  2. Substring containment (deliverable name in event title or vice-versa)
+ *  3. Stem-aware word overlap (significant words > 3 chars)
+ *  4. Type match for single-entry types (e.g. only one FINAL in scheme
+ *     and only one FINAL event)
+ *
+ * Non-assessment scheme entries (type OTHER, e.g. "Participation") are
+ * skipped — the AI is not expected to create events for those.
+ */
+export function ensureSchemeCoverage(
+  events: EventItemDTO[],
+  scheme: GradingEntry[],
+  courseCode: string,
+): { events: EventItemDTO[]; injected: string[] } {
+  if (scheme.length === 0) return { events, injected: [] };
+
+  const NON_EVENT_TYPES: Set<EventType> = new Set(['OTHER', 'LECTURE', 'OFFICE_HOURS']);
+  const injected: string[] = [];
+
+  // Build a mutable set of "uncovered" deliverables
+  const uncovered = scheme.filter(d => !NON_EVENT_TYPES.has(d.type));
+
+  // Helper: stem a word for fuzzy matching
+  const stem = (w: string) => w.toLowerCase().replace(/s$/, '').replace(/ies$/, 'y');
+
+  // For each scheme deliverable, check if any event covers it
+  const covered = new Set<number>();
+
+  for (let si = 0; si < uncovered.length; si++) {
+    const d = uncovered[si];
+    const dNameLower = d.name.toLowerCase();
+    const dStems = dNameLower.split(/\s+/).map(stem).filter(w => w.length > 3);
+
+    for (const ev of events) {
+      const titleLower = ev.title.toLowerCase();
+
+      // 1. Exact match
+      if (titleLower === dNameLower) { covered.add(si); break; }
+
+      // 2. Substring containment
+      if (titleLower.includes(dNameLower) || dNameLower.includes(titleLower)) {
+        covered.add(si); break;
+      }
+
+      // 3. Stem overlap — all significant stems of the deliverable appear in the title
+      //    Numbers are always included as stems (critical for "Midterm 1" vs "Midterm 2")
+      if (dStems.length > 0) {
+        const dNumbers = dNameLower.match(/\d+/g) ?? [];
+        const titleStems = titleLower.split(/\s+/).map(stem);
+        const titleNumbers = titleLower.match(/\d+/g) ?? [];
+        const stemsMatch = dStems.every(s => titleStems.includes(s));
+        const numbersMatch = dNumbers.length === 0 || (
+          dNumbers.length === titleNumbers.length &&
+          dNumbers.every((n, i) => n === titleNumbers[i])
+        );
+        if (stemsMatch && numbersMatch) {
+          covered.add(si); break;
+        }
+      }
+
+      // 4. Type match for single-entry types
+      const sameTypeInScheme = uncovered.filter(x => x.type === d.type);
+      const sameTypeEvents = events.filter(x => x.type === d.type);
+      if (sameTypeInScheme.length === 1 && sameTypeEvents.length >= 1) {
+        covered.add(si); break;
+      }
+    }
+  }
+
+  // Inject placeholders for uncovered deliverables
+  const result = [...events];
+  for (let si = 0; si < uncovered.length; si++) {
+    if (covered.has(si)) continue;
+
+    const d = uncovered[si];
+    const kebabId = d.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    // Avoid duplicate IDs
+    const existingIds = new Set(result.map(e => e.id));
+    let finalId = kebabId;
+    let suffix = 2;
+    while (existingIds.has(finalId)) {
+      finalId = `${kebabId}-${suffix++}`;
+    }
+
+    const placeholder: EventItemDTO = {
+      id: finalId,
+      courseCode,
+      type: d.type,
+      title: d.name,
+      start: null,
+      needsDate: true,
+      allDay: true,
+      notes: d.weight != null
+        ? `Weight: ${Math.round(d.weight * 100)}%. [Auto-injected — AI did not create this event]`
+        : '[Auto-injected — AI did not create this event]',
+      confidence: 0.5,
+      dateSource: null,
+    };
+
+    result.push(placeholder);
+    injected.push(d.name);
+  }
+
+  return { events: result, injected };
+}
+
+/**
  * Helper to create a valid EventItem with defaults.
  * Useful for tests and programmatic event construction.
  */

@@ -391,6 +391,175 @@ class SupabaseDataService: DataService {
         }
     }
     
+    // MARK: - Grading Entry Operations
+    
+    func fetchAllGradingEntries() async -> DataResult<[GradingSchemeEntry]> {
+        guard let userId = currentUserId else {
+            return .failure(error: .notAuthenticated)
+        }
+        
+        do {
+            let entries: [SupabaseGradingEntry] = try await supabase
+                .from("grading_entries")
+                .select()
+                .eq("user_id", value: userId)
+                .order("sort_order", ascending: true)
+                .execute()
+                .value
+            
+            return .success(data: entries.map { $0.toDomain() })
+        } catch {
+            return .failure(error: .databaseError(error.localizedDescription))
+        }
+    }
+    
+    func fetchGradingEntries(forCourseId courseId: String) async -> DataResult<[GradingSchemeEntry]> {
+        guard let courseUUID = UUID(uuidString: courseId) else {
+            return .failure(error: .invalidData("Invalid course ID"))
+        }
+        guard let userId = currentUserId else {
+            return .failure(error: .notAuthenticated)
+        }
+        
+        do {
+            let entries: [SupabaseGradingEntry] = try await supabase
+                .from("grading_entries")
+                .select()
+                .eq("user_id", value: userId)
+                .eq("course_id", value: courseUUID)
+                .order("sort_order", ascending: true)
+                .execute()
+                .value
+            
+            return .success(data: entries.map { $0.toDomain() })
+        } catch {
+            return .failure(error: .databaseError(error.localizedDescription))
+        }
+    }
+    
+    func saveGradingEntries(_ entries: [GradingSchemeEntry], forCourseId courseId: String) async -> DataResult<[GradingSchemeEntry]> {
+        guard let courseUUID = UUID(uuidString: courseId) else {
+            return .failure(error: .invalidData("Invalid course ID"))
+        }
+        guard let userId = currentUserId else {
+            return .failure(error: .notAuthenticated)
+        }
+        
+        do {
+            struct ExistingGradingEntryID: Decodable {
+                let id: UUID
+            }
+
+            let existingRows: [ExistingGradingEntryID] = try await supabase
+                .from("grading_entries")
+                .select("id")
+                .eq("user_id", value: userId)
+                .eq("course_id", value: courseUUID)
+                .execute()
+                .value
+            
+            guard !entries.isEmpty else {
+                try await supabase
+                    .from("grading_entries")
+                    .delete()
+                    .eq("user_id", value: userId)
+                    .eq("course_id", value: courseUUID)
+                    .execute()
+                return .success(data: [])
+            }
+            
+            // Upsert desired rows first so a later delete cannot wipe out
+            // the existing grading scheme if the replacement write fails.
+            let insertData = entries.enumerated().map { index, entry in
+                SupabaseGradingEntryInsert.fromDomain(
+                    GradingSchemeEntry(
+                        id: entry.id,
+                        name: entry.name,
+                        weight: entry.weight,
+                        type: entry.type,
+                        courseId: courseId,
+                        sortOrder: index
+                    ),
+                    courseId: courseUUID,
+                    userId: userId
+                )
+            }
+            
+            let upserted: [SupabaseGradingEntry] = try await supabase
+                .from("grading_entries")
+                .upsert(insertData)
+                .select()
+                .execute()
+                .value
+
+            let desiredIDs = Set(insertData.map(\.id))
+            let staleIDs = existingRows
+                .map(\.id)
+                .filter { !desiredIDs.contains($0) }
+
+            if !staleIDs.isEmpty {
+                try await supabase
+                    .from("grading_entries")
+                    .delete()
+                    .eq("user_id", value: userId)
+                    .eq("course_id", value: courseUUID)
+                    .in("id", values: staleIDs)
+                    .execute()
+            }
+            
+            let saved = upserted
+                .map { $0.toDomain() }
+                .sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
+            return .success(data: saved)
+        } catch {
+            return .failure(error: .databaseError(error.localizedDescription))
+        }
+    }
+    
+    func deleteGradingEntry(id: String) async -> DataResult<Void> {
+        guard let entryUUID = UUID(uuidString: id) else {
+            return .failure(error: .invalidData("Invalid grading entry ID"))
+        }
+        guard let userId = currentUserId else {
+            return .failure(error: .notAuthenticated)
+        }
+        
+        do {
+            try await supabase
+                .from("grading_entries")
+                .delete()
+                .eq("id", value: entryUUID)
+                .eq("user_id", value: userId)
+                .execute()
+            
+            return .success(data: ())
+        } catch {
+            return .failure(error: .databaseError(error.localizedDescription))
+        }
+    }
+    
+    func deleteGradingEntries(forCourseId courseId: String) async -> DataResult<Void> {
+        guard let courseUUID = UUID(uuidString: courseId) else {
+            return .failure(error: .invalidData("Invalid course ID"))
+        }
+        guard let userId = currentUserId else {
+            return .failure(error: .notAuthenticated)
+        }
+        
+        do {
+            try await supabase
+                .from("grading_entries")
+                .delete()
+                .eq("user_id", value: userId)
+                .eq("course_id", value: courseUUID)
+                .execute()
+            
+            return .success(data: ())
+        } catch {
+            return .failure(error: .databaseError(error.localizedDescription))
+        }
+    }
+    
     // MARK: - Batch Operations
     
     func deleteAllData() async -> DataResult<Void> {
@@ -399,7 +568,14 @@ class SupabaseDataService: DataService {
         }
         
         do {
-            // Delete all events first (due to foreign key constraint)
+            // Delete grading entries first (FK → courses)
+            try await supabase
+                .from("grading_entries")
+                .delete()
+                .eq("user_id", value: userId)
+                .execute()
+            
+            // Delete all events (FK → courses)
             try await supabase
                 .from("events")
                 .delete()

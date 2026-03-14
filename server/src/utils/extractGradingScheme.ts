@@ -38,6 +38,9 @@ const GRADING_SECTION_RX: RegExp[] = [
 	/\bgrade\s+(distribution|breakdown|allocation)\b/i,
 	/\bmarks?\s+(distribution|breakdown|allocation)\b/i,
 	/\bweighting\s+of\s+(grades?|marks?|components?)\b/i,
+	/\bassessments?\s+and\s+grad/i,
+	/\bmarking\s+schemes?\b/i,
+	/\bassessment\s+details?\b/i,
 ];
 
 /** Headings that clearly end the grading section. */
@@ -57,7 +60,39 @@ const END_SECTION_RX: RegExp[] = [
 	/\bassignment\s+details?\b/i,
 	/\blab\s+schedule\b/i,
 	/\blecture\s+schedule\b/i,
+	/\bfinal\s+grade\b/i,
+	/\bassignment\s+polic/i,
+	/\bassignment\s+alignment\b/i,
+	/\bassignment\s+grading\b/i,
 ];
+
+// ── Blacklisted names (false-positive suppression) ──────────────
+
+/**
+ * Names that should never appear as standalone deliverables.
+ * These are generic terms that leak from policy/formula sections
+ * (e.g. "exam component (60%)" in a Final Grade Calculation paragraph).
+ */
+const BLACKLISTED_NAMES_RX: RegExp[] = [
+	/^component$/i,
+	/^exam\s+component$/i,
+	/^grade$/i,
+	/^final\s+grade$/i,
+	/^total$/i,
+	/^total\s+grade$/i,
+	/^course\s+grade$/i,
+	/^overall$/i,
+	/^weight$/i,
+	/^percentage$/i,
+	/^marks?$/i,
+	/^score$/i,
+	/^grading$/i,
+];
+
+function isBlacklistedName(name: string): boolean {
+	const trimmed = name.trim();
+	return BLACKLISTED_NAMES_RX.some((rx) => rx.test(trimmed));
+}
 
 // ── Line-level extraction ───────────────────────────────────────
 
@@ -74,7 +109,7 @@ const END_SECTION_RX: RegExp[] = [
  * Separator can be punctuation OR 2+ spaces.
  */
 const WEIGHT_LINE_RX =
-	/^[-*•|>\s]*(?<name>[A-Za-z][A-Za-z0-9 /&,()'-]{1,60}?)\s*(?:[|:.…–—\-\t]+\s*|\s{2,})(?<pct>\d{1,3})\s*%/;
+	/^[-*•|>\s]*(?<name>[A-Za-z][A-Za-z0-9 /&,()':.+*-]{1,60}?)\s*(?:[|:.…–—\-\t]+\s*|\s{2,})(?<pct>\d{1,3})\s*%/;
 
 /**
  * Fallback: percentage appears after name with colon/parenthesis.
@@ -83,13 +118,13 @@ const WEIGHT_LINE_RX =
  *   "- Labs: 25%"
  */
 const WEIGHT_INLINE_RX =
-	/^[-*•|>\s]*(?<name>[A-Za-z][A-Za-z0-9 /&,()'-]{1,60}?)\s*[:(]\s*(?<pct>\d{1,3})\s*%/;
+	/^[-*•|>\s]*(?<name>[A-Za-z][A-Za-z0-9 /&,()':.+*-]{1,60}?)\s*[:(]\s*(?<pct>\d{1,3})\s*%/;
 
 /**
  * Reverse pattern: "30% — Assignments" or "30% Final Exam"
  */
 const WEIGHT_REVERSE_RX =
-	/^[-*•|>\s]*(?<pct>\d{1,3})\s*%\s*[—\-–:|\s]+\s*(?<name>[A-Za-z][A-Za-z0-9 /&,()'-]{1,60})/;
+	/^[-*•|>\s]*(?<pct>\d{1,3})\s*%\s*[—\-–:|\s]+\s*(?<name>[A-Za-z][A-Za-z0-9 /&,()':.+*-]{1,60})/;
 
 // ── Type inference ──────────────────────────────────────────────
 
@@ -122,7 +157,7 @@ function looksLikeHeading(line: string): boolean {
 		const upper = (t.match(/[A-Z]/g) || []).length;
 		if (upper / alpha.length > 0.8) return true;
 	}
-	if (t.length <= 60 && /^[\w\s&/,()'-]+$/.test(t)) return true;
+	if (t.length <= 60 && /^[\w\s&/,()'.*-]+$/.test(t)) return true;
 	return false;
 }
 
@@ -146,6 +181,164 @@ function dedup(entries: GradingEntry[]): GradingEntry[] {
 		seen.add(key);
 		return true;
 	});
+}
+
+// ── Umbrella / parent-entry detection ────────────────────────────
+
+/**
+ * Generic umbrella-category names that a syllabus might use to group
+ * individual deliverables.  Only entries matching one of these patterns
+ * are eligible for removal by `removeParentEntries`.
+ *
+ * This prevents specific assessment items like "Final Exam" or
+ * "Midterm 1" from being accidentally removed just because their
+ * weight happens to equal the sum of other entries.
+ */
+const UMBRELLA_NAME_RX: RegExp[] = [
+	/^exams?$/i,
+	/^tests?$/i,
+	/^examinations?$/i,
+	/^assignments?$/i,
+	/^homework$/i,
+	/^labs?$/i,
+	/^laborator(?:y|ies)$/i,
+	/^quizzes?$/i,
+	/^tutorials?$/i,
+	/^projects?$/i,
+	/^reports?$/i,
+	/^written\s+work$/i,
+	/^oral\s+(?:work|presentations?)$/i,
+	/^presentations?$/i,
+	/^coursework$/i,
+	/^assessments?$/i,
+	/^deliverables?$/i,
+	/^(?:in[- ]?class\s+)?exercises?$/i,
+];
+
+function isUmbrellaName(name: string): boolean {
+	const trimmed = name.trim();
+	return UMBRELLA_NAME_RX.some((rx) => rx.test(trimmed));
+}
+
+/**
+ * Remove parent/umbrella entries that overlap with their children.
+ *
+ * When a syllabus lists both a category ("Exams: 60%") and individual
+ * items ("Midterm 1: 15%, Midterm 2: 15%, Final: 30%"), the total
+ * exceeds 100%.  This function detects entries whose weight equals
+ * the sum of some subset of other entries (within ±2.5 pp tolerance)
+ * and removes those parent entries.
+ *
+ * **Safety guard:** only entries whose name matches a known umbrella
+ * pattern (e.g. "Exams", "Assignments", "Labs") are eligible for
+ * removal.  Specific items like "Final Exam" or "Midterm 1" are
+ * never removed, even if their weight coincidentally equals a sum
+ * of other entries.
+ *
+ * Processes candidates largest-weight-first and stops as soon as
+ * the remaining total is ≤ 100%.
+ *
+ * Only runs when the raw total exceeds 1.0 (100%).
+ */
+function removeParentEntries(entries: GradingEntry[]): GradingEntry[] {
+	const withWeight = entries.filter((e) => e.weight != null && e.weight > 0);
+	let totalWeight = withWeight.reduce((s, e) => s + (e.weight ?? 0), 0);
+
+	// If total is ≤ 1.0, nothing to fix
+	if (totalWeight <= 1.02) return entries;
+
+	const tolerance = 0.025; // 2.5 percentage-point tolerance
+
+	// Process largest-first so we preferentially remove umbrella categories
+	const sorted = [...withWeight].sort(
+		(a, b) => (b.weight ?? 0) - (a.weight ?? 0)
+	);
+	const parentNames = new Set<string>();
+
+	for (const candidate of sorted) {
+		// Stop once total is at or below 100%
+		if (totalWeight <= 1.02) break;
+
+		// ── Safety: only umbrella-named entries can be removed ──
+		if (!isUmbrellaName(candidate.name)) continue;
+
+		const target = candidate.weight!;
+		// Exclude the candidate AND any already-flagged parents from the pool
+		const others = withWeight.filter(
+			(e) =>
+				e !== candidate &&
+				!parentNames.has(e.name.toLowerCase().replace(/\s+/g, ' '))
+		);
+
+		if (others.length < 2) continue;
+
+		if (hasSubsetSum(others.map((o) => o.weight!), target, tolerance)) {
+			parentNames.add(
+				candidate.name.toLowerCase().replace(/\s+/g, ' ')
+			);
+			totalWeight -= target;
+		}
+	}
+
+	if (parentNames.size === 0) return entries;
+
+	return entries.filter(
+		(e) => !parentNames.has(e.name.toLowerCase().replace(/\s+/g, ' '))
+	);
+}
+
+/**
+ * Check whether any subset of `weights` (with at least 2 elements)
+ * sums to `target` ± `tolerance`.
+ *
+ * Tracks sums reachable with exactly 1 item (`dp1`) separately from
+ * sums reachable with ≥ 2 items (`dp2plus`).  This prevents a single
+ * item whose weight equals `target` from masking a genuine multi-item
+ * subset that also reaches the same sum.
+ *
+ * Weights are percentages 0-1 scaled by 1000 to get integer arithmetic.
+ */
+function hasSubsetSum(
+	weights: number[],
+	target: number,
+	tolerance: number
+): boolean {
+	if (weights.length < 2) return false;
+
+	const scale = 1000;
+	const targetInt = Math.round(target * scale);
+	const tolInt = Math.round(tolerance * scale);
+
+	// dp1: sums reachable with exactly 1 item
+	// dp2plus: sums reachable with >= 2 items
+	const dp1 = new Set<number>();
+	const dp2plus = new Set<number>();
+
+	for (const w of weights) {
+		const wInt = Math.round(w * scale);
+
+		// Snapshot current state before mutation
+		const snap1 = [...dp1];
+		const snap2 = [...dp2plus];
+
+		// Extending a 2+-item sum by one more item → still 2+
+		for (const s of snap2) {
+			dp2plus.add(s + wInt);
+		}
+		// Extending a 1-item sum by one more item → now 2 items
+		for (const s of snap1) {
+			dp2plus.add(s + wInt);
+		}
+
+		// This single item is a 1-item sum
+		dp1.add(wInt);
+	}
+
+	for (let t = targetInt - tolInt; t <= targetInt + tolInt; t++) {
+		if (dp2plus.has(t)) return true;
+	}
+
+	return false;
 }
 
 // ── Main export ─────────────────────────────────────────────────
@@ -216,7 +409,7 @@ export function extractGradingScheme(text: string): GradingSchemeResult {
 
 		if (name && pct != null && pct > 0 && pct <= 100) {
 			const cleaned = cleanName(name);
-			if (cleaned.length >= 2) {
+			if (cleaned.length >= 2 && !isBlacklistedName(cleaned)) {
 				entries.push({
 					name: cleaned,
 					weight: pct / 100,
@@ -227,7 +420,7 @@ export function extractGradingScheme(text: string): GradingSchemeResult {
 	}
 
 	return {
-		deliverables: dedup(entries),
+		deliverables: removeParentEntries(dedup(entries)),
 		rawSection,
 	};
 }

@@ -503,7 +503,9 @@ struct ParseReviewView_Previews: PreviewProvider {
             .environmentObject(ImportViewModel(
                 extractor: PDFKitExtractor(),
                 parser: SyllabusParserRemote(apiClient: URLSessionAPIClient(configuration: .init(baseURL: URL(string: "http://localhost:8787")!))),
-                eventStore: EventStore()
+                eventStore: EventStore(),
+                courseRepository: CourseRepository(),
+                gradingRepository: GradingRepository()
             ))
             .environmentObject(AppNavigationManager())
             .environmentObject(EventStore())

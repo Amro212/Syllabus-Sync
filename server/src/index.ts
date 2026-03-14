@@ -9,6 +9,7 @@
 import { logRequest, logError, nowIso } from './logging';
 import { ensureOpenAIKey } from './env';
 import { validateEvents, type ValidationConfig } from './validation/eventValidation';
+import { ensureSchemeCoverage } from './validation/eventValidation';
 import { buildParseSyllabusRequest } from './prompts/parseSyllabus';
 import { detectCourseCode } from './utils/courseCode';
 import { callOpenAIParse } from './clients/openai';
@@ -442,7 +443,28 @@ export default {
 						...validationConfig,
 						gradingScheme: gradingScheme?.deliverables,
 					});
-					if (validationResult.events.length === 0) {
+					const warnings = [...validationResult.warnings];
+					if (!validationResult.valid) {
+						warnings.push(...validationResult.errors);
+					}
+
+					// ── Consistency guarantee: inject missing grading deliverables ──
+					let coveredEvents = validationResult.events;
+					if (gradingScheme?.deliverables?.length) {
+						const coverage = ensureSchemeCoverage(
+							coveredEvents,
+							gradingScheme.deliverables,
+							courseCode,
+						);
+						coveredEvents = coverage.events;
+						if (coverage.injected.length > 0) {
+							warnings.push(
+								`Schema coverage: injected ${coverage.injected.length} missing deliverable(s): ${coverage.injected.join(', ')}`
+							);
+						}
+					}
+
+					if (coveredEvents.length === 0) {
 						const status = 422;
 						logRequest(env, 'info', {
 							ts: nowIso(), requestId, route: path, method, status,
@@ -458,17 +480,12 @@ export default {
 						});
 					}
 
-					const avgConfidence = validationResult.events.length
-						? validationResult.events.reduce((sum, e) => sum + (e.confidence ?? 0), 0) / validationResult.events.length
-						: 0;
-
-					const warnings = [...validationResult.warnings];
-					if (!validationResult.valid) {
-						warnings.push(...validationResult.errors);
-					}
-
 					// Post-process: split multi-day recurrence rules into separate events
-					const splitEvents = splitMultiDayRecurrence(validationResult.events);
+					const splitEvents = splitMultiDayRecurrence(coveredEvents);
+
+					const avgConfidence = coveredEvents.length
+						? coveredEvents.reduce((sum, e) => sum + (e.confidence ?? 0), 0) / coveredEvents.length
+						: 0;
 
 					const response = {
 						events: splitEvents,
@@ -500,7 +517,7 @@ export default {
 						durationMs: Date.now() - startedAt,
 						payloadChars: typeof text === 'string' ? text.length : 0,
 						parserPath: 'openai',
-						eventsFound: validationResult.events.length,
+						eventsFound: coveredEvents.length,
 						averageConfidence: response.confidence,
 					});
 					return res;

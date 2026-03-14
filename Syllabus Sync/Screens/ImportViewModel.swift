@@ -32,17 +32,20 @@ final class ImportViewModel: ObservableObject {
     private let extractor: PDFTextExtractor
     private let parser: SyllabusParser
     private let eventStore: EventStore
-    private let courseRepository = CourseRepository()
+    private let courseRepository: CourseRepository
+    private let gradingRepository: GradingRepository
     private var progressTask: Task<Void, Never>?
     private var lastImportedURL: URL?
     private var currentRequestID: String?
     private var cancellationRequested = false
     private var eventStoreCancellable: AnyCancellable?
 
-    init(extractor: PDFTextExtractor, parser: SyllabusParser, eventStore: EventStore) {
+    init(extractor: PDFTextExtractor, parser: SyllabusParser, eventStore: EventStore, courseRepository: CourseRepository, gradingRepository: GradingRepository) {
         self.extractor = extractor
         self.parser = parser
         self.eventStore = eventStore
+        self.courseRepository = courseRepository
+        self.gradingRepository = gradingRepository
         eventStoreCancellable = eventStore.$events
             .receive(on: DispatchQueue.main)
             .sink { [weak self] items in
@@ -115,15 +118,7 @@ final class ImportViewModel: ObservableObject {
             } else {
                 // All events have dates — auto-approve immediately
                 await eventStore.autoApprove(events: events)
-
-                // Extract and save courses from events
-                let uniqueCourseCodes = Set(events.map { $0.courseCode })
-                for courseCode in uniqueCourseCodes {
-                    if await courseRepository.fetchCourse(byCode: courseCode) == nil {
-                        let course = Course(id: UUID().uuidString, code: courseCode)
-                        _ = await courseRepository.saveCourse(course)
-                    }
-                }
+                await persistImportedCoursesAndGrading(for: events)
             }
 
             preprocessedParserInputText = parser.latestPreprocessedText
@@ -205,14 +200,7 @@ final class ImportViewModel: ObservableObject {
                 needsReview = true
             } else {
                 await eventStore.autoApprove(events: events)
-
-                let uniqueCourseCodes = Set(events.map { $0.courseCode })
-                for code in uniqueCourseCodes {
-                    if await courseRepository.fetchCourse(byCode: code) == nil {
-                        let course = Course(id: UUID().uuidString, code: code)
-                        _ = await courseRepository.saveCourse(course)
-                    }
-                }
+                await persistImportedCoursesAndGrading(for: events)
             }
 
             rawAIResponse = parser.rawResponse
@@ -401,14 +389,7 @@ final class ImportViewModel: ObservableObject {
     func completeReviewAndSave(events reviewedEvents: [EventItem]) async {
         self.events = reviewedEvents
         await eventStore.autoApprove(events: reviewedEvents)
-
-        let uniqueCourseCodes = Set(reviewedEvents.map { $0.courseCode })
-        for courseCode in uniqueCourseCodes {
-            if await courseRepository.fetchCourse(byCode: courseCode) == nil {
-                let course = Course(id: UUID().uuidString, code: courseCode)
-                _ = await courseRepository.saveCourse(course)
-            }
-        }
+        await persistImportedCoursesAndGrading(for: reviewedEvents)
 
         needsReview = false
         parsedEventsForReview = []
@@ -465,6 +446,28 @@ final class ImportViewModel: ObservableObject {
         }
 
         return (error.localizedDescription, .unknown)
+    }
+
+    private func persistImportedCoursesAndGrading(for importedEvents: [EventItem]) async {
+        let uniqueCourseCodes = Set(importedEvents.map(\.courseCode))
+        var savedCoursesByCode: [String: Course] = [:]
+
+        for courseCode in uniqueCourseCodes {
+            if let existing = await courseRepository.fetchCourse(byCode: courseCode) {
+                savedCoursesByCode[courseCode] = existing
+            } else {
+                let course = Course(id: UUID().uuidString, code: courseCode)
+                savedCoursesByCode[courseCode] = await courseRepository.saveCourse(course) ?? course
+            }
+        }
+
+        guard !gradingScheme.isEmpty else { return }
+        guard uniqueCourseCodes.count == 1, let onlyCourseCode = uniqueCourseCodes.first, let savedCourse = savedCoursesByCode[onlyCourseCode] else {
+            print("ImportViewModel: skipped grading persistence because the import resolved to multiple course codes")
+            return
+        }
+
+        await gradingRepository.save(entries: gradingScheme, forCourseId: savedCourse.id)
     }
 
     private func logImportError(state: ImportErrorState, underlying: Error) {

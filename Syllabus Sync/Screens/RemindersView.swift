@@ -61,14 +61,27 @@ struct RemindersView: View {
         case lectures = "Lectures"
         case other = "Other"
         
-        var icon: String {
+        var lottieIcon: String {
             switch self {
-            case .all: return "tray.fill" // Generic tray/all icon
-            case .assignments: return "doc.text.fill"
-            case .exams: return "graduationcap.fill"
-            case .labs: return "flask.fill"
-            case .lectures: return "person.3.fill"
-            case .other: return "star.fill"
+            case .all:         return "filter-all"
+            case .assignments: return "filter-assignment"
+            case .exams:       return "filter-exam"
+            case .labs:        return "filter-lab"
+            case .lectures:    return "filter-lecture"
+            case .other:       return "filter-other"
+            }
+        }
+
+        /// Per-icon size and stroke width tuned for each animation's internal geometry.
+        /// Canvas is 430×430; strokeWidth here is in Lottie units.
+        var lottieConfig: (size: CGFloat, strokeWidth: CGFloat) {
+            switch self {
+            case .all:         return (18, 42)
+            case .assignments: return (20, 30)
+            case .exams:       return (18, 42)
+            case .labs:        return (18, 42)
+            case .lectures:    return (20, 32)
+            case .other:       return (17, 14)  // star points need thin strokes to stay distinct
             }
         }
         
@@ -392,7 +405,7 @@ struct RemindersView: View {
                     if !eventStore.events.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: Layout.Spacing.sm) {
-                                CourseFilterButton(title: "All", isSelected: selectedCourse == nil) {
+                                CourseFilterButton(title: "All", isSelected: selectedCourse == nil, showIcon: true) {
                                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                                         selectedCourse = nil
                                     }
@@ -813,13 +826,30 @@ struct FilterTabButton: View {
     let filter: RemindersView.ReminderFilter
     let isSelected: Bool
     let action: () -> Void
-    
+
+    @State private var animationTrigger = false
+
+    private var iconPrimaryColor: Color {
+        isSelected ? .white : AppColors.textSecondary
+    }
+
     var body: some View {
-        Button(action: action) {
+        Button {
+            animationTrigger.toggle()
+            action()
+        } label: {
             HStack(spacing: Layout.Spacing.xs) {
-                Image(systemName: filter.icon)
-                    .font(.system(size: 14, weight: .medium))
-                
+                let config = filter.lottieConfig
+                LottieView(
+                    animationName: filter.lottieIcon,
+                    loopMode: .playOnce,
+                    primaryColor: iconPrimaryColor,
+                    strokeWidth: config.strokeWidth,
+                    playTrigger: animationTrigger
+                )
+                .frame(width: config.size, height: config.size)
+                .allowsHitTesting(false)
+
                 Text(filter.rawValue)
                     .font(.captionL)
                     .fontWeight(.medium)
@@ -830,22 +860,22 @@ struct FilterTabButton: View {
             .background(
                 Group {
                     if isSelected {
-                         LinearGradient(
-                             gradient: Gradient(colors: [
-                                 Color(red: 0.886, green: 0.714, blue: 0.275), // Medium gold
-                                 Color(red: 0.816, green: 0.612, blue: 0.118)  // Darker gold
-                             ]),
-                             startPoint: .topLeading,
-                             endPoint: .bottomTrailing
-                         )
-                         .shadow(color: Color(red: 0.886, green: 0.714, blue: 0.275).opacity(0.4), radius: 8, x: 0, y: 4)
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color(red: 0.886, green: 0.714, blue: 0.275),
+                                Color(red: 0.816, green: 0.612, blue: 0.118)
+                            ]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                        .shadow(color: Color(red: 0.886, green: 0.714, blue: 0.275).opacity(0.4), radius: 8, x: 0, y: 4)
                     } else {
                         AppColors.surface
                             .shadow(color: AppColors.shadow.opacity(0.05), radius: 4, x: 0, y: 2)
                     }
                 }
             )
-            .cornerRadius(20) // Pill shape
+            .cornerRadius(20)
             .scaleEffect(isSelected ? 1.05 : 1.0)
         }
         .buttonStyle(PlainButtonStyle())
@@ -855,14 +885,33 @@ struct FilterTabButton: View {
 struct CourseFilterButton: View {
     let title: String
     let isSelected: Bool
+    var showIcon: Bool = false
     let action: () -> Void
-    
+
+    @State private var animationTrigger = false
+
+    private var iconPrimaryColor: Color {
+        isSelected ? .white : AppColors.textSecondary
+    }
+
     var body: some View {
-        Button(action: action) {
+        Button {
+            animationTrigger.toggle()
+            action()
+        } label: {
             HStack(spacing: Layout.Spacing.xs) {
-                Image(systemName: "book.fill")
-                    .font(.system(size: 12, weight: .medium))
-                
+                if showIcon {
+                    LottieView(
+                        animationName: "book-morph-open",
+                        loopMode: .playOnce,
+                        primaryColor: iconPrimaryColor,
+                        strokeWidth: 46,
+                        playTrigger: animationTrigger
+                    )
+                    .frame(width: 16, height: 16)
+                    .allowsHitTesting(false)
+                }
+
                 Text(title)
                     .font(.captionL)
                     .fontWeight(.medium)

@@ -321,7 +321,7 @@ private struct DashboardSummaryClusterView: View {
             return DashboardHeroInsight(
                 eyebrow: "Quick Insights",
                 title: "Your dashboard is ready",
-                description: "Import a syllabus and your weekly summary will start surfacing deadlines, pacing, and course hotspots automatically.",
+                description: "Import a syllabus to get started.",
                 icon: "sparkles",
                 tint: AppColors.accent
             )
@@ -331,7 +331,7 @@ private struct DashboardSummaryClusterView: View {
             return DashboardHeroInsight(
                 eyebrow: "Deadline Today",
                 title: firstUrgent.title,
-                description: "\(firstUrgent.courseCode) needs attention today. Open Reminders to review the details and stay ahead of the cutoff.",
+                description: "\(firstUrgent.courseCode) due today.",
                 icon: "exclamationmark.circle.fill",
                 tint: AppColors.eventExam
             )
@@ -341,7 +341,7 @@ private struct DashboardSummaryClusterView: View {
             return DashboardHeroInsight(
                 eyebrow: "Heavy Window",
                 title: "\(urgentEvents.count) items due soon",
-                description: "Your next pressure point is \(nearest.title) for \(nearest.courseCode). A quick head start today will smooth the rest of the week.",
+                description: "Next: \(nearest.title) • \(nearest.courseCode)",
                 icon: "hourglass",
                 tint: AppColors.warning
             )
@@ -351,7 +351,7 @@ private struct DashboardSummaryClusterView: View {
             return DashboardHeroInsight(
                 eyebrow: "Deadline Tomorrow",
                 title: next.title,
-                description: "\(next.courseCode) is the next important item on deck. You still have time to finish it cleanly before it gets urgent.",
+                description: "\(next.courseCode) due tomorrow.",
                 icon: "clock.badge.fill",
                 tint: AppColors.accentSecondary
             )
@@ -360,7 +360,7 @@ private struct DashboardSummaryClusterView: View {
         return DashboardHeroInsight(
             eyebrow: "Quick Insights",
             title: "You have breathing room",
-            description: "Nothing urgent lands in the next 48 hours. This is a good moment to get ahead on readings, prep, or the next assignment block.",
+            description: "Nothing due in the next 48 hours.",
             icon: "leaf.fill",
             tint: AppColors.success
         )
@@ -528,7 +528,7 @@ private struct DashboardPriorityBoard: View {
                     Text("Focus This Week")
                         .font(.titleS)
                         .foregroundStyle(AppColors.textPrimary)
-                    Text("Deadlines first, then the overall pace of the week.")
+                    Text("Deadlines and weekly pace.")
                         .font(.captionL)
                         .foregroundStyle(AppColors.textSecondary)
                 }
@@ -672,7 +672,7 @@ private struct DashboardWeeklySnapshotCard: View {
                     Text("This Week at a Glance")
                         .font(.titleS)
                         .foregroundStyle(AppColors.textPrimary)
-                    Text(stats.isEmpty ? "Your weekly load will appear here." : "\(totalCount) item\(totalCount == 1 ? "" : "s") mapped across the week.")
+                    Text(stats.isEmpty ? "No items this week." : "\(totalCount) item\(totalCount == 1 ? "" : "s") this week.")
                         .font(.captionL)
                         .foregroundStyle(AppColors.textSecondary)
                 }
@@ -683,10 +683,10 @@ private struct DashboardWeeklySnapshotCard: View {
             if stats.isEmpty {
                 DashboardEmptySnapshotCard(
                     icon: isNewUser ? "text.book.closed.fill" : "checkmark.circle.fill",
-                    title: isNewUser ? "Nothing imported yet" : "Your week is quiet",
+                    title: isNewUser ? "Nothing here yet" : "Week is clear",
                     message: isNewUser
-                        ? "Import a syllabus and the dashboard will start surfacing upcoming work automatically."
-                        : "No tasks are queued for the rest of this week. Use the space to get ahead while the pressure is low."
+                        ? "Import a syllabus to get started."
+                        : "No items left this week."
                 )
             } else if stats.count == 1, let stat = stats.first {
                 DashboardSingleWeeklyMetricCard(stat: stat)
@@ -774,7 +774,7 @@ private struct DashboardNoDeadlineCard: View {
                 Text(isNewUser ? "No deadlines yet" : "No urgent deadlines")
                     .font(.titleS)
                     .foregroundStyle(AppColors.textPrimary)
-                Text(isNewUser ? "Start by importing a syllabus and the dashboard will build your focus list." : "Nothing upcoming in the next seven days. You can use this space to plan ahead.")
+                Text(isNewUser ? "Import a syllabus to get started." : "Nothing due in the next 7 days.")
                     .font(.bodyS)
                     .foregroundStyle(AppColors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -858,10 +858,6 @@ private struct DashboardSingleWeeklyMetricCard: View {
                 Text("\(stat.count) \(stat.label)")
                     .font(.titleS)
                     .foregroundStyle(AppColors.textPrimary)
-                Text("Your weekly load is concentrated in one category, so the dashboard keeps the rest of the space focused on deadlines.")
-                    .font(.bodyS)
-                    .foregroundStyle(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer()

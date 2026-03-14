@@ -204,14 +204,14 @@ const UMBRELLA_NAME_RX: RegExp[] = [
 	/^laborator(?:y|ies)$/i,
 	/^quizzes?$/i,
 	/^tutorials?$/i,
-	/^projects?$/i,
-	/^reports?$/i,
+	/^projects$/i,
+	/^reports$/i,
 	/^written\s+work$/i,
 	/^oral\s+(?:work|presentations?)$/i,
-	/^presentations?$/i,
+	/^presentations$/i,
 	/^coursework$/i,
 	/^assessments?$/i,
-	/^deliverables?$/i,
+	/^deliverables$/i,
 	/^(?:in[- ]?class\s+)?exercises?$/i,
 ];
 

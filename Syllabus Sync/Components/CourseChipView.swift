@@ -2,8 +2,8 @@
 //  CourseChipView.swift
 //  Syllabus Sync
 //
-//  Compact course pill for the Dashboard. Shows course code + event count
-//  in a tappable capsule-style chip.
+//  Compact course card for the Dashboard. Shows course code and a quick
+//  status summary in a tappable horizontal rail item.
 //
 
 import SwiftUI
@@ -25,43 +25,60 @@ struct CourseChipView: View {
             HapticFeedbackManager.shared.lightImpact()
             onTap()
         } label: {
-            HStack(spacing: Layout.Spacing.sm) {
-                // Color indicator
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(courseColor)
-                    .frame(width: 4, height: 20)
+            VStack(alignment: .leading, spacing: Layout.Spacing.md) {
+                HStack(alignment: .top) {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(courseColor.opacity(0.16))
+                        .frame(width: 40, height: 40)
+                        .overlay {
+                            Image(systemName: "book.closed.fill")
+                                .font(.lexend(size: 16, weight: .semibold))
+                                .foregroundStyle(courseColor)
+                        }
 
-                // Course code
-                Text(course.code)
-                    .font(.captionL)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(AppColors.textPrimary)
-                    .lineLimit(1)
+                    Spacer()
 
-                // Event count badge
-                if eventCount > 0 {
-                    Text("\(eventCount)")
-                        .font(.caption2)
-                        .fontWeight(.bold)
+                    Image(systemName: "arrow.up.right")
+                        .font(.captionL)
                         .foregroundStyle(AppColors.textTertiary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(AppColors.surfaceSecondary)
-                        .clipShape(Capsule())
                 }
 
-                Image(systemName: "chevron.right")
-                    .font(.caption2)
-                    .fontWeight(.medium)
-                    .foregroundStyle(AppColors.textTertiary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(course.code)
+                        .font(.body)
+                        .foregroundStyle(AppColors.textPrimary)
+                        .lineLimit(1)
+
+                    Text(course.title ?? "\(eventCount) upcoming item\(eventCount == 1 ? "" : "s")")
+                        .font(.captionL)
+                        .foregroundStyle(AppColors.textSecondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: Layout.Spacing.xs) {
+                    Text(eventCount == 0 ? "No upcoming items" : "\(eventCount) upcoming")
+                        .font(.captionL)
+                        .foregroundStyle(eventCount == 0 ? AppColors.textSecondary : courseColor)
+                        .padding(.horizontal, Layout.Spacing.sm)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill((eventCount == 0 ? AppColors.surfaceSecondary : courseColor.opacity(0.12)))
+                        )
+
+                    Spacer()
+                }
             }
-            .padding(.horizontal, Layout.Spacing.md)
-            .padding(.vertical, Layout.Spacing.sm)
-            .background(AppColors.surface)
-            .clipShape(.rect(cornerRadius: Layout.CornerRadius.xl))
-            .overlay(
-                RoundedRectangle(cornerRadius: Layout.CornerRadius.xl)
-                    .stroke(AppColors.border, lineWidth: 0.5)
+            .frame(width: 184, alignment: .leading)
+            .padding(Layout.Spacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(AppColors.surfaceSecondary.opacity(0.6))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .stroke(AppColors.border.opacity(0.4), lineWidth: 1)
+                    }
             )
         }
         .buttonStyle(.plain)

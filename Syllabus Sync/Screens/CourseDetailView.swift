@@ -103,12 +103,12 @@ struct CourseDetailView: View {
     }
 
     private var upcomingCount: Int {
-        courseEvents.filter { $0.start >= Date() }.count
+        courseEvents.filter { !$0.needsDate && $0.start >= Date() }.count
     }
 
     private var nextEventDate: String? {
         guard let next = courseEvents
-            .filter({ $0.start >= Date() })
+            .filter({ !$0.needsDate && $0.start >= Date() })
             .sorted(by: { $0.start < $1.start })
             .first else { return nil }
         let formatter = RelativeDateTimeFormatter()

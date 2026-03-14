@@ -215,6 +215,54 @@ describe('extractGradingScheme', () => {
     expect(total).toBeCloseTo(1.05);
   });
 
+  it('keeps singular deliverables even when other weights add up to the same value', () => {
+    const text = [
+      'Grading Breakdown:',
+      'Project  30%',
+      'Midterm  15%',
+      'Final Exam  15%',
+      'Essay  40%',
+      'Participation  20%',
+    ].join('\n');
+
+    const result = extractGradingScheme(text);
+    const names = result.deliverables.map(d => d.name.toLowerCase());
+
+    expect(names).toContain('project');
+    expect(names).toContain('midterm');
+    expect(names).toContain('final exam');
+    expect(result.deliverables).toHaveLength(5);
+  });
+
+  it('removes singular umbrella categories when itemized rows add up to them', () => {
+    const text = [
+      'Evaluation Scheme:',
+      'Assignment 1  10%',
+      'Assignment 2  10%',
+      'Assignment 3  10%',
+      'Assignment  30%',
+      'Lab 1  5%',
+      'Lab 2  5%',
+      'Lab  10%',
+      'Final Exam  60%',
+    ].join('\n');
+
+    const result = extractGradingScheme(text);
+    const names = result.deliverables.map(d => d.name.toLowerCase());
+
+    expect(names).not.toContain('assignment');
+    expect(names).not.toContain('lab');
+    expect(names).toContain('assignment 1');
+    expect(names).toContain('assignment 2');
+    expect(names).toContain('assignment 3');
+    expect(names).toContain('lab 1');
+    expect(names).toContain('lab 2');
+    expect(names).toContain('final exam');
+
+    const total = result.deliverables.reduce((s, d) => s + (d.weight ?? 0), 0);
+    expect(total).toBeCloseTo(1.0);
+  });
+
   it('handles CIS*2750-style syllabus: tab-separated tables, colons in names, blocks false positives', () => {
     // Regression: The extractor must handle real OCR tab-separated table rows
     // where assignment names contain colons (e.g. "AO: Unit testing...")

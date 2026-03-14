@@ -18,13 +18,15 @@ enum CalendarViewMode: String, CaseIterable {
 // MARK: - Calendar View
 
 struct CalendarView: View {
+    var onToggleToList: (() -> Void)? = nil
+
     @EnvironmentObject var navigationManager: AppNavigationManager
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var eventStore: EventStore
 
     @State private var selectedDate: Date = Date()
     @State private var currentMonth: Date = Date()
-    @State private var viewMode: CalendarViewMode = .week // Default to week as shown in wireframe
+    @State private var viewMode: CalendarViewMode = .week
 
     private var events: [CalendarEvent] {
         CalendarEvent.make(from: eventStore.events)
@@ -48,25 +50,36 @@ struct CalendarView: View {
                 AppColors.background.ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    // Header Section
+                    // Header Section — title row + full-width week/month toggle
                     VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
-                        // Month Title
-                        Text(monthYearString)
-                            .font(.lexend(.title2, weight: .bold)) // 28px in wireframe ~ title2/title
-                            .foregroundColor(AppColors.textPrimary)
-                            .padding(.leading, Layout.Spacing.sm)
+                        HStack {
+                            Text(monthYearString)
+                                .font(.lexend(.title2, weight: .bold))
+                                .foregroundStyle(AppColors.textPrimary)
 
-                        // Toggle
+                            Spacer()
+
+                            if let onToggleToList {
+                                Button(action: onToggleToList) {
+                                    Image(systemName: "list.bullet")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(AppColors.accent)
+                                        .frame(width: 36, height: 36)
+                                        .background(AppColors.surface)
+                                        .clipShape(.rect(cornerRadius: 8))
+                                }
+                            }
+                        }
+
                         CalendarViewModeToggle(selectedMode: $viewMode)
                     }
                     .padding(.horizontal, Layout.Spacing.md)
-                    .padding(.top, Layout.Spacing.md)
-                    .padding(.bottom, Layout.Spacing.sm)
-                    .background(AppColors.background) // Sticky header background
+                    .padding(.vertical, Layout.Spacing.sm)
+                    .background(AppColors.background)
                     
                     // Shared Scrollable Content (Grid + Events)
                     ScrollView {
-                        VStack(spacing: Layout.Spacing.md) {
+                        VStack(spacing: Layout.Spacing.sm) {
                             // Calendar Grid (Week or Month)
                             if viewMode == .week {
                                 WeekStripView(
@@ -88,27 +101,25 @@ struct CalendarView: View {
                                 .padding(.horizontal, Layout.Spacing.lg)
                             
                             // Events List
-                            VStack(spacing: Layout.Spacing.md) {
+                            VStack(spacing: Layout.Spacing.sm) {
                                 if eventsForSelectedDate.isEmpty {
                                     CalendarEmptyStateView()
-                                        .padding(.top, Layout.Spacing.xl)
                                 } else {
                                     ForEach(eventsForSelectedDate) { event in
                                         GlassEventCard(event: event)
                                     }
                                 }
-                                
+
                                 // Motivational message (bottom filler)
                                 if !eventsForSelectedDate.isEmpty {
                                     MotivationalMessageView()
-                                        .padding(.top, Layout.Spacing.xl)
+                                        .padding(.top, Layout.Spacing.sm)
                                         .opacity(0.6)
                                 }
                             }
                             .padding(.horizontal, Layout.Spacing.md)
-                            .padding(.bottom, 40)
+                            .padding(.bottom, 20)
                         }
-                        .padding(.top, 4)
                     }
                 }
             }
@@ -264,14 +275,14 @@ struct MonthCalendarView: View {
             // Simple Month Navigation
             HStack {
                 Button(action: { changeMonth(by: -1) }) {
-                   Image(systemName: "chevron.left").padding()
+                    Image(systemName: "chevron.left").padding(8)
                 }
                 Spacer()
                 Button(action: { changeMonth(by: 1) }) {
-                    Image(systemName: "chevron.right").padding()
+                    Image(systemName: "chevron.right").padding(8)
                 }
             }
-            .foregroundColor(AppColors.textSecondary)
+            .foregroundStyle(AppColors.textSecondary)
         }
         .padding(.horizontal, Layout.Spacing.sm)
     }
@@ -350,7 +361,7 @@ struct DayCell: View {
                     }
                 }
             }
-            .frame(height: 50)
+            .frame(height: 44)
         }
         .buttonStyle(PlainButtonStyle())
         .opacity(isCurrentMonth ? 1.0 : 0.3)
@@ -447,16 +458,16 @@ struct GlassEventCard: View {
                .padding(.top, 4)
             }
         }
-        .padding(16)
+        .padding(12)
         .background(
             // Glass Effect
             RoundedRectangle(cornerRadius: 20)
                 .fill(cardBackgroundColor)
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(AppColors.accent.opacity(0.15), lineWidth: 1) // Thin gold border
+                        .stroke(AppColors.accent.opacity(0.15), lineWidth: 1)
                 )
-                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4) // Glass Shadow
+                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
         )
     }
     
@@ -571,22 +582,22 @@ struct GlassEventCard: View {
 
 struct CalendarEmptyStateView: View {
     var body: some View {
-        VStack(spacing: Layout.Spacing.md) {
+        VStack(spacing: 10) {
             Image(systemName: "calendar")
-                .font(.lexend(size: 40, weight: .regular))
-                .foregroundColor(AppColors.textTertiary)
-            
+                .font(.system(size: 32))
+                .foregroundStyle(AppColors.textTertiary)
+
             Text("You're up to date!")
                 .font(.lexend(.title3, weight: .medium))
-                .foregroundColor(AppColors.textPrimary)
-            
+                .foregroundStyle(AppColors.textPrimary)
+
             Text("Enjoy your week.")
                 .font(.lexend(.caption, weight: .regular))
-                .foregroundColor(AppColors.textSecondary)
+                .foregroundStyle(AppColors.textSecondary)
         }
         .opacity(0.6)
         .frame(maxWidth: .infinity)
-        .padding(Layout.Spacing.xl)
+        .padding(Layout.Spacing.lg)
     }
 }
 
@@ -658,19 +669,19 @@ struct CalendarEvent: Identifiable, Hashable {
 
 struct MotivationalMessageView: View {
     var body: some View {
-        VStack(spacing: Layout.Spacing.sm) {
+        VStack(spacing: Layout.Spacing.xs) {
             Text("😊")
-                .font(.lexend(size: 32, weight: .regular))
-            
+                .font(.system(size: 28))
+
             Text("More deadlines this week!")
-                .font(.lexend(size: 16, weight: .medium))
-                .foregroundColor(AppColors.textPrimary)
-            
+                .font(.lexend(size: 15, weight: .medium))
+                .foregroundStyle(AppColors.textPrimary)
+
             Text("Stay on track with Syllabus Sync.")
-                .font(.lexend(size: 13, weight: .regular))
-                .foregroundColor(AppColors.textSecondary)
+                .font(.lexend(size: 12, weight: .regular))
+                .foregroundStyle(AppColors.textSecondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(Layout.Spacing.xl)
+        .padding(Layout.Spacing.md)
     }
 }

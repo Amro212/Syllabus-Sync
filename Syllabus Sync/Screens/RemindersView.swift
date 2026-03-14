@@ -546,19 +546,27 @@ struct RemindersView: View {
             GeometryReader { geo in
                 VStack(spacing: 0) {
                     header(topInset: geo.safeAreaInsets.top)
-                    Spacer().frame(height: headerToToolbarSpacing)
-                    toolbar
-                    Spacer().frame(height: toolbarToContentSpacing)
+
+                    if viewMode == .list {
+                        Spacer().frame(height: headerToToolbarSpacing)
+                        toolbar
+                        Spacer().frame(height: toolbarToContentSpacing)
+                    }
 
                     Group {
                         if viewMode == .list {
                             listContent
                         } else {
-                            CalendarView()
-                                .transition(.opacity)
-                                .environmentObject(navigationManager)
-                                .environmentObject(eventStore)
-                                .environmentObject(importViewModel)
+                            CalendarView(onToggleToList: {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    viewMode = .list
+                                }
+                                HapticFeedbackManager.shared.lightImpact()
+                            })
+                            .transition(.opacity)
+                            .environmentObject(navigationManager)
+                            .environmentObject(eventStore)
+                            .environmentObject(importViewModel)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

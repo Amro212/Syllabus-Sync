@@ -24,6 +24,11 @@ final class SocialHubService {
         let sharedCoursesByUser: [String: [String]]
     }
 
+    private struct DiscoverRecommendationSeed {
+        let candidateIds: [String]
+        let sharedCoursesByUser: [String: [String]]
+    }
+
     private struct CourseMembershipRow: Decodable {
         let userId: String
         let code: String
@@ -34,9 +39,23 @@ final class SocialHubService {
         }
     }
 
+    private struct RecommendationResponse: Decodable {
+        let users: [RecommendationRow]
+    }
+
+    private struct RecommendationRow: Decodable {
+        let id: String
+        let username: String
+        let displayName: String?
+        let mutualFriendsCount: Int
+        let sharedCourseCodes: [String]
+        let requestState: String
+    }
+
     static let shared = SocialHubService()
 
     private let supabase: SupabaseClient
+    private let apiClient: APIClient
 
     /// Lowercased to match Supabase/PostgreSQL's lowercase UUID format.
     /// Swift's UUID.uuidString returns uppercase, but Supabase stores and
@@ -48,6 +67,18 @@ final class SocialHubService {
 
     private init() {
         self.supabase = SupabaseAuthService.shared.supabase
+        let baseURL: URL = {
+            if let env = ProcessInfo.processInfo.environment["API_BASE_URL"], let url = URL(string: env) {
+                return url
+            }
+            return URL(string: "http://localhost:8787")!
+        }()
+        self.apiClient = URLSessionAPIClient(configuration: .init(
+            baseURL: baseURL,
+            defaultHeaders: ["Content-Type": "application/json"],
+            requestTimeout: 30,
+            maxRetryCount: 1
+        ))
     }
 
     // MARK: - Username Operations
@@ -136,6 +167,16 @@ final class SocialHubService {
 
     /// Recommended users based on mutual friends or shared courses.
     func fetchRecommendedUsers() async -> [DiscoverUserDisplay] {
+        do {
+            let serverUsers = try await fetchRecommendedUsersFromServer()
+            return sortDiscoverUsers(serverUsers.filter(\.isRecommended))
+        } catch {
+        }
+
+        return await fetchRecommendedUsersDirect()
+    }
+
+    private func fetchRecommendedUsersDirect() async -> [DiscoverUserDisplay] {
         guard let uid = currentUserId else {
             print("⚠️ Cannot load discover recommendations: not authenticated")
             return []
@@ -143,25 +184,62 @@ final class SocialHubService {
 
         do {
             let baseContext = try await fetchDiscoverBaseContext(for: uid)
-            let candidateIds = try await fetchRecommendedCandidateIds(
+            let recommendationSeed = try await fetchRecommendedCandidateIds(
                 currentUserId: uid,
                 friendIds: baseContext.friendIds,
                 myCourseCodes: baseContext.myCourseCodes
             )
 
-            guard !candidateIds.isEmpty else { return [] }
+            guard !recommendationSeed.candidateIds.isEmpty else { return [] }
 
-            let profiles = try await fetchUserProfiles(ids: candidateIds)
+            let profiles = try await fetchUserProfiles(ids: recommendationSeed.candidateIds)
             let users = try await buildDiscoverUsers(
                 from: profiles,
                 baseContext: baseContext,
-                includeFriends: false
+                includeFriends: false,
+                seedSharedCoursesByUser: recommendationSeed.sharedCoursesByUser
             )
             let recommendedOnly = users.filter(\.isRecommended)
             return sortDiscoverUsers(recommendedOnly)
         } catch {
             print("⚠️ Fetch recommended users failed: \(error)")
             return []
+        }
+    }
+
+    private func fetchRecommendedUsersFromServer() async throws -> [DiscoverUserDisplay] {
+        let accessToken = try await supabase.auth.session.accessToken
+
+        let request = APIRequest(
+            path: "/social/recommendations",
+            method: .get,
+            headers: ["Authorization": "Bearer \(accessToken)"]
+        )
+
+        let response = try await apiClient.send(request, as: RecommendationResponse.self)
+        return response.users.compactMap { row in
+            let requestState: DiscoverRequestState
+            switch row.requestState {
+            case "requested":
+                requestState = .requested
+            case "friends":
+                requestState = .friends
+            default:
+                requestState = .none
+            }
+
+            let normalizedSharedCourses = row.sharedCourseCodes
+                .map(normalizedCourseCode(_:))
+                .filter { !$0.isEmpty }
+
+            return DiscoverUserDisplay(
+                id: row.id,
+                username: row.username,
+                displayName: row.displayName,
+                mutualFriendsCount: row.mutualFriendsCount,
+                sharedCourseCodes: normalizedSharedCourses,
+                requestState: requestState
+            )
         }
     }
 
@@ -448,8 +526,9 @@ final class SocialHubService {
         currentUserId: String,
         friendIds: Set<String>,
         myCourseCodes: Set<String>
-    ) async throws -> [String] {
+    ) async throws -> DiscoverRecommendationSeed {
         var candidateIds: Set<String> = []
+        var sharedCoursesByUser: [String: Set<String>] = [:]
 
         if !friendIds.isEmpty {
             let friendIdList = Array(friendIds)
@@ -484,21 +563,22 @@ final class SocialHubService {
         }
 
         if !myCourseCodes.isEmpty {
-            let sharedCourseRows: [CourseMembershipRow] = try await supabase
-                .from("courses")
-                .select("user_id, code")
-                .in("code", values: Array(myCourseCodes))
-                .neq("user_id", value: currentUserId)
-                .execute()
-                .value
+            let sharedCourseRows = try await fetchCourseMembershipsForRecommendations(
+                matching: myCourseCodes,
+                excludingUserId: currentUserId
+            )
 
             for row in sharedCourseRows where !friendIds.contains(row.userId) {
                 candidateIds.insert(row.userId)
+                sharedCoursesByUser[row.userId, default: []].insert(normalizedCourseCode(row.code))
             }
         }
 
         candidateIds.remove(currentUserId)
-        return Array(candidateIds)
+        return DiscoverRecommendationSeed(
+            candidateIds: Array(candidateIds),
+            sharedCoursesByUser: sharedCoursesByUser.mapValues { Array($0).sorted() }
+        )
     }
 
     private func fetchUserProfiles(ids: [String]) async throws -> [UserProfile] {
@@ -515,7 +595,8 @@ final class SocialHubService {
     private func buildDiscoverUsers(
         from profiles: [UserProfile],
         baseContext: DiscoverBaseContext,
-        includeFriends: Bool
+        includeFriends: Bool,
+        seedSharedCoursesByUser: [String: [String]] = [:]
     ) async throws -> [DiscoverUserDisplay] {
         let candidateIds = profiles.map(\.id)
         let mutualContext = try await fetchDiscoverMutualContext(
@@ -541,7 +622,10 @@ final class SocialHubService {
 
             let mutualFriendIds = mutualContext.friendIdsByUser[userId, default: []]
                 .intersection(baseContext.friendIds)
-            let sharedCourseCodes = mutualContext.sharedCoursesByUser[userId, default: []]
+            let sharedCourseCodes = Array(
+                Set(mutualContext.sharedCoursesByUser[userId, default: []])
+                    .union(seedSharedCoursesByUser[userId, default: []])
+            ).sorted()
 
             return DiscoverUserDisplay(
                 id: userId,
@@ -639,11 +723,47 @@ final class SocialHubService {
 
         var courseCodesByUser: [String: Set<String>] = [:]
         for row in rows {
-            let normalizedCode = row.code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            let normalizedCode = normalizedCourseCode(row.code)
             guard !normalizedCode.isEmpty else { continue }
             courseCodesByUser[row.userId, default: []].insert(normalizedCode)
         }
         return courseCodesByUser
+    }
+
+    private func fetchCourseMembershipsForRecommendations(
+        matching courseCodes: Set<String>,
+        excludingUserId: String
+    ) async throws -> [CourseMembershipRow] {
+        var membershipsByKey: [String: CourseMembershipRow] = [:]
+
+        for code in courseCodes {
+            let variants = discoverCourseQueryVariants(for: code)
+            for variant in variants {
+                let rows: [CourseMembershipRow] = try await supabase
+                    .from("courses")
+                    .select("user_id, code")
+                    .eq("code", value: variant)
+                    .neq("user_id", value: excludingUserId)
+                    .execute()
+                    .value
+
+                for row in rows {
+                    membershipsByKey["\(row.userId)|\(normalizedCourseCode(row.code))"] = row
+                }
+            }
+        }
+
+        return Array(membershipsByKey.values)
+    }
+
+    private func discoverCourseQueryVariants(for courseCode: String) -> [String] {
+        let normalized = normalizedCourseCode(courseCode)
+        guard !normalized.isEmpty else { return [] }
+        return Array(Set([normalized, normalized.lowercased()]))
+    }
+
+    private func normalizedCourseCode(_ code: String) -> String {
+        code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
     }
 
     private func deduplicatedFriendships(_ lhs: [Friendship], _ rhs: [Friendship]) -> [Friendship] {

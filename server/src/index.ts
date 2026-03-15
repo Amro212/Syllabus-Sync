@@ -16,6 +16,38 @@ import { callOpenAIParse } from './clients/openai';
 import { splitMultiDayRecurrence } from './utils/splitMultiDayRecurrence';
 import { extractGradingScheme } from './utils/extractGradingScheme';
 
+type SocialUserProfileRow = {
+	id: string;
+	username?: string | null;
+	display_name?: string | null;
+};
+
+type SocialFriendshipRow = {
+	id: string;
+	user_a_id: string;
+	user_b_id: string;
+};
+
+type SocialFriendRequestRow = {
+	from_user_id: string;
+	to_user_id: string;
+	status: string;
+};
+
+type SocialCourseMembershipRow = {
+	user_id: string;
+	code: string;
+};
+
+type RecommendationUser = {
+	id: string;
+	username: string;
+	displayName: string | null;
+	mutualFriendsCount: number;
+	sharedCourseCodes: string[];
+	requestState: 'none' | 'requested' | 'friends';
+};
+
 // Basic in-memory token buckets by IP (per-isolate, best-effort)
 const buckets = new Map<string, { tokens: number; lastRefill: number }>();
 
@@ -32,6 +64,48 @@ const openaiUsage: OpenAIUsage = {
 	totalCost: 0,
 	perIpCalls: new Map(),
 };
+
+function normalizedCourseCode(code: string): string {
+	return code.trim().toUpperCase();
+}
+
+function deduplicatedFriendships(rows: SocialFriendshipRow[]): SocialFriendshipRow[] {
+	const seen = new Set<string>();
+	const unique: SocialFriendshipRow[] = [];
+	for (const row of rows) {
+		if (seen.has(row.id)) continue;
+		seen.add(row.id);
+		unique.push(row);
+	}
+	return unique;
+}
+
+function requestSortOrder(state: RecommendationUser['requestState']): number {
+	switch (state) {
+		case 'none': return 0;
+		case 'requested': return 1;
+		case 'friends': return 2;
+	}
+}
+
+function sortRecommendationUsers(users: RecommendationUser[]): RecommendationUser[] {
+	return [...users].sort((lhs, rhs) => {
+		const lhsState = requestSortOrder(lhs.requestState);
+		const rhsState = requestSortOrder(rhs.requestState);
+		if (lhsState !== rhsState) return lhsState - rhsState;
+
+		const lhsRecommended = lhs.mutualFriendsCount > 0 || lhs.sharedCourseCodes.length > 0;
+		const rhsRecommended = rhs.mutualFriendsCount > 0 || rhs.sharedCourseCodes.length > 0;
+		if (lhsRecommended !== rhsRecommended) return lhsRecommended ? -1 : 1;
+		if (lhs.mutualFriendsCount !== rhs.mutualFriendsCount) return rhs.mutualFriendsCount - lhs.mutualFriendsCount;
+		if (lhs.sharedCourseCodes.length !== rhs.sharedCourseCodes.length) return rhs.sharedCourseCodes.length - lhs.sharedCourseCodes.length;
+		return lhs.username.localeCompare(rhs.username, undefined, { sensitivity: 'base' });
+	});
+}
+
+function inFilter(values: string[]): string {
+	return `in.(${values.join(',')})`;
+}
 
 function resetOpenAIUsageIfNewDay() {
 	const today = new Date().toISOString().slice(0, 10);
@@ -677,6 +751,233 @@ export default {
 					});
 					// On error, fail open (allow the flow)
 					return json({ exists: false, provider: null });
+				}
+			}
+
+			if (path === '/social/recommendations' && request.method === 'GET') {
+				try {
+					const serviceRoleKey = (env as any).SUPABASE_SERVICE_ROLE_KEY;
+					const supabaseUrl = (env as any).SUPABASE_URL;
+					if (!serviceRoleKey || !supabaseUrl) {
+						return json({ error: 'Supabase social recommendations are not configured.' }, { status: 500 });
+					}
+
+					const authorization = request.headers.get('authorization') || request.headers.get('Authorization');
+					const accessToken = authorization?.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
+					if (!accessToken) {
+						return json({ error: 'Missing bearer token.' }, { status: 401 });
+					}
+
+					const authResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
+						method: 'GET',
+						headers: {
+							'Authorization': `Bearer ${accessToken}`,
+							'apikey': serviceRoleKey,
+							'Content-Type': 'application/json',
+						},
+					});
+
+					if (!authResponse.ok) {
+						return json({ error: 'Unauthorized.' }, { status: 401 });
+					}
+
+					const authUser = await authResponse.json() as { id?: string };
+					const currentUserId = authUser.id?.toLowerCase();
+					if (!currentUserId) {
+						return json({ error: 'Unable to resolve current user.' }, { status: 401 });
+					}
+
+					const restHeaders = {
+						'Authorization': `Bearer ${serviceRoleKey}`,
+						'apikey': serviceRoleKey,
+						'Content-Type': 'application/json',
+					};
+					const restBaseURL = `${supabaseUrl}/rest/v1`;
+
+					const restSelect = async <T>(table: string, params: Record<string, string>): Promise<T[]> => {
+						const url = new URL(`${restBaseURL}/${table}`);
+						for (const [key, value] of Object.entries(params)) {
+							url.searchParams.set(key, value);
+						}
+
+						const response = await fetch(url.toString(), {
+							method: 'GET',
+							headers: restHeaders,
+						});
+						if (!response.ok) {
+							throw new Error(`Supabase REST ${table} failed with ${response.status}`);
+						}
+						return await response.json() as T[];
+					};
+
+					const currentFriendships = await restSelect<SocialFriendshipRow>('friends', {
+						select: 'id,user_a_id,user_b_id',
+						or: `(user_a_id.eq.${currentUserId},user_b_id.eq.${currentUserId})`,
+					});
+
+					const friendIds = new Set<string>();
+					for (const friendship of currentFriendships) {
+						friendIds.add(friendship.user_a_id === currentUserId ? friendship.user_b_id : friendship.user_a_id);
+					}
+
+					const [outgoingPendingRows, incomingPendingRows, myCourseRows] = await Promise.all([
+						restSelect<SocialFriendRequestRow>('friend_requests', {
+							select: 'from_user_id,to_user_id,status',
+							from_user_id: `eq.${currentUserId}`,
+							status: 'eq.pending',
+						}),
+						restSelect<SocialFriendRequestRow>('friend_requests', {
+							select: 'from_user_id,to_user_id,status',
+							to_user_id: `eq.${currentUserId}`,
+							status: 'eq.pending',
+						}),
+						restSelect<SocialCourseMembershipRow>('courses', {
+							select: 'user_id,code',
+							user_id: `eq.${currentUserId}`,
+						}),
+					]);
+
+					const outgoingPendingIds = new Set(outgoingPendingRows.map(row => row.to_user_id));
+					const incomingPendingIds = new Set(incomingPendingRows.map(row => row.from_user_id));
+					const myCourseCodes = new Set(
+						myCourseRows
+							.map(row => normalizedCourseCode(row.code))
+							.filter(code => code.length > 0)
+					);
+
+					if (friendIds.size === 0 && myCourseCodes.size === 0) {
+						return json({ users: [] });
+					}
+
+					const candidateIds = new Set<string>();
+					const seedSharedCoursesByUser = new Map<string, Set<string>>();
+
+					if (friendIds.size > 0) {
+						const friendIdList = Array.from(friendIds);
+						const [friendshipsByA, friendshipsByB] = await Promise.all([
+							restSelect<SocialFriendshipRow>('friends', {
+								select: 'id,user_a_id,user_b_id',
+								user_a_id: inFilter(friendIdList),
+							}),
+							restSelect<SocialFriendshipRow>('friends', {
+								select: 'id,user_a_id,user_b_id',
+								user_b_id: inFilter(friendIdList),
+							}),
+						]);
+
+						for (const friendship of deduplicatedFriendships([...friendshipsByA, ...friendshipsByB])) {
+							if (friendship.user_a_id !== currentUserId && !friendIds.has(friendship.user_a_id)) {
+								candidateIds.add(friendship.user_a_id);
+							}
+							if (friendship.user_b_id !== currentUserId && !friendIds.has(friendship.user_b_id)) {
+								candidateIds.add(friendship.user_b_id);
+							}
+						}
+					}
+
+					if (myCourseCodes.size > 0) {
+						const allCourseRows = await restSelect<SocialCourseMembershipRow>('courses', {
+							select: 'user_id,code',
+						});
+
+						for (const row of allCourseRows) {
+							if (row.user_id === currentUserId) continue;
+							const normalizedCode = normalizedCourseCode(row.code);
+							if (!myCourseCodes.has(normalizedCode)) continue;
+							if (friendIds.has(row.user_id)) continue;
+
+							candidateIds.add(row.user_id);
+							if (!seedSharedCoursesByUser.has(row.user_id)) {
+								seedSharedCoursesByUser.set(row.user_id, new Set<string>());
+							}
+							seedSharedCoursesByUser.get(row.user_id)!.add(normalizedCode);
+						}
+					}
+
+					candidateIds.delete(currentUserId);
+					if (candidateIds.size === 0) {
+						return json({ users: [] });
+					}
+
+					const candidateIdList = Array.from(candidateIds);
+					const profiles = await restSelect<SocialUserProfileRow>('users', {
+						select: 'id,username,display_name',
+						id: inFilter(candidateIdList),
+					});
+
+					const relevantFriendIds = Array.from(new Set([...candidateIdList, ...Array.from(friendIds)]));
+					const friendshipsForMutuals = relevantFriendIds.length === 0
+						? []
+						: deduplicatedFriendships([
+							...(await restSelect<SocialFriendshipRow>('friends', {
+								select: 'id,user_a_id,user_b_id',
+								user_a_id: inFilter(relevantFriendIds),
+							})),
+							...(await restSelect<SocialFriendshipRow>('friends', {
+								select: 'id,user_a_id,user_b_id',
+								user_b_id: inFilter(relevantFriendIds),
+							})),
+						]);
+
+					const friendIdsByUser = new Map<string, Set<string>>();
+					for (const friendship of friendshipsForMutuals) {
+						if (!friendIdsByUser.has(friendship.user_a_id)) {
+							friendIdsByUser.set(friendship.user_a_id, new Set<string>());
+						}
+						if (!friendIdsByUser.has(friendship.user_b_id)) {
+							friendIdsByUser.set(friendship.user_b_id, new Set<string>());
+						}
+						friendIdsByUser.get(friendship.user_a_id)!.add(friendship.user_b_id);
+						friendIdsByUser.get(friendship.user_b_id)!.add(friendship.user_a_id);
+					}
+
+					const users: RecommendationUser[] = [];
+					for (const profile of profiles) {
+						const userId = profile.id;
+						const username = profile.username?.trim();
+						if (!username) continue;
+						if (incomingPendingIds.has(userId)) continue;
+						if (friendIds.has(userId)) continue;
+
+						const adjacency = friendIdsByUser.get(userId) ?? new Set<string>();
+						let mutualFriendsCount = 0;
+						for (const friendId of friendIds) {
+							if (adjacency.has(friendId)) {
+								mutualFriendsCount += 1;
+							}
+						}
+
+						const sharedCourseCodes = Array.from(seedSharedCoursesByUser.get(userId) ?? []).sort();
+						if (mutualFriendsCount == 0 && sharedCourseCodes.length === 0) {
+							continue;
+						}
+
+						users.push({
+							id: userId,
+							username,
+							displayName: profile.display_name ?? null,
+							mutualFriendsCount,
+							sharedCourseCodes,
+							requestState: outgoingPendingIds.has(userId) ? 'requested' : 'none',
+						});
+					}
+
+					return json({ users: sortRecommendationUsers(users) });
+				} catch (error) {
+					logError(env, {
+						ts: nowIso(),
+						requestId,
+						route: path,
+						method,
+						status: 500,
+						durationMs: Date.now() - startedAt,
+						error: {
+							message: (error as Error).message,
+							stack: (error as Error).stack,
+							code: 'SOCIAL_RECOMMENDATIONS_ERROR',
+						},
+					});
+					return json({ error: 'Failed to fetch social recommendations.' }, { status: 500 });
 				}
 			}
 

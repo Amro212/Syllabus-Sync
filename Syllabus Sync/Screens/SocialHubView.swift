@@ -467,72 +467,64 @@ struct SocialHubView: View {
     }
 
     private func discoverUserRow(_ user: DiscoverUserDisplay) -> some View {
-        VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
-            HStack(alignment: .top, spacing: Layout.Spacing.md) {
-                avatarCircle(
-                    initials: AvatarColor.initials(from: user.username),
-                    colorHex: AvatarColor.hex(for: user.id),
-                    size: 48
-                )
+        HStack(spacing: Layout.Spacing.sm) {
+            avatarCircle(
+                initials: AvatarColor.initials(from: user.username),
+                colorHex: AvatarColor.hex(for: user.id),
+                size: 40
+            )
 
-                VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
-                    Text(user.displayName ?? user.username)
-                        .font(.lexend(size: 15, weight: .bold))
-                        .foregroundColor(AppColors.textPrimary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(user.displayName ?? user.username)
+                    .font(.lexend(size: 14, weight: .bold))
+                    .foregroundColor(AppColors.textPrimary)
+                    .lineLimit(1)
 
-                    if let displayName = user.displayName, displayName != user.username {
-                        Text("@\(user.username)")
-                            .font(.lexend(size: 12, weight: .medium))
-                            .foregroundColor(AppColors.textSecondary)
+                if let displayName = user.displayName, displayName != user.username {
+                    Text("@\(user.username)")
+                        .font(.lexend(size: 11, weight: .medium))
+                        .foregroundColor(AppColors.textTertiary)
+                        .lineLimit(1)
+                }
+
+                // Color-coded context chips
+                HStack(spacing: 4) {
+                    if user.hasMutualFriends {
+                        contextChip(
+                            icon: "person.2.fill",
+                            text: "\(user.mutualFriendsCount) mutual",
+                            color: Color(hex: "#AB47BC")
+                        )
                     }
 
-                    HStack(spacing: Layout.Spacing.xs) {
-                        if user.hasMutualFriends {
-                            discoverBadge(
-                                icon: "person.2.fill",
-                                text: "\(user.mutualFriendsCount) mutual \(user.mutualFriendsCount == 1 ? "friend" : "friends")",
-                                highlighted: true
+                    if user.hasSharedCourses {
+                        ForEach(user.sharedCoursePreview, id: \.self) { code in
+                            contextChip(
+                                icon: nil,
+                                text: code,
+                                color: Color(hex: "#26C6DA")
                             )
                         }
 
-                        if user.hasSharedCourses {
-                            discoverBadge(
-                                icon: "book.closed.fill",
-                                text: "\(user.sharedCourseCodes.count) shared \(user.sharedCourseCodes.count == 1 ? "course" : "courses")",
-                                highlighted: false
+                        if user.remainingSharedCourseCount > 0 {
+                            contextChip(
+                                icon: nil,
+                                text: "+\(user.remainingSharedCourseCount)",
+                                color: Color(hex: "#26C6DA")
                             )
                         }
                     }
                 }
-
-                Spacer(minLength: Layout.Spacing.sm)
-
-                discoverActionButton(for: user)
             }
 
-            if user.hasSharedCourses {
-                HStack(spacing: Layout.Spacing.xs) {
-                    ForEach(user.sharedCoursePreview, id: \.self) { courseCode in
-                        sharedCourseChip(courseCode)
-                    }
+            Spacer(minLength: Layout.Spacing.xs)
 
-                    if user.remainingSharedCourseCount > 0 {
-                        sharedCourseChip("+\(user.remainingSharedCourseCount) more")
-                    }
-                }
-            }
+            discoverActionButton(for: user)
         }
-        .padding(Layout.Spacing.md)
+        .padding(12)
         .background(
             RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
                 .fill(AppColors.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                .stroke(
-                    user.isRecommended ? AppColors.accent.opacity(0.28) : AppColors.border.opacity(0.18),
-                    lineWidth: 1
-                )
         )
     }
 
@@ -633,7 +625,7 @@ struct SocialHubView: View {
         VStack(spacing: Layout.Spacing.md) {
             ForEach(0..<4, id: \.self) { _ in
                 ShimmerView()
-                    .frame(height: 112)
+                    .frame(height: 76)
                     .clipShape(RoundedRectangle(cornerRadius: Layout.CornerRadius.lg))
             }
         }
@@ -647,13 +639,12 @@ struct SocialHubView: View {
                     Task { await viewModel.sendRequest(to: user) }
                 } label: {
                     Text("ADD FRIEND")
-                        .font(.lexend(size: 11, weight: .bold))
+                        .font(.lexend(size: 10, weight: .bold))
                         .foregroundColor(Color(red: 0.129, green: 0.110, blue: 0.067))
                         .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
+                        .padding(.vertical, 8)
                         .background(
-                            RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                                .fill(AppColors.accent)
+                            Capsule().fill(AppColors.accent)
                         )
                 }
             case .requested:
@@ -661,52 +652,46 @@ struct SocialHubView: View {
                     Task { await viewModel.cancelRequest(to: user) }
                 } label: {
                     Text("REQUESTED")
-                        .font(.lexend(size: 11, weight: .bold))
+                        .font(.lexend(size: 10, weight: .bold))
                         .foregroundColor(AppColors.textSecondary)
                         .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
+                        .padding(.vertical, 8)
                         .background(
-                            RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                                .stroke(AppColors.textTertiary, lineWidth: 1)
+                            Capsule().stroke(AppColors.textTertiary, lineWidth: 1)
                         )
                 }
             case .friends:
-                Text("FRIENDS")
-                    .font(.lexend(size: 11, weight: .bold))
-                    .foregroundColor(AppColors.accent)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
+                HStack(spacing: 3) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .bold))
+                    Text("FRIENDS")
+                        .font(.lexend(size: 10, weight: .bold))
+                }
+                .foregroundColor(Color(hex: "#4CAF50"))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    Capsule().fill(Color(hex: "#4CAF50").opacity(0.15))
+                )
             }
         }
     }
 
-    private func discoverBadge(icon: String, text: String, highlighted: Bool) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: icon)
-                .font(.system(size: 10, weight: .semibold))
-
+    private func contextChip(icon: String?, text: String, color: Color) -> some View {
+        HStack(spacing: 3) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 9, weight: .bold))
+            }
             Text(text)
-                .font(.lexend(size: 11, weight: .semibold))
+                .font(.lexend(size: 10, weight: .semibold))
                 .lineLimit(1)
         }
-        .foregroundColor(highlighted ? Color(red: 0.129, green: 0.110, blue: 0.067) : AppColors.textSecondary)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .foregroundColor(color)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
         .background(
-            Capsule()
-                .fill(highlighted ? AppColors.accent.opacity(0.9) : AppColors.surfaceSecondary)
+            Capsule().fill(color.opacity(0.15))
         )
-    }
-
-    private func sharedCourseChip(_ label: String) -> some View {
-        Text(label)
-            .font(.lexend(size: 11, weight: .medium))
-            .foregroundColor(AppColors.textSecondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(
-                Capsule()
-                    .fill(AppColors.surfaceSecondary)
-            )
     }
 }

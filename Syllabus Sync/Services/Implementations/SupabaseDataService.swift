@@ -68,18 +68,22 @@ class SupabaseDataService: DataService {
         guard let userId = currentUserId else {
             return .failure(error: .notAuthenticated)
         }
-        
+
         do {
+            let normalizedCode = normalizedCourseCode(code)
+            guard !normalizedCode.isEmpty else {
+                return .success(data: nil)
+            }
             let courses: [SupabaseCourse] = try await supabase
                 .from("courses")
                 .select()
                 .eq("user_id", value: userId)
-                .eq("code", value: code)
-                .limit(1)
                 .execute()
                 .value
-            
-            let domainCourse = courses.first?.toDomain()
+
+            let domainCourse = courses.first {
+                normalizedCourseCode($0.code) == normalizedCode
+            }?.toDomain()
             return .success(data: domainCourse)
             
         } catch {
@@ -91,30 +95,33 @@ class SupabaseDataService: DataService {
         guard let userId = currentUserId else {
             return .failure(error: .notAuthenticated)
         }
-        
+
         do {
+            let normalizedCourse = normalizeCourse(course)
             // Check if course already exists
-            let existingResult = await fetchCourse(byCode: course.code)
-            
-            if case .success(let existingCourse) = existingResult, existingCourse != nil {
+            let existingResult = await fetchCourse(byCode: normalizedCourse.code)
+
+            if case .success(let existingCourse?) = existingResult,
+               let existingCourseId = UUID(uuidString: existingCourse.id) {
                 // Update existing course
-                let updateData = SupabaseCourseInsert.fromDomain(course, userId: userId)
-                
+                let updateData = SupabaseCourseInsert.fromDomain(normalizedCourse, userId: userId)
+
                 let updated: [SupabaseCourse] = try await supabase
                     .from("courses")
                     .update(updateData)
-                    .eq("code", value: course.code)
+                    .eq("id", value: existingCourseId)
+                    .eq("user_id", value: userId)
                     .select()
                     .execute()
                     .value
-                
+
                 if let updatedCourse = updated.first {
                     return .success(data: updatedCourse.toDomain())
                 }
             } else {
                 // Insert new course
-                let insertData = SupabaseCourseInsert.fromDomain(course, userId: userId)
-                
+                let insertData = SupabaseCourseInsert.fromDomain(normalizedCourse, userId: userId)
+
                 let inserted: [SupabaseCourse] = try await supabase
                     .from("courses")
                     .insert(insertData)
@@ -132,6 +139,20 @@ class SupabaseDataService: DataService {
         } catch {
             return .failure(error: .databaseError(error.localizedDescription))
         }
+    }
+
+    private func normalizeCourse(_ course: Course) -> Course {
+        Course(
+            id: course.id,
+            code: normalizedCourseCode(course.code),
+            title: course.title,
+            colorHex: course.colorHex,
+            instructor: course.instructor
+        )
+    }
+
+    private func normalizedCourseCode(_ code: String) -> String {
+        code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
     }
     
     func saveCourses(_ courses: [Course]) async -> DataResult<[Course]> {

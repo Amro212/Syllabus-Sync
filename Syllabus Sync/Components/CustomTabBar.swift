@@ -9,6 +9,7 @@ import SwiftUI
 
 struct CustomTabBar: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
+    @EnvironmentObject var socialState: SocialState
     @EnvironmentObject var themeManager: ThemeManager
     
     // Action handler for the center FAB
@@ -68,13 +69,13 @@ struct CustomTabBar: View {
             .offset(y: -24) // Lift it up slightly to break the bar boundary
             .frame(maxWidth: .infinity)
             
-            // Preview Tab (extraction preview - for debugging)
             TabBarItem(
-                icon: "eye",
-                title: "Preview",
-                isSelected: navigationManager.selectedTabRoute == .preview
+                icon: "social",
+                title: "Social",
+                isSelected: navigationManager.selectedTabRoute == .social,
+                badgeCount: navigationManager.selectedTabRoute == .social ? 0 : socialState.unseenPendingRequestCount
             ) {
-                navigationManager.switchTab(to: .preview)
+                navigationManager.switchTab(to: .social)
             }
             .frame(maxWidth: .infinity)
             
@@ -119,6 +120,7 @@ private struct TabBarItem: View {
     let title: String
     let isSelected: Bool
     var isFilled: Bool = false
+    var badgeCount: Int = 0
     let action: () -> Void
     
     // Mapping from Material Symbol names (design) to SF Symbols
@@ -126,7 +128,7 @@ private struct TabBarItem: View {
         switch icon {
         case "dashboard": return "square.grid.2x2" + (isSelected || isFilled ? ".fill" : "")
         case "notifications": return "bell" + (isSelected ? ".fill" : "")
-        case "eye": return "eye" + (isSelected ? ".fill" : "")
+        case "social": return "person.2" + (isSelected ? ".fill" : "")
         case "calendar_month": return "calendar"
         case "settings": return "gearshape" + (isSelected ? ".fill" : "")
         case "profile": return "person.crop.circle" + (isSelected ? ".fill" : "")
@@ -140,8 +142,21 @@ private struct TabBarItem: View {
             action()
         }) {
             VStack(spacing: 4) {
-                Image(systemName: systemImageName)
-                    .font(.lexend(size: 24, weight: .regular))
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: systemImageName)
+                        .font(.lexend(size: 24, weight: .regular))
+
+                    if badgeCount > 0 {
+                        Text(badgeCount > 9 ? "9+" : "\(badgeCount)")
+                            .font(.lexend(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, badgeCount > 9 ? 4 : 3)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(.red))
+                            .offset(x: 10, y: -6)
+                            .accessibilityLabel("\(badgeCount) pending social requests")
+                    }
+                }
                 
                 Text(title)
                     .font(.tabLabel)

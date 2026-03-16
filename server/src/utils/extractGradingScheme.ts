@@ -121,6 +121,14 @@ const WEIGHT_INLINE_RX =
 	/^[-*•|>\s]*(?<name>[A-Za-z][A-Za-z0-9 /&,()':.+*-]{1,60}?)\s*[:(]\s*(?<pct>\d{1,3})\s*%/;
 
 /**
+ * Simple terminal pattern:
+ *   "Final Exam 100%"
+ *   "Assignment 1 10%"
+ */
+const WEIGHT_SIMPLE_RX =
+	/^[-*•|>\s]*(?<name>[A-Za-z][A-Za-z0-9 /&,()':.+*-]{1,60}?)\s+(?<pct>\d{1,3})\s*%$/;
+
+/**
  * Reverse pattern: "30% — Assignments" or "30% Final Exam"
  */
 const WEIGHT_REVERSE_RX =
@@ -393,6 +401,14 @@ export function extractGradingScheme(text: string): GradingSchemeResult {
 
 		if (!name) {
 			m = WEIGHT_INLINE_RX.exec(line);
+			if (m?.groups) {
+				name = m.groups.name;
+				pct = Number.parseInt(m.groups.pct, 10);
+			}
+		}
+
+		if (!name) {
+			m = WEIGHT_SIMPLE_RX.exec(line);
 			if (m?.groups) {
 				name = m.groups.name;
 				pct = Number.parseInt(m.groups.pct, 10);

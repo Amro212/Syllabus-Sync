@@ -10,6 +10,7 @@ import SwiftUI
 struct ProfileView: View {
     @StateObject private var viewModel = ProfileViewModel()
     @EnvironmentObject var eventStore: EventStore
+    @EnvironmentObject var socialState: SocialState
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var navigationManager: AppNavigationManager
     @Environment(\.dismiss) private var dismiss
@@ -69,13 +70,13 @@ struct ProfileView: View {
                             NavigationRow(
                                 title: "Friend Requests",
                                 icon: "person.badge.plus",
-                                badge: viewModel.pendingRequestsCount,
+                                badge: socialState.pendingRequestCount,
                                 onTap: { viewModel.showFriendRequests = true }
                             )
 
                             InfoRow(
                                 title: "Friends",
-                                value: "\(viewModel.friendsCount)",
+                                value: "\(max(viewModel.friendsCount, socialState.friends.count))",
                                 icon: "person.2.fill"
                             )
 
@@ -171,6 +172,15 @@ struct ProfileView: View {
             viewModel.themeManager = themeManager
             viewModel.navigationManager = navigationManager
             await viewModel.loadProfileData()
+            await socialState.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .socialGraphDidChange)) { _ in
+            Task {
+                await socialState.refresh()
+                viewModel.pendingRequestsCount = socialState.pendingRequestCount
+                viewModel.friendsCount = socialState.friends.count
+                viewModel.blockedUsers = await SocialHubService.shared.fetchBlockedUsers()
+            }
         }
         .onChange(of: viewModel.showToast) { _, show in
             if show {

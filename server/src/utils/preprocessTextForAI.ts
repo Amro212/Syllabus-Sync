@@ -90,6 +90,15 @@ const CONTENT_SECTION_PATTERNS: RegExp[] = [
 	/\bacademic\s+dates\b/i,
 ];
 
+const PROMPT_INJECTION_PATTERNS: Array<{ reason: string; regex: RegExp; severe?: boolean }> = [
+	{ reason: 'ignore-previous-instructions', regex: /\bignore\s+(all\s+)?previous\s+instructions?\b/i, severe: true },
+	{ reason: 'override-system-prompt', regex: /\b(system\s+prompt|developer\s+message|assistant\s+instructions?)\b/i, severe: true },
+	{ reason: 'role-injection', regex: /^\s*(system|assistant|developer|tool)\s*:/im, severe: true },
+	{ reason: 'secret-exfiltration', regex: /\b(api\s*key|secret|token|credential|password)\b/i, severe: true },
+	{ reason: 'tool-or-command-instruction', regex: /\b(run|execute|call|invoke)\s+(a\s+)?(tool|function|command|api)\b/i },
+	{ reason: 'jailbreak-language', regex: /\b(jailbreak|bypass|override|disregard|do anything now)\b/i },
+];
+
 /**
  * Simple heuristic: is this line likely a section heading?
  * (All-caps, ends with colon, or very short and bold-looking.)
@@ -151,6 +160,22 @@ export function preprocessTextForAI(text: string): string {
 		.join('\n');
 }
 
+export function analyzeTextRisk(text: string): { isSuspicious: boolean; reasons: string[] } {
+	const reasons = new Set<string>();
+
+	for (const pattern of PROMPT_INJECTION_PATTERNS) {
+		if (pattern.regex.test(text)) {
+			reasons.add(pattern.reason);
+		}
+	}
+
+	const severeHits = PROMPT_INJECTION_PATTERNS.filter(pattern => pattern.severe && pattern.regex.test(text)).length;
+	return {
+		isSuspicious: severeHits > 0 || reasons.size >= 2,
+		reasons: [...reasons],
+	};
+}
+
 function processLine(line: string, suppressTags: boolean): string | null {
 	// When inside a boilerplate section, strip the line from AI input entirely.
 	// Policy / legal text never contains event dates and only inflates the
@@ -161,6 +186,12 @@ function processLine(line: string, suppressTags: boolean): string | null {
 
 	if (!line) {
 		return line;
+	}
+
+	for (const pattern of PROMPT_INJECTION_PATTERNS) {
+		if (pattern.regex.test(line)) {
+			return null;
+		}
 	}
 
 	const marker = findMarker(line);

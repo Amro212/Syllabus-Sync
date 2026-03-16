@@ -62,6 +62,7 @@ final class SocialHubViewModel: ObservableObject {
 
     @Published var toastMessage: String?
     @Published var showToast = false
+    @Published var activeFriendMenuID: String?
 
     // MARK: - Service
 
@@ -141,6 +142,13 @@ final class SocialHubViewModel: ObservableObject {
         pendingRequests = await pendingTask
         friends = await friendsTask
         isLoadingFriends = false
+    }
+
+    func refreshGraph() async {
+        await refreshFriendsTab()
+        if !discoverSearchText.trimmingCharacters(in: .whitespaces).isEmpty {
+            await searchDiscover()
+        }
     }
 
     // MARK: - Friend Request Actions
@@ -281,6 +289,7 @@ final class SocialHubViewModel: ObservableObject {
 
             HapticFeedbackManager.shared.lightImpact()
             showToastMessage("Request cancelled")
+            await refreshGraph()
         } catch {
             // Revert optimistic update on error
             if let idx = discoverResults.firstIndex(where: { $0.id == user.id }) {
@@ -294,6 +303,35 @@ final class SocialHubViewModel: ObservableObject {
                 )
             }
             showToastMessage("Unable to cancel request")
+        }
+    }
+
+    func removeFriend(_ friend: FriendDisplay) async {
+        if let error = await service.removeFriend(friendshipId: friend.id) {
+            showToastMessage(error)
+            return
+        }
+
+        HapticFeedbackManager.shared.success()
+        showToastMessage("Friend removed")
+        await refreshGraph()
+        if selectedFriend?.id == friend.id {
+            closeFriendSchedule()
+        }
+    }
+
+    func block(_ userID: String, successMessage: String = "User blocked") async {
+        if let error = await service.blockUser(userID) {
+            showToastMessage(error)
+            return
+        }
+
+        HapticFeedbackManager.shared.success()
+        showToastMessage(successMessage)
+        await refreshGraph()
+
+        if selectedFriend?.userId == userID {
+            closeFriendSchedule()
         }
     }
 

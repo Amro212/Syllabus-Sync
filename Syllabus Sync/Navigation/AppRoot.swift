@@ -12,6 +12,11 @@ private let defaultAPIBaseURL: URL = {
     if let env = ProcessInfo.processInfo.environment["API_BASE_URL"], let url = URL(string: env) {
         return url
     }
+    if let infoValue = Bundle.main.object(forInfoDictionaryKey: "APIBaseURL") as? String,
+       let url = URL(string: infoValue),
+       !infoValue.isEmpty {
+        return url
+    }
     return URL(string: "http://localhost:8787")!
 }()
 
@@ -24,6 +29,7 @@ enum AppRoute: Hashable {
     case auth
     case dashboard
     case reminders
+    case social
     case importSyllabus
     case preview
     case parseReview
@@ -39,6 +45,7 @@ enum AppRoute: Hashable {
         case .auth: return "Sign In"
         case .dashboard: return "Dashboard"
         case .reminders: return "Reminders"
+        case .social: return "Social"
         case .importSyllabus: return "Import Syllabus"
         case .preview: return "Preview"
         case .parseReview: return "Review Events"
@@ -56,6 +63,7 @@ enum AppRoute: Hashable {
         case .auth: return "person.circle"
         case .dashboard: return "house"
         case .reminders: return "bell"
+        case .social: return "person.2"
         case .importSyllabus: return "plus.circle"
         case .preview: return "eye"
         case .parseReview: return "checklist"
@@ -105,7 +113,7 @@ class AppNavigationManager: ObservableObject {
         navigationPath = NavigationPath()
         
         // Show tab bar for main app sections
-        isTabBarVisible = [.dashboard, .reminders, .importSyllabus, .profile].contains(route)
+        isTabBarVisible = [.dashboard, .reminders, .social, .importSyllabus, .profile].contains(route)
         
         HapticFeedbackManager.shared.mediumImpact()
     }
@@ -121,7 +129,53 @@ class AppNavigationManager: ObservableObject {
 
 private extension AppNavigationManager {
     var isSignedInShellRoute: Bool {
-        [.dashboard, .reminders, .importSyllabus, .profile].contains(currentRoute)
+        [.dashboard, .reminders, .social, .importSyllabus, .profile].contains(currentRoute)
+    }
+}
+
+extension Notification.Name {
+    static let socialGraphDidChange = Notification.Name("socialGraphDidChange")
+}
+
+@MainActor
+final class SocialState: ObservableObject {
+    @Published private(set) var pendingRequests: [PendingRequestDisplay] = []
+    @Published private(set) var friends: [FriendDisplay] = []
+    @Published private(set) var seenPendingRequestIDs: Set<String> = []
+
+    private let service = SocialHubService.shared
+
+    var pendingRequestCount: Int {
+        pendingRequests.count
+    }
+
+    var unseenPendingRequestCount: Int {
+        let pendingIDs = Set(pendingRequests.map(\.id))
+        return pendingIDs.subtracting(seenPendingRequestIDs).count
+    }
+
+    func refresh() async {
+        guard SupabaseAuthService.shared.isAuthenticated else {
+            pendingRequests = []
+            friends = []
+            seenPendingRequestIDs = []
+            return
+        }
+
+        async let pendingTask = service.fetchPendingRequests()
+        async let friendsTask = service.fetchFriends()
+
+        let latestPending = await pendingTask
+        let latestFriends = await friendsTask
+        let latestPendingIDs = Set(latestPending.map(\.id))
+
+        pendingRequests = latestPending
+        friends = latestFriends
+        seenPendingRequestIDs = seenPendingRequestIDs.intersection(latestPendingIDs)
+    }
+
+    func markPendingRequestsAsSeen() {
+        seenPendingRequestIDs.formUnion(pendingRequests.map(\.id))
     }
 }
 
@@ -131,6 +185,7 @@ private extension AppNavigationManager {
 struct AppRoot: View {
     @StateObject private var navigationManager = AppNavigationManager()
     @StateObject private var themeManager = ThemeManager()
+    @StateObject private var socialState = SocialState()
     @StateObject private var eventStore: EventStore
     @StateObject private var importViewModel: ImportViewModel
     @StateObject private var courseRepository: CourseRepository
@@ -171,6 +226,7 @@ struct AppRoot: View {
         }
         .environmentObject(navigationManager)
         .environmentObject(themeManager)
+        .environmentObject(socialState)
         .environmentObject(eventStore)
         .environmentObject(importViewModel)
         .environmentObject(courseRepository)
@@ -178,6 +234,14 @@ struct AppRoot: View {
         .modifier(ThemeEnvironment(themeManager: themeManager))
         .task(id: navigationManager.currentRoute) {
             await loadAuthenticatedDataIfNeeded()
+        }
+        .task {
+            await socialState.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .socialGraphDidChange)) { _ in
+            Task {
+                await socialState.refresh()
+            }
         }
         .onAppear {
             print("🏠 AppRoot appeared, currentRoute: \(navigationManager.currentRoute)")
@@ -209,7 +273,7 @@ struct AppRoot: View {
             case .auth:
                 AuthView()
                     .transition(.dissolve)
-            case .dashboard, .reminders, .importSyllabus, .profile:
+            case .dashboard, .reminders, .social, .importSyllabus, .profile:
                 TabNavigationView()
                     .transition(.slide)
             default:
@@ -234,10 +298,10 @@ struct AppRoot: View {
             DashboardView()
         case .reminders:
             RemindersView()
+        case .social:
+            SocialHubView()
         case .importSyllabus:
             AISyllabusScanModal()
-        case .preview:
-            PreviewView()
         case .parseReview:
             ParseReviewView()
         case .calendar:
@@ -247,8 +311,8 @@ struct AppRoot: View {
                 .navigationBarHidden(true)
         case .profile:
             ProfileView()
-        case .networkingTest:
-            NetworkingTestView()
+        case .preview, .networkingTest:
+            EmptyView()
         }
     }
 }
@@ -258,6 +322,7 @@ struct AppRoot: View {
 /// Tab-based navigation for main app sections
 struct TabNavigationView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
+    @EnvironmentObject var socialState: SocialState
     @EnvironmentObject var eventStore: EventStore
     @EnvironmentObject var importViewModel: ImportViewModel
     
@@ -287,8 +352,8 @@ struct TabNavigationView: View {
                     DashboardView()
                 case .reminders:
                     RemindersView()
-                case .preview:
-                    PreviewView()
+                case .social:
+                    SocialHubView()
                 case .calendar:
                     CalendarView()
                 case .profile:
@@ -412,6 +477,9 @@ struct TabNavigationView: View {
             // Close FAB if tab changes
             fabExpanded = false
             showFabActions = false
+            if navigationManager.selectedTabRoute == .social {
+                socialState.markPendingRequestsAsSeen()
+            }
         }
         .fullScreenCover(isPresented: $navigationManager.showParseReview) {
             ParseReviewView()

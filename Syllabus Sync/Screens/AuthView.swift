@@ -447,14 +447,26 @@ struct AuthView: View {
         guard !isLoading else { return }
         
         isLoading = true
-        HapticFeedbackManager.shared.mediumImpact()
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-            isLoading = false
-            HapticFeedbackManager.shared.success()
-            
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) {
-                navigationManager.setRoot(to: .onboarding)
+        HapticFeedbackManager.shared.lightImpact()
+
+        Task {
+            let result = await authService.signInWithApple()
+
+            await MainActor.run {
+                isLoading = false
+
+                switch result {
+                case .success:
+                    HapticFeedbackManager.shared.success()
+                    withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) {
+                        navigationManager.setRoot(to: .dashboard)
+                    }
+
+                case .failure(let error):
+                    HapticFeedbackManager.shared.error()
+                    errorMessage = error.localizedDescription
+                    showError = true
+                }
             }
         }
     }

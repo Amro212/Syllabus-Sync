@@ -5,9 +5,10 @@ final class EventStore: ObservableObject {
     @Published private(set) var events: [EventItem] = []
     @Published private(set) var debugMessage: String?
 
-    private let dataService = SupabaseDataService.shared
+    private let dataService: DataService
 
-    init() {
+    init(dataService: DataService = SupabaseDataService.shared) {
+        self.dataService = dataService
         // Events will be loaded when authenticated
     }
 

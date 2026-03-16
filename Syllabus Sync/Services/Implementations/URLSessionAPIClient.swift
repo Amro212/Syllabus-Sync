@@ -157,6 +157,9 @@ final class URLSessionAPIClient: APIClient {
         headers["Content-Type"] = headers["Content-Type"] ?? "application/json"
         headers["Accept"] = headers["Accept"] ?? "application/json"
         headers["x-client-id"] = clientIDProvider.clientID
+        if let accessToken = await SupabaseAuthService.shared.currentAccessToken() {
+            headers["Authorization"] = "Bearer \(accessToken)"
+        }
         for (key, value) in request.headers { headers[key] = value }
         for (key, value) in headers { urlRequest.setValue(value, forHTTPHeaderField: key) }
 
@@ -249,6 +252,9 @@ final class URLSessionAPIClient: APIClient {
         headers["Content-Type"] = headers["Content-Type"] ?? "application/json"
         headers["Accept"] = headers["Accept"] ?? "application/json"
         headers["x-client-id"] = clientIDProvider.clientID
+        if let accessToken = await SupabaseAuthService.shared.currentAccessToken() {
+            headers["Authorization"] = "Bearer \(accessToken)"
+        }
         for (key, value) in request.headers { headers[key] = value }
         for (key, value) in headers { urlRequest.setValue(value, forHTTPHeaderField: key) }
 

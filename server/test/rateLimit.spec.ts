@@ -1,5 +1,5 @@
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import worker from '../src/index';
 
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
@@ -8,6 +8,19 @@ describe('Rate Limiting (4.3)', () => {
   beforeEach(() => {
     env.RATE_LIMIT_REQUESTS = '2';
     env.ALLOWED_ORIGINS = 'http://localhost:*';
+    env.OPENAI_API_KEY = 'test-key';
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({ events: [] }) } }],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   async function doParse(ip: string) {
@@ -18,7 +31,7 @@ describe('Rate Limiting (4.3)', () => {
         'Content-Type': 'application/json',
         'CF-Connecting-IP': ip,
       },
-      body: JSON.stringify({ text: 'hello' }),
+      body: JSON.stringify({ text: 'hello', courseCode: 'CS101' }),
     });
     const ctx = createExecutionContext();
     const res = await worker.fetch(req, env, ctx);
@@ -50,4 +63,3 @@ describe('Rate Limiting (4.3)', () => {
     expect(other1.status).toBe(200);
   });
 });
-

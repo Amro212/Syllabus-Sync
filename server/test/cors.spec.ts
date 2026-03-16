@@ -1,5 +1,5 @@
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import worker from '../src/index';
 
 // Workaround type helper for Request in workers test env
@@ -9,6 +9,19 @@ describe('CORS and Content Validation (4.2)', () => {
   beforeEach(() => {
     // Configure allowed origins for tests
     env.ALLOWED_ORIGINS = 'http://localhost:*,capacitor://*';
+    env.OPENAI_API_KEY = 'test-key';
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({ events: [] }) } }],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('allows preflight for allowed origin with correct headers', async () => {
@@ -49,7 +62,7 @@ describe('CORS and Content Validation (4.2)', () => {
         Origin: 'https://evil.com',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ text: 'hello' }),
+      body: JSON.stringify({ text: 'hello', courseCode: 'CS101' }),
     });
     const ctx = createExecutionContext();
     const res = await worker.fetch(req, env, ctx);
@@ -65,7 +78,7 @@ describe('CORS and Content Validation (4.2)', () => {
         Origin: origin,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ text: 'hello world' }),
+      body: JSON.stringify({ text: 'hello world', courseCode: 'CS101' }),
     });
     const ctx = createExecutionContext();
     const res = await worker.fetch(req, env, ctx);
@@ -81,7 +94,7 @@ describe('CORS and Content Validation (4.2)', () => {
         Origin: 'null',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ text: 'ok' }),
+      body: JSON.stringify({ text: 'ok', courseCode: 'CS101' }),
     });
     const ctx = createExecutionContext();
     const res = await worker.fetch(req, env, ctx);
@@ -108,7 +121,7 @@ describe('CORS and Content Validation (4.2)', () => {
   it('rejects >1MB body with 413 based on Content-Length', async () => {
     // Create ~1.1MB JSON body quickly
     const payload = 'x'.repeat(1_050_000);
-    const body = JSON.stringify({ text: payload });
+    const body = JSON.stringify({ text: payload, courseCode: 'CS101' });
     const req = new IncomingRequest('http://example.com/parse', {
       method: 'POST',
       headers: {
@@ -132,7 +145,7 @@ describe('CORS and Content Validation (4.2)', () => {
         Origin: 'http://localhost:3000',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ text: longText }),
+      body: JSON.stringify({ text: longText, courseCode: 'CS101' }),
     });
     const ctx = createExecutionContext();
     const res = await worker.fetch(req, env, ctx);
@@ -155,4 +168,3 @@ describe('CORS and Content Validation (4.2)', () => {
     expect(res.status).toBe(400);
   });
 });
-

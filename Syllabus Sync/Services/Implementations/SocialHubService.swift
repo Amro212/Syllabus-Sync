@@ -28,6 +28,10 @@ final class SocialHubService {
         self.supabase = SupabaseAuthService.shared.supabase
     }
 
+    private func notifyGraphChanged() {
+        NotificationCenter.default.post(name: .socialGraphDidChange, object: nil)
+    }
+
     // MARK: - Username Operations
 
     /// Set (or update) the current user's username. Returns nil on success, error message on failure.
@@ -188,6 +192,7 @@ final class SocialHubService {
                 .execute()
 
             print("✅ Friend request sent to \(toUserId)")
+            notifyGraphChanged()
             return nil
         } catch let error as URLError {
             print("⚠️ Network error sending friend request: \(error)")
@@ -210,6 +215,7 @@ final class SocialHubService {
                 .eq("status", value: "pending")
                 .execute()
             print("✅ Friend request cancelled")
+            notifyGraphChanged()
             return nil
         } catch let error as URLError {
             print("⚠️ Network error cancelling request: \(error)")
@@ -253,6 +259,7 @@ final class SocialHubService {
                 .execute()
 
             print("✅ Friend request accepted, friendship created")
+            notifyGraphChanged()
             return nil
         } catch let error as URLError {
             print("⚠️ Network error accepting request: \(error)")
@@ -275,6 +282,7 @@ final class SocialHubService {
                 .eq("status", value: "pending")
                 .execute()
             print("✅ Friend request declined")
+            notifyGraphChanged()
             return nil
         } catch let error as URLError {
             print("⚠️ Network error declining request: \(error)")
@@ -588,6 +596,7 @@ final class SocialHubService {
                 .execute()
 
             print("✅ User blocked")
+            notifyGraphChanged()
             return nil
         } catch {
             print("⚠️ Block user failed: \(error)")
@@ -608,6 +617,7 @@ final class SocialHubService {
                 .execute()
 
             print("✅ User unblocked")
+            notifyGraphChanged()
             return nil
         } catch {
             print("⚠️ Unblock user failed: \(error)")
@@ -674,6 +684,7 @@ final class SocialHubService {
                 .execute()
 
             print("✅ Friend removed")
+            notifyGraphChanged()
             return nil
         } catch {
             print("⚠️ Remove friend failed: \(error)")

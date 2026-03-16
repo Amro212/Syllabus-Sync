@@ -15,6 +15,7 @@ import { detectCourseCode } from './utils/courseCode';
 import { callOpenAIParse } from './clients/openai';
 import { splitMultiDayRecurrence } from './utils/splitMultiDayRecurrence';
 import { extractGradingScheme } from './utils/extractGradingScheme';
+import { analyzeTextRisk } from './utils/preprocessTextForAI';
 
 // Basic in-memory token buckets by IP (per-isolate, best-effort)
 const buckets = new Map<string, { tokens: number; lastRefill: number }>();
@@ -24,13 +25,13 @@ type OpenAIUsage = {
 	dayKey: string; // YYYY-MM-DD UTC
 	totalCalls: number;
 	totalCost: number;
-	perIpCalls: Map<string, number>;
+	perActorCalls: Map<string, number>;
 };
 const openaiUsage: OpenAIUsage = {
 	dayKey: new Date().toISOString().slice(0, 10),
 	totalCalls: 0,
 	totalCost: 0,
-	perIpCalls: new Map(),
+	perActorCalls: new Map(),
 };
 
 function resetOpenAIUsageIfNewDay() {
@@ -39,7 +40,7 @@ function resetOpenAIUsageIfNewDay() {
 		openaiUsage.dayKey = today;
 		openaiUsage.totalCalls = 0;
 		openaiUsage.totalCost = 0;
-		openaiUsage.perIpCalls.clear();
+		openaiUsage.perActorCalls.clear();
 	}
 }
 
@@ -76,6 +77,57 @@ function checkRateLimit(env: Env, req: Request) {
 	const msUntilNext = needed / RATE_PER_MS; // time to regain 1 token
 	const retryAfterSec = Math.ceil(msUntilNext / 1000);
 	return { allowed: false, remaining: 0, retryAfterSec, limit: MAX_REQUESTS } as const;
+}
+
+async function authenticateParseRequest(env: Env, request: Request): Promise<
+	| { ok: true; actorKey: string }
+	| { ok: false; status: number; body: { error: string; code: string } }
+> {
+	const requireAuth = ((env as any).REQUIRE_PARSE_AUTH || 'false') === 'true';
+	const fallbackActor = `ip:${getClientIp(request)}`;
+
+	if (!requireAuth) {
+		return { ok: true, actorKey: fallbackActor };
+	}
+
+	const authHeader = request.headers.get('Authorization') || request.headers.get('authorization');
+	if (!authHeader?.startsWith('Bearer ')) {
+		return {
+			ok: false,
+			status: 401,
+			body: { error: 'Authentication required.', code: 'AUTH_REQUIRED' },
+		};
+	}
+
+	const supabaseURL = (env as any).SUPABASE_URL;
+	const supabaseAnonKey = (env as any).SUPABASE_ANON_KEY;
+	if (!supabaseURL || !supabaseAnonKey) {
+		return {
+			ok: false,
+			status: 500,
+			body: { error: 'Server misconfigured for authenticated parsing.', code: 'AUTH_CONFIG_MISSING' },
+		};
+	}
+
+	const response = await fetch(`${supabaseURL}/auth/v1/user`, {
+		method: 'GET',
+		headers: {
+			Authorization: authHeader,
+			apikey: supabaseAnonKey,
+		},
+	});
+
+	if (!response.ok) {
+		return {
+			ok: false,
+			status: 401,
+			body: { error: 'Your session is no longer valid. Please sign in again.', code: 'AUTH_INVALID' },
+		};
+	}
+
+	const user = await response.json<any>();
+	const userID = user?.id;
+	return { ok: true, actorKey: userID ? `user:${userID}` : fallbackActor };
 }
 
 export default {
@@ -121,25 +173,6 @@ export default {
 
 		const corsHeaders = buildCorsHeaders(originHeader);
 
-		// Fail-fast if required secrets are missing (Task 4.5)
-		const openaiCheck = ensureOpenAIKey(env);
-		if (!openaiCheck.ok) {
-			const status = 500;
-			logError(env, {
-				ts: nowIso(),
-				requestId,
-				route: path,
-				method,
-				status,
-				durationMs: Date.now() - startedAt,
-				error: { message: openaiCheck.message, code: openaiCheck.code },
-			});
-			return new Response(JSON.stringify({ error: openaiCheck.message, code: openaiCheck.code }), {
-				status,
-				headers: { 'Content-Type': 'application/json', ...corsHeaders },
-			});
-		}
-
 		// Small helpers for JSON responses
 		const json = (data: unknown, init?: ResponseInit) =>
 			new Response(JSON.stringify(data), {
@@ -169,7 +202,14 @@ export default {
 		try {
 			// Health check endpoint
 			if (path === '/health' && request.method === 'GET') {
-				const res = json({ ok: true, timestamp: new Date().toISOString() });
+				const openaiCheck = ensureOpenAIKey(env);
+				const res = json({
+					ok: true,
+					timestamp: new Date().toISOString(),
+					services: {
+						parseConfigured: openaiCheck.ok,
+					},
+				});
 				logRequest(env, 'info', {
 					ts: nowIso(),
 					requestId,
@@ -202,6 +242,41 @@ export default {
 						const durationMs = Date.now() - startedAt;
 						logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs });
 						return new Response(JSON.stringify({ error: 'Forbidden: origin not allowed' }), {
+							status,
+							headers: { 'Content-Type': 'application/json', ...corsHeaders },
+						});
+					}
+
+					const auth = await authenticateParseRequest(env, request);
+					if (!auth.ok) {
+						logRequest(env, 'info', {
+							ts: nowIso(),
+							requestId,
+							route: path,
+							method,
+							status: auth.status,
+							durationMs: Date.now() - startedAt,
+							authDenied: auth.body.code,
+						});
+						return new Response(JSON.stringify(auth.body), {
+							status: auth.status,
+							headers: { 'Content-Type': 'application/json', ...corsHeaders },
+						});
+					}
+
+					const openaiCheck = ensureOpenAIKey(env);
+					if (!openaiCheck.ok) {
+						const status = 500;
+						logError(env, {
+							ts: nowIso(),
+							requestId,
+							route: path,
+							method,
+							status,
+							durationMs: Date.now() - startedAt,
+							error: { message: openaiCheck.message, code: openaiCheck.code },
+						});
+						return new Response(JSON.stringify({ error: openaiCheck.message, code: openaiCheck.code }), {
 							status,
 							headers: { 'Content-Type': 'application/json', ...corsHeaders },
 						});
@@ -332,6 +407,29 @@ export default {
 						});
 					}
 
+					const risk = analyzeTextRisk(text);
+					if (risk.isSuspicious) {
+						const status = 422;
+						logRequest(env, 'warn', {
+							ts: nowIso(),
+							requestId,
+							route: path,
+							method,
+							status,
+							durationMs: Date.now() - startedAt,
+							parseDenied: 'suspicious_payload',
+							riskReasons: risk.reasons,
+						});
+						return new Response(JSON.stringify({
+							error: 'This document contains instruction-like content that cannot be parsed safely.',
+							code: 'SUSPICIOUS_PAYLOAD',
+							reasons: risk.reasons,
+						}), {
+							status,
+							headers: { 'Content-Type': 'application/json', ...corsHeaders },
+						});
+					}
+
 					const providedCourseCode = typeof (body as any).courseCode === 'string'
 						? (body as any).courseCode.trim()
 						: '';
@@ -363,17 +461,19 @@ export default {
 
 					resetOpenAIUsageIfNewDay();
 					const ip = getClientIp(request);
+					const actorKey = auth.actorKey;
 					const perIpLimit = Number.parseInt((env as any).RATE_LIMIT_OPENAI || '10', 10) || 10;
+					const perUserLimit = Number.parseInt((env as any).RATE_LIMIT_OPENAI_PER_USER || String(perIpLimit), 10) || perIpLimit;
 					const dailyBudget = Number.parseFloat((env as any).OPENAI_DAILY_BUDGET || '0');
 					const costPerCall = Number.parseFloat(((env as any).OPENAI_COST_PER_CALL as string) || '0.02');
-					const usedByIp = openaiUsage.perIpCalls.get(ip) || 0;
+					const usedByActor = openaiUsage.perActorCalls.get(actorKey) || 0;
 
-					if (usedByIp >= perIpLimit) {
+					if (usedByActor >= perUserLimit) {
 						const status = 429;
 						logRequest(env, 'info', {
 							ts: nowIso(), requestId, route: path, method, status,
 							durationMs: Date.now() - startedAt,
-							openaiDenied: 'per_ip_cap', perIpLimit, usedByIp,
+							openaiDenied: 'per_actor_cap', perUserLimit, usedByActor, actorKey,
 						});
 						return new Response(JSON.stringify({ error: 'OpenAI usage limit reached. Please try again later.' }), {
 							status,
@@ -437,7 +537,7 @@ export default {
 					const aiTime = Date.now() - aiStarted;
 					openaiUsage.totalCalls += 1;
 					openaiUsage.totalCost += costPerCall;
-					openaiUsage.perIpCalls.set(ip, usedByIp + 1);
+					openaiUsage.perActorCalls.set(actorKey, usedByActor + 1);
 
 					const validationResult = validateEvents(aiItems, {
 						...validationConfig,
@@ -462,22 +562,6 @@ export default {
 								`Schema coverage: injected ${coverage.injected.length} missing deliverable(s): ${coverage.injected.join(', ')}`
 							);
 						}
-					}
-
-					if (coveredEvents.length === 0) {
-						const status = 422;
-						logRequest(env, 'info', {
-							ts: nowIso(), requestId, route: path, method, status,
-							durationMs: Date.now() - startedAt,
-							error: validationResult.errors.join(' | ') || 'No valid events after validation',
-						});
-						return new Response(JSON.stringify({
-							error: 'Validation failed',
-							details: validationResult.errors
-						}), {
-							status,
-							headers: { 'Content-Type': 'application/json', ...corsHeaders },
-						});
 					}
 
 					// Post-process: split multi-day recurrence rules into separate events
@@ -517,7 +601,7 @@ export default {
 						durationMs: Date.now() - startedAt,
 						payloadChars: typeof text === 'string' ? text.length : 0,
 						parserPath: 'openai',
-						eventsFound: coveredEvents.length,
+						eventsFound: splitEvents.length,
 						averageConfidence: response.confidence,
 					});
 					return res;

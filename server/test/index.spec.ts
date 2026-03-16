@@ -59,6 +59,7 @@ describe('Hello World worker', () => {
 					'Grading Breakdown:',
 					'Final Exam 100%',
 				].join('\n'),
+				courseCode: 'CS101',
 			}),
 		});
 

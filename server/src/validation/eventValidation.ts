@@ -202,8 +202,15 @@ export function validateEvents(
 
   for (let i = 0; i < rawEvents.length; i++) {
     const raw = rawEvents[i];
+    if (!raw || typeof raw !== 'object') {
+      result.stats.invalidEvents++;
+      result.valid = false;
+      result.errors.push(`Event ${i + 1}: event must be an object`);
+      continue;
+    }
 
-    const validation = validateEventItemDTO(raw);
+    const defaults = applyDefaults({ ...(raw as EventItemDTO) }, config);
+    const validation = validateEventItemDTO(defaults.event);
     if (!validation.valid) {
       result.stats.invalidEvents++;
       result.valid = false;
@@ -212,8 +219,6 @@ export function validateEvents(
     }
 
     try {
-      const dto = { ...(raw as EventItemDTO) };
-      const defaults = applyDefaults(dto, config);
       if (defaults.defaultsApplied) {
         result.stats.defaultsApplied++;
       }
@@ -272,13 +277,7 @@ function applyDefaults(dto: EventItemDTO, config: ValidationConfig): { event: Ev
   
   // Apply allDay default if no time specified and no end date
   if (result.allDay === undefined) {
-    if (result.start != null) {
-      const hasDateTime = result.start.includes('T');
-      const hasNonMidnightTime = hasDateTime && !/T00:00:00\.000(?:[+-]\d{2}:\d{2})?$/.test(result.start);
-      result.allDay = hasDateTime ? !hasNonMidnightTime : true;
-    } else {
-      result.allDay = true; // Default for dateless events
-    }
+    result.allDay = true;
     defaultsApplied = true;
   }
   

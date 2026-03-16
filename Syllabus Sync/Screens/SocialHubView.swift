@@ -11,7 +11,7 @@ import SwiftUI
 // MARK: - Social Hub View
 
 struct SocialHubView: View {
-    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var socialState: SocialState
     @StateObject private var viewModel = SocialHubViewModel()
 
     var body: some View {
@@ -38,6 +38,8 @@ struct SocialHubView: View {
         }
         .task {
             await viewModel.loadInitialData()
+            await socialState.refresh()
+            socialState.markPendingRequestsAsSeen()
         }
         .onChange(of: viewModel.showToast) { _, show in
             if show {
@@ -106,18 +108,6 @@ struct SocialHubView: View {
                 .foregroundColor(AppColors.textPrimary)
 
             Spacer()
-
-            Button {
-                HapticFeedbackManager.shared.lightImpact()
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.lexend(size: 18, weight: .medium))
-                    .foregroundColor(AppColors.textPrimary)
-                    .frame(width: 36, height: 36)
-                    .background(AppColors.surfaceSecondary)
-                    .clipShape(Circle())
-            }
         }
         .padding(.horizontal, Layout.Spacing.lg)
     }
@@ -393,44 +383,62 @@ struct SocialHubView: View {
     }
 
     private func friendCard(_ friend: FriendDisplay) -> some View {
-        Button {
-            Task { await viewModel.openFriendSchedule(friend) }
-        } label: {
-            VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
-                HStack {
-                    Image(systemName: "person.fill")
-                        .font(.lexend(size: 16, weight: .regular))
-                        .foregroundColor(AppColors.textTertiary)
-
-                    Spacer()
-
-                    Image(systemName: "message.fill")
-                        .font(.lexend(size: 13, weight: .regular))
-                        .foregroundColor(AppColors.textTertiary)
-                }
+        VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
+            HStack {
+                Image(systemName: "person.fill")
+                    .font(.lexend(size: 16, weight: .regular))
+                    .foregroundColor(AppColors.textTertiary)
 
                 Spacer()
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(friend.displayName ?? friend.username)
-                        .font(.lexend(size: 14, weight: .semibold))
-                        .foregroundColor(AppColors.textPrimary)
-                        .lineLimit(1)
+                Menu {
+                    Button("Remove Friend", role: .destructive) {
+                        Task { await viewModel.removeFriend(friend) }
+                    }
+                    Button("Block User", role: .destructive) {
+                        Task { await viewModel.block(friend.userId, successMessage: "User blocked and removed") }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.lexend(size: 14, weight: .medium))
+                        .foregroundColor(AppColors.textTertiary)
+                        .frame(width: 28, height: 28)
+                        .background(AppColors.surfaceSecondary)
+                        .clipShape(Circle())
+                }
+            }
 
-                    Text(friend.courseName ?? "")
+            Spacer()
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(friend.displayName ?? friend.username)
+                    .font(.lexend(size: 14, weight: .semibold))
+                    .foregroundColor(AppColors.textPrimary)
+                    .lineLimit(1)
+
+                if let courseName = friend.courseName, !courseName.isEmpty {
+                    Text(courseName)
                         .font(.lexend(size: 12, weight: .regular))
                         .foregroundColor(AppColors.textTertiary)
                         .lineLimit(1)
                 }
             }
-            .padding(Layout.Spacing.md)
-            .frame(height: 110)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                    .fill(AppColors.surface)
-            )
+
+            Button {
+                Task { await viewModel.openFriendSchedule(friend) }
+            } label: {
+                Text("View Schedule")
+                    .font(.lexend(size: 12, weight: .semibold))
+                    .foregroundColor(AppColors.accent)
+            }
         }
+        .padding(Layout.Spacing.md)
+        .frame(height: 130)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
+                .fill(AppColors.surface)
+        )
     }
 
     // MARK: - Discover Tab Content
@@ -490,6 +498,19 @@ struct SocialHubView: View {
             }
 
             Spacer()
+
+            Menu {
+                Button("Block User", role: .destructive) {
+                    Task { await viewModel.block(user.id) }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.lexend(size: 14, weight: .medium))
+                    .foregroundColor(AppColors.textTertiary)
+                    .frame(width: 32, height: 32)
+                    .background(AppColors.surfaceSecondary)
+                    .clipShape(Circle())
+            }
 
             // Action button
             switch user.requestState {

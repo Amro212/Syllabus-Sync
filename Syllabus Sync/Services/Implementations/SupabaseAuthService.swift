@@ -9,6 +9,18 @@ import Foundation
 import Supabase
 import AuthenticationServices
 
+private let defaultServerBaseURL: URL = {
+    if let env = ProcessInfo.processInfo.environment["API_BASE_URL"], let url = URL(string: env) {
+        return url
+    }
+    if let infoValue = Bundle.main.object(forInfoDictionaryKey: "APIBaseURL") as? String,
+       let url = URL(string: infoValue),
+       !infoValue.isEmpty {
+        return url
+    }
+    return URL(string: "http://localhost:8787")!
+}()
+
 /// Supabase authentication service implementation
 class SupabaseAuthService: NSObject, AuthService {
     
@@ -116,9 +128,42 @@ class SupabaseAuthService: NSObject, AuthService {
     // MARK: - Apple Sign In (Not used - handled by CloudKit)
     
     func signInWithApple() async -> AuthResult {
-        // Apple Sign-In is handled separately via CloudKit
-        // This is just a stub to satisfy the protocol
-        return .failure(error: .unknownError("Use native Apple Sign-In"))
+        do {
+            let session = try await supabase.auth.signInWithOAuth(
+                provider: .apple,
+                redirectTo: URL(string: "syllabussync://auth/callback")
+            ) { session in
+                session.prefersEphemeralWebBrowserSession = true
+            }
+
+            let user = AuthUser(
+                id: session.user.id.uuidString,
+                email: session.user.email,
+                displayName: session.user.userMetadata["full_name"]?.value as? String,
+                photoURL: nil,
+                provider: .apple
+            )
+
+            self.currentUser = user
+
+            let existingUsername = await fetchUsername(userId: session.user.id.uuidString)
+            if existingUsername == nil || existingUsername?.isEmpty == true {
+                let generated = generateUsername(from: user.displayName, email: user.email)
+                await storeUsernameInDatabase(userId: session.user.id.uuidString, username: generated)
+            }
+
+            return .success(user: user)
+        } catch {
+            if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
+                return .failure(error: .cancelled)
+            }
+
+            if let authError = error as? AuthError {
+                return .failure(error: authError)
+            }
+
+            return .failure(error: .unknownError("Sign in failed: \(error.localizedDescription)"))
+        }
     }
     
     // MARK: - Email/Password Sign Up
@@ -196,9 +241,7 @@ class SupabaseAuthService: NSObject, AuthService {
             // If user exists but used OAuth, we can't detect it this way
             
             // Best approach: Check via server endpoint (current implementation)
-            guard let serverURL = URL(string: "http://localhost:8787/auth/check-provider") else {
-                return .success(UserProviderInfo(exists: false, provider: nil))
-            }
+            let serverURL = defaultServerBaseURL.appendingPathComponent("auth/check-provider")
             
             var request = URLRequest(url: serverURL)
             request.httpMethod = "POST"
@@ -432,6 +475,16 @@ class SupabaseAuthService: NSObject, AuthService {
         
         // Update current user from refreshed session
         if let user = try? await supabase.auth.user() {
+            let provider: AuthProvider
+            switch user.appMetadata["provider"]?.value as? String {
+            case "google":
+                provider = .google
+            case "apple":
+                provider = .apple
+            default:
+                provider = .email
+            }
+
             self.currentUser = AuthUser(
                 id: user.id.uuidString,
                 email: user.email,
@@ -442,9 +495,14 @@ class SupabaseAuthService: NSObject, AuthService {
                     }
                     return nil
                 }(),
-                provider: .google
+                provider: provider
             )
         }
+    }
+
+    func currentAccessToken() async -> String? {
+        guard let session = try? await supabase.auth.session else { return nil }
+        return session.accessToken
     }
     
     // MARK: - Session Persistence
@@ -453,6 +511,16 @@ class SupabaseAuthService: NSObject, AuthService {
         // Supabase SDK automatically handles session restoration
         // Just check if there's a current session and update our user
         if let session = try? await supabase.auth.session {
+            let provider: AuthProvider
+            switch session.user.appMetadata["provider"]?.value as? String {
+            case "google":
+                provider = .google
+            case "apple":
+                provider = .apple
+            default:
+                provider = .email
+            }
+
             let user = AuthUser(
                 id: session.user.id.uuidString,
                 email: session.user.email,
@@ -463,7 +531,7 @@ class SupabaseAuthService: NSObject, AuthService {
                     }
                     return nil
                 }(),
-                provider: session.user.appMetadata["provider"]?.value as? String == "google" ? .google : .email
+                provider: provider
             )
             self.currentUser = user
         } else {

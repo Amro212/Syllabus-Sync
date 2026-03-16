@@ -52,7 +52,7 @@ struct AISyllabusScanModal: View {
                                 if importViewModel.needsReview {
                                     navigationManager.showParseReview = true
                                 } else {
-                                    navigationManager.switchTab(to: .preview)
+                                    navigationManager.switchTab(to: .reminders)
                                 }
                             }
                         }
@@ -87,7 +87,7 @@ struct AISyllabusScanModal: View {
                 if importViewModel.needsReview {
                     navigationManager.showParseReview = true
                 } else {
-                    navigationManager.switchTab(to: .preview)
+                    navigationManager.switchTab(to: .reminders)
                 }
             }
         }
@@ -221,7 +221,7 @@ struct AISyllabusScanModal: View {
                     if importViewModel.needsReview {
                         navigationManager.showParseReview = true
                     } else {
-                        navigationManager.switchTab(to: .preview)
+                        navigationManager.switchTab(to: .reminders)
                     }
                 }
             }

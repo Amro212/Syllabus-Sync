@@ -17,8 +17,6 @@ struct RemindersView: View {
     @State private var isRefreshing = false
     @State private var showingImportView = false
     @State private var editingEvent: EventItem?
-    @State private var showingSocialHub = false
-    @State private var showingAdminDebug = false
     
     // Filtering & Sorting
     @State private var searchText = ""
@@ -497,26 +495,6 @@ struct RemindersView: View {
                 .fontWeight(.bold)
                 .foregroundColor(AppColors.textPrimary)
             Spacer()
-
-            HStack(spacing: Layout.Spacing.md) {
-                Button {
-                    HapticFeedbackManager.shared.lightImpact()
-                    showingSocialHub = true
-                } label: {
-                    Image(systemName: "person.2.fill")
-                        .font(.lexend(size: 22, weight: .regular))
-                        .foregroundColor(AppColors.textPrimary)
-                }
-
-                Button {
-                    HapticFeedbackManager.shared.lightImpact()
-                    showingAdminDebug = true
-                } label: {
-                    Image(systemName: "wrench.and.screwdriver.fill")
-                        .font(.lexend(size: 22, weight: .regular))
-                        .foregroundColor(.orange)
-                }
-            }
         }
         .padding(.horizontal, Layout.Spacing.md)
         .padding(.top, topInset)
@@ -595,22 +573,6 @@ struct RemindersView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(20)
-        }
-        .sheet(isPresented: $showingSocialHub) {
-            SocialHubView()
-                .presentationDetents([.fraction(0.93)])
-                .presentationDragIndicator(.hidden)
-                .presentationCornerRadius(20)
-                .presentationBackground(.ultraThinMaterial)
-        }
-        .sheet(isPresented: $showingAdminDebug) {
-            AdminDebugView()
-                .environmentObject(eventStore)
-                .environmentObject(navigationManager)
-                .presentationDetents([.fraction(0.93)])
-                .presentationDragIndicator(.hidden)
-                .presentationCornerRadius(20)
-                .presentationBackground(.ultraThinMaterial)
         }
         .task {
             loadUserPreference()

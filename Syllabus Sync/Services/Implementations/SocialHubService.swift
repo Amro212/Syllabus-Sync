@@ -55,7 +55,7 @@ final class SocialHubService {
     static let shared = SocialHubService()
 
     private let supabase: SupabaseClient
-    private let apiClient: APIClient
+    private let apiClient: APIClient?
 
     /// Lowercased to match Supabase/PostgreSQL's lowercase UUID format.
     /// Swift's UUID.uuidString returns uppercase, but Supabase stores and
@@ -67,18 +67,16 @@ final class SocialHubService {
 
     private init() {
         self.supabase = SupabaseAuthService.shared.supabase
-        let baseURL: URL = {
-            if let env = ProcessInfo.processInfo.environment["API_BASE_URL"], let url = URL(string: env) {
-                return url
-            }
-            return URL(string: "http://localhost:8787")!
-        }()
-        self.apiClient = URLSessionAPIClient(configuration: .init(
-            baseURL: baseURL,
-            defaultHeaders: ["Content-Type": "application/json"],
-            requestTimeout: 30,
-            maxRetryCount: 1
-        ))
+        if let env = ProcessInfo.processInfo.environment["API_BASE_URL"], let url = URL(string: env) {
+            self.apiClient = URLSessionAPIClient(configuration: .init(
+                baseURL: url,
+                defaultHeaders: ["Content-Type": "application/json"],
+                requestTimeout: 30,
+                maxRetryCount: 1
+            ))
+        } else {
+            self.apiClient = nil
+        }
     }
 
     // MARK: - Username Operations
@@ -167,11 +165,13 @@ final class SocialHubService {
 
     /// Recommended users based on mutual friends or shared courses.
     func fetchRecommendedUsers() async -> [DiscoverUserDisplay] {
-        do {
-            let serverUsers = try await fetchRecommendedUsersFromServer()
-            return sortDiscoverUsers(serverUsers.filter(\.isRecommended))
-        } catch {
-            print("⚠️ Server recommended users fetch failed, falling back to direct path: \(error)")
+        if let apiClient = apiClient {
+            do {
+                let serverUsers = try await fetchRecommendedUsersFromServer(using: apiClient)
+                return sortDiscoverUsers(serverUsers.filter(\.isRecommended))
+            } catch {
+                print("⚠️ Server recommended users fetch failed, falling back to direct path: \(error)")
+            }
         }
 
         return await fetchRecommendedUsersDirect()
@@ -208,7 +208,7 @@ final class SocialHubService {
         }
     }
 
-    private func fetchRecommendedUsersFromServer() async throws -> [DiscoverUserDisplay] {
+    private func fetchRecommendedUsersFromServer(using apiClient: APIClient) async throws -> [DiscoverUserDisplay] {
         let accessToken = try await supabase.auth.session.accessToken
 
         let request = APIRequest(

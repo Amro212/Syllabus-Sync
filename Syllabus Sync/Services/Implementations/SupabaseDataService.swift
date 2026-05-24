@@ -78,12 +78,12 @@ class SupabaseDataService: DataService {
                 .from("courses")
                 .select()
                 .eq("user_id", value: userId)
+                .eq("code", value: normalizedCode)
+                .limit(1)
                 .execute()
                 .value
 
-            let domainCourse = courses.first {
-                normalizedCourseCode($0.code) == normalizedCode
-            }?.toDomain()
+            let domainCourse = courses.first?.toDomain()
             return .success(data: domainCourse)
             
         } catch {

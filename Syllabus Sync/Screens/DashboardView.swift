@@ -582,7 +582,7 @@ private struct DashboardPrimaryDeadlineCard: View {
     }
 
     private var timeText: String {
-        event.start.formatted(.dateTime.hour().minute())
+        event.allDay == true ? "All Day" : event.start.formatted(.dateTime.hour().minute())
     }
 
     var body: some View {
@@ -940,7 +940,11 @@ private struct DashboardDeadlineRow: View {
     }
 
     private var timeStamp: String {
-        event.start.formatted(.dateTime.hour().minute())
+        event.allDay == true ? "All Day" : event.start.formatted(.dateTime.hour().minute())
+    }
+
+    private var subtitleText: String {
+        "\(event.courseCode) • \(timeStamp)"
     }
 
     var body: some View {
@@ -960,7 +964,7 @@ private struct DashboardDeadlineRow: View {
                         .font(.body)
                         .foregroundStyle(AppColors.textPrimary)
                         .lineLimit(1)
-                    Text("\(event.courseCode) • \(timeStamp)")
+                    Text(subtitleText)
                         .font(.captionL)
                         .foregroundStyle(AppColors.textSecondary)
                         .lineLimit(1)
@@ -1005,7 +1009,11 @@ private struct MyCoursesSection: View {
     let onCourseTapped: (Course) -> Void
 
     private var upcomingEvents: [EventItem] {
-        events.filter { !$0.needsDate && $0.start >= Date() }
+        let now = Date()
+        return events.filter {
+            guard let occurrenceDate = $0.dashboardOccurrenceDate(relativeTo: now) else { return false }
+            return occurrenceDate >= now
+        }
     }
 
     private var totalEventCount: Int {
@@ -1064,6 +1072,87 @@ private struct MyCoursesSection: View {
                         .stroke(AppColors.border.opacity(0.38), lineWidth: 1)
                 }
         )
+    }
+}
+
+private extension EventItem {
+    func dashboardOccurrenceDate(relativeTo now: Date, calendar: Calendar = .current) -> Date? {
+        guard !needsDate else { return nil }
+        guard let recurrenceRule, start < now else { return start }
+
+        let timeComponents = calendar.dateComponents([.hour, .minute, .second, .nanosecond], from: start)
+        let recurringWeekdays = dashboardWeekdays(from: recurrenceRule, calendar: calendar)
+        let targetWeekdays = recurringWeekdays.isEmpty ? [calendar.component(.weekday, from: start)] : recurringWeekdays
+
+        var nextOccurrence: Date?
+
+        for weekday in targetWeekdays {
+            var components = DateComponents()
+            components.weekday = weekday
+            components.hour = timeComponents.hour
+            components.minute = timeComponents.minute
+            components.second = timeComponents.second
+            components.nanosecond = timeComponents.nanosecond
+
+            guard let candidate = calendar.nextDate(
+                after: now,
+                matching: components,
+                matchingPolicy: .nextTime,
+                direction: .forward
+            ) else {
+                continue
+            }
+
+            if let untilDate = dashboardRecurrenceEndDate(from: recurrenceRule, calendar: calendar), candidate > untilDate {
+                continue
+            }
+
+            if nextOccurrence == nil || candidate < nextOccurrence! {
+                nextOccurrence = candidate
+            }
+        }
+
+        return nextOccurrence
+    }
+
+    private func dashboardWeekdays(from recurrenceRule: String, calendar: Calendar) -> [Int] {
+        guard let range = recurrenceRule.range(of: "BYDAY=") else { return [] }
+        let afterByDay = recurrenceRule[range.upperBound...]
+        let byDayValue = afterByDay.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: true).first ?? Substring()
+
+        let weekdayMap: [String: Int] = [
+            "SU": 1,
+            "MO": 2,
+            "TU": 3,
+            "WE": 4,
+            "TH": 5,
+            "FR": 6,
+            "SA": 7
+        ]
+
+        return byDayValue
+            .split(separator: ",")
+            .compactMap { weekdayMap[String($0).uppercased()] }
+            .filter { (1...7).contains($0) }
+    }
+
+    private func dashboardRecurrenceEndDate(from recurrenceRule: String, calendar: Calendar) -> Date? {
+        guard let range = recurrenceRule.range(of: "UNTIL=") else { return nil }
+        let afterUntil = recurrenceRule[range.upperBound...]
+        let untilValue = afterUntil.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: true).first ?? Substring()
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+
+        if untilValue.contains("T") {
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
+        } else {
+            formatter.timeZone = calendar.timeZone
+            formatter.dateFormat = "yyyyMMdd"
+        }
+
+        return formatter.date(from: String(untilValue))
     }
 }
 

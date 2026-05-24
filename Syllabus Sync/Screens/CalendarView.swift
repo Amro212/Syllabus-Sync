@@ -178,6 +178,8 @@ struct WeekStripView: View {
     @Binding var selectedDate: Date
     @Binding var currentMonth: Date
     let events: [CalendarEvent]
+    /// When set, calendar dots use this color instead of the default gold.
+    var highlightColor: Color? = nil
     
     private let calendar = Calendar.current
     
@@ -200,7 +202,8 @@ struct WeekStripView: View {
                         date: date,
                         isSelected: calendar.isDate(date, inSameDayAs: selectedDate),
                         isToday: calendar.isDateInToday(date),
-                        hasEvents: hasEvents(on: date)
+                        hasEvents: hasEvents(on: date),
+                        highlightColor: highlightColor
                     ) {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                             selectedDate = date
@@ -238,6 +241,8 @@ struct MonthCalendarView: View {
     @Binding var currentMonth: Date
     @Binding var selectedDate: Date
     let events: [CalendarEvent]
+    /// When set, calendar dots use this color instead of the default gold.
+    var highlightColor: Color? = nil
     
     private let calendar = Calendar.current
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 0), count: 7)
@@ -263,7 +268,8 @@ struct MonthCalendarView: View {
                         isSelected: calendar.isDate(date, inSameDayAs: selectedDate),
                         isToday: calendar.isDateInToday(date),
                         hasEvents: hasEvents(on: date),
-                        isCurrentMonth: calendar.isDate(date, equalTo: currentMonth, toGranularity: .month)
+                        isCurrentMonth: calendar.isDate(date, equalTo: currentMonth, toGranularity: .month),
+                        highlightColor: highlightColor
                     ) {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             selectedDate = date
@@ -323,6 +329,8 @@ struct DayCell: View {
     let isToday: Bool
     let hasEvents: Bool
     var isCurrentMonth: Bool = true
+    /// When set, overrides the default gold dot with this category color.
+    var highlightColor: Color? = nil
     let action: () -> Void
     
     private let calendar = Calendar.current
@@ -348,12 +356,13 @@ struct DayCell: View {
                         .font(.lexend(.body, weight: isToday ? .bold : .medium))
                         .foregroundColor(textColor)
                     
-                    // Dot (only if not selected, as selected state is distinct enough, or maybe change dot color)
+                    // Dot — uses highlightColor when provided, falls back to gold
                     if hasEvents && !isSelected {
+                        let dotColor = highlightColor ?? AppColors.accent
                         Circle()
-                            .fill(AppColors.accent)
+                            .fill(dotColor)
                             .frame(width: 4, height: 4)
-                            .shadow(color: AppColors.accent.opacity(0.8), radius: 2)
+                            .shadow(color: dotColor.opacity(0.8), radius: 2)
                     } else if hasEvents && isSelected {
                         Circle() // White dot for contrast on gold
                             .fill(Color.white.opacity(0.8))

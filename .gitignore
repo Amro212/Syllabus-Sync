@@ -10,6 +10,7 @@ architecture.md
 /.agents
 /.agent
 /.github
+/.kilo
 /TestDocs
 skills-lock.json
 /.stitch

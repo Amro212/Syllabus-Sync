@@ -74,12 +74,13 @@ struct EventEditView: View {
         _title = State(initialValue: event.title)
         _courseCode = State(initialValue: event.courseCode)
         _type = State(initialValue: event.type)
-        // If the event needs a date (sentinel .distantFuture), default to now
+
         let effectiveStart = event.needsDate ? Date() : event.start
         _startDate = State(initialValue: effectiveStart)
         let defaultEnd = event.end ?? effectiveStart.addingTimeInterval(60 * 60)
         _endDate = State(initialValue: defaultEnd)
         _includeEndDate = State(initialValue: event.end != nil)
+
         _isAllDay = State(initialValue: event.allDay ?? false)
         _selectedRecurrence = State(initialValue: RecurrenceFrequency.frequency(from: event.recurrenceRule))
         _location = State(initialValue: event.location ?? "")
@@ -89,19 +90,24 @@ struct EventEditView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    eventDetailsSection
-                    eventTypeAndRecurrenceSection
-                    dateAndTimeSection
-                    reminderSection
-                    locationAndNotesSection
+            ZStack {
+                AppColors.background
+                    .ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        heroCard
+                        eventDetailsSection
+                        eventTypeAndRecurrenceSection
+                        dateAndTimeSection
+                        reminderSection
+                        locationAndNotesSection
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                    .padding(.bottom, 110)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 100)
             }
-            .background(AppColors.background.ignoresSafeArea())
             .navigationTitle(isCreatingNew ? "New Event" : "Edit Event")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -115,6 +121,7 @@ struct EventEditView: View {
                             .clipShape(Circle())
                     }
                 }
+
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { saveEdit() }
                         .font(.bodyRegular)
@@ -134,23 +141,58 @@ struct EventEditView: View {
         }
     }
 
-    // MARK: - Event Details Section
-    private var eventDetailsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Section header OUTSIDE card
-            Text("Event Details")
-                .font(.titleS)
-                .fontWeight(.semibold)
-                .foregroundColor(AppColors.textPrimary)
+    private var heroCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(isCreatingNew ? "Create Event" : "Update Event")
+                        .font(.titleS)
+                        .foregroundColor(AppColors.textPrimary)
 
-            // Card
+                    Text(heroSummaryText)
+                        .font(.captionRegular)
+                        .foregroundColor(AppColors.textSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Text(displayName(for: type))
+                    .font(.captionL)
+                    .foregroundColor(AppColors.accent)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(AppColors.accent.opacity(0.12))
+                    .clipShape(Capsule())
+            }
+
+            Divider()
+                .overlay(AppColors.border.opacity(0.5))
+
+            HStack(spacing: 12) {
+                Label(courseBadgeText, systemImage: "book.closed")
+                Label(startDate.formatted(date: .abbreviated, time: isAllDay ? .omitted : .shortened), systemImage: "calendar")
+            }
+            .font(.captionRegular)
+            .foregroundColor(AppColors.textSecondary)
+        }
+        .padding(16)
+        .background(AppColors.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(AppColors.border.opacity(0.35), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private var eventDetailsSection: some View {
+        sectionCard(title: "Event Details", icon: "square.and.pencil") {
             VStack(alignment: .leading, spacing: 16) {
-                // Title Field
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Title")
                         .font(.captionL)
                         .foregroundColor(AppColors.accent)
-                    
+
                     TextField("e.g., Problem Set 4 Due", text: $title)
                         .font(.bodyRegular)
                         .textInputAutocapitalization(.sentences)
@@ -158,23 +200,25 @@ struct EventEditView: View {
                         .padding(.vertical, 14)
                         .padding(.horizontal, 16)
                         .background(AppColors.surfaceSecondary)
-                        .cornerRadius(12)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14)
+                                .stroke(AppColors.border.opacity(0.4), lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
 
-                // Course Code Field with Dropdown
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Course Code")
                         .font(.captionL)
                         .foregroundColor(AppColors.accent)
-                    
+
                     HStack(spacing: 0) {
                         TextField("e.g., CS 101", text: $courseCode)
                             .font(.bodyRegular)
                             .textInputAutocapitalization(.characters)
                             .autocorrectionDisabled(true)
                             .focused($focusedField, equals: .courseCode)
-                        
-                        // Dropdown for existing courses
+
                         if !existingCourses.isEmpty {
                             Menu {
                                 ForEach(existingCourses, id: \.self) { course in
@@ -194,62 +238,58 @@ struct EventEditView: View {
                     .padding(.vertical, 14)
                     .padding(.horizontal, 16)
                     .background(AppColors.surfaceSecondary)
-                    .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(AppColors.border.opacity(0.4), lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
             }
-            .padding(16)
-            .background(AppColors.surface)
-            .cornerRadius(16)
         }
     }
 
-    // MARK: - Event Type & Recurrence Section
     private var eventTypeAndRecurrenceSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Section header OUTSIDE card
-            Text("Event Type & Recurrence")
-                .font(.titleS)
-                .fontWeight(.semibold)
-                .foregroundColor(AppColors.textPrimary)
-
-            // Card
+        sectionCard(title: "Type & Recurrence", icon: "rectangle.grid.2x2") {
             VStack(alignment: .leading, spacing: 16) {
-                // Type Dropdown
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Type of Event")
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Event Type")
                         .font(.captionL)
                         .foregroundColor(AppColors.accent)
-                    
-                    Menu {
-                        Picker(selection: $type) {
-                            ForEach(EventItem.EventType.allCases, id: \.self) { value in
-                                Text(displayName(for: value)).tag(value)
+
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], spacing: 8) {
+                        ForEach(EventItem.EventType.allCases, id: \.self) { value in
+                            Button {
+                                type = value
+                                HapticFeedbackManager.shared.selection()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: iconName(for: value))
+                                        .font(.caption)
+                                    Text(displayName(for: value))
+                                        .font(.captionRegular)
+                                        .lineLimit(1)
+                                }
+                                .foregroundColor(type == value ? AppColors.surface : AppColors.textPrimary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .padding(.horizontal, 12)
+                                .background(type == value ? AppColors.accent : AppColors.surfaceSecondary)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(type == value ? AppColors.accent : AppColors.border.opacity(0.35), lineWidth: 1)
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                             }
-                        } label: { EmptyView() }
-                    } label: {
-                        HStack {
-                            Text(displayName(for: type))
-                                .font(.bodyRegular)
-                                .foregroundColor(AppColors.textPrimary)
-                            Spacer()
-                            Image(systemName: "chevron.down")
-                                .font(.caption)
-                                .foregroundColor(AppColors.textSecondary)
+                            .buttonStyle(.plain)
                         }
-                        .padding(.vertical, 14)
-                        .padding(.horizontal, 16)
-                        .background(AppColors.surfaceSecondary)
-                        .cornerRadius(12)
                     }
-                    .menuIndicator(.hidden)
                 }
 
-                // Recurrence Dropdown
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Recurrence")
                         .font(.captionL)
                         .foregroundColor(AppColors.accent)
-                    
+
                     Menu {
                         Picker(selection: $selectedRecurrence) {
                             ForEach(RecurrenceFrequency.allCases, id: \.self) { option in
@@ -269,30 +309,21 @@ struct EventEditView: View {
                         .padding(.vertical, 14)
                         .padding(.horizontal, 16)
                         .background(AppColors.surfaceSecondary)
-                        .cornerRadius(12)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(AppColors.border.opacity(0.35), lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     .menuIndicator(.hidden)
                 }
             }
-            .padding(16)
-            .background(AppColors.surface)
-            .cornerRadius(16)
         }
     }
 
-    // MARK: - Date & Time Section
     private var dateAndTimeSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Card with header INSIDE
+        sectionCard(title: "Date & Time", icon: "calendar.badge.clock") {
             VStack(alignment: .leading, spacing: 12) {
-                // Section header inside card
-                Text("Date & Time")
-                    .font(.titleS)
-                    .fontWeight(.semibold)
-                    .foregroundColor(AppColors.textPrimary)
-                    .padding(.bottom, 4)
-
-                // All-Day Toggle
                 HStack {
                     Text("All-day")
                         .font(.bodyRegular)
@@ -302,13 +333,12 @@ struct EventEditView: View {
                         .toggleStyle(SwitchToggleStyle(tint: AppColors.accent))
                         .labelsHidden()
                 }
-                
-                // Date Field - full width
+
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Date")
                         .font(.captionL)
                         .foregroundColor(AppColors.accent)
-                    
+
                     HStack {
                         DatePicker("", selection: $startDate, displayedComponents: .date)
                             .datePickerStyle(.compact)
@@ -318,16 +348,19 @@ struct EventEditView: View {
                     .padding(.vertical, 12)
                     .padding(.horizontal, 14)
                     .background(AppColors.surfaceSecondary)
-                    .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(AppColors.border.opacity(0.35), lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
 
-                // Time Field - full width (hidden when All-Day)
                 if !isAllDay {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Time")
                             .font(.captionL)
                             .foregroundColor(AppColors.accent)
-                        
+
                         HStack {
                             DatePicker("", selection: $startDate, displayedComponents: .hourAndMinute)
                                 .datePickerStyle(.compact)
@@ -337,11 +370,14 @@ struct EventEditView: View {
                         .padding(.vertical, 12)
                         .padding(.horizontal, 14)
                         .background(AppColors.surfaceSecondary)
-                        .cornerRadius(12)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(AppColors.border.opacity(0.35), lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                 }
-                
-                // Add end time toggle
+
                 HStack {
                     Text("Add end time")
                         .font(.bodyRegular)
@@ -352,91 +388,39 @@ struct EventEditView: View {
                         .labelsHidden()
                 }
 
-                // End Date/Time (if enabled)
                 if includeEndDate {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("End")
                             .font(.captionL)
                             .foregroundColor(AppColors.accent)
-                        
+
                         HStack {
-                            DatePicker("", selection: $endDate, in: startDate..., displayedComponents: isAllDay ? .date : [.date, .hourAndMinute])
-                                .datePickerStyle(.compact)
-                                .labelsHidden()
+                            DatePicker(
+                                "",
+                                selection: $endDate,
+                                in: startDate...,
+                                displayedComponents: isAllDay ? .date : [.date, .hourAndMinute]
+                            )
+                            .datePickerStyle(.compact)
+                            .labelsHidden()
                             Spacer()
                         }
                         .padding(.vertical, 12)
                         .padding(.horizontal, 14)
                         .background(AppColors.surfaceSecondary)
-                        .cornerRadius(12)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(AppColors.border.opacity(0.35), lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                 }
             }
-            .padding(16)
-            .background(AppColors.surface)
-            .cornerRadius(16)
         }
     }
 
-    // MARK: - Location & Notes Section
-    private var locationAndNotesSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Section header OUTSIDE card
-            Text("Location & Notes")
-                .font(.titleS)
-                .fontWeight(.semibold)
-                .foregroundColor(AppColors.textPrimary)
-
-            // Card
-            VStack(alignment: .leading, spacing: 16) {
-                // Location Field
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Location (Optional)")
-                        .font(.captionL)
-                        .foregroundColor(AppColors.accent)
-                    
-                    TextField("e.g., Online, Room 101", text: $location)
-                        .font(.bodyRegular)
-                        .textInputAutocapitalization(.words)
-                        .focused($focusedField, equals: .location)
-                        .padding(.vertical, 14)
-                        .padding(.horizontal, 16)
-                        .background(AppColors.surfaceSecondary)
-                        .cornerRadius(12)
-                }
-
-                // Notes Field
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Notes (Optional)")
-                        .font(.captionL)
-                        .foregroundColor(AppColors.accent)
-                    
-                    TextField("Any additional details...", text: $notes, axis: .vertical)
-                        .font(.bodyRegular)
-                        .lineLimit(3...6)
-                        .focused($focusedField, equals: .notes)
-                        .padding(.vertical, 14)
-                        .padding(.horizontal, 16)
-                        .background(AppColors.surfaceSecondary)
-                        .cornerRadius(12)
-                }
-            }
-            .padding(16)
-            .background(AppColors.surface)
-            .cornerRadius(16)
-        }
-    }
-
-    // MARK: - Reminder Section
     private var reminderSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Section header OUTSIDE card
-            Text("Reminder")
-                .font(.titleS)
-                .fontWeight(.semibold)
-                .foregroundColor(AppColors.textPrimary)
-
-            // Card (just the dropdown)
+        sectionCard(title: "Reminder", icon: "bell.badge") {
             Menu {
                 Picker(selection: $reminderMinutes) {
                     Text("At time of event").tag(0)
@@ -458,22 +442,108 @@ struct EventEditView: View {
                 }
                 .padding(.vertical, 14)
                 .padding(.horizontal, 16)
-                .background(AppColors.surface)
-                .cornerRadius(16)
+                .background(AppColors.surfaceSecondary)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(AppColors.border.opacity(0.35), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .menuIndicator(.hidden)
         }
     }
 
+    private var locationAndNotesSection: some View {
+        sectionCard(title: "Location & Notes", icon: "mappin.and.ellipse") {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Location (Optional)")
+                        .font(.captionL)
+                        .foregroundColor(AppColors.accent)
+
+                    TextField("e.g., Online, Room 101", text: $location)
+                        .font(.bodyRegular)
+                        .textInputAutocapitalization(.words)
+                        .focused($focusedField, equals: .location)
+                        .padding(.vertical, 14)
+                        .padding(.horizontal, 16)
+                        .background(AppColors.surfaceSecondary)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(AppColors.border.opacity(0.35), lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Notes (Optional)")
+                        .font(.captionL)
+                        .foregroundColor(AppColors.accent)
+
+                    TextField("Any additional details...", text: $notes, axis: .vertical)
+                        .font(.bodyRegular)
+                        .lineLimit(3...6)
+                        .focused($focusedField, equals: .notes)
+                        .padding(.vertical, 14)
+                        .padding(.horizontal, 16)
+                        .background(AppColors.surfaceSecondary)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(AppColors.border.opacity(0.35), lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+            }
+        }
+    }
+
     // MARK: - Helpers
-    
-    // Existing courses from the event store (for dropdown)
+
+    private var courseBadgeText: String {
+        let normalized = courseCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? "Course" : normalized.uppercased()
+    }
+
+    private var heroSummaryText: String {
+        if isCreatingNew {
+            return "Add details, choose type, and save when ready."
+        }
+        return "Refine the event details and keep your schedule accurate."
+    }
+
+    private func sectionCard<Content: View>(title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.caption)
+                    .foregroundColor(AppColors.accent)
+                    .frame(width: 24, height: 24)
+                    .background(AppColors.accent.opacity(0.12))
+                    .clipShape(Circle())
+
+                Text(title)
+                    .font(.titleS)
+                    .foregroundColor(AppColors.textPrimary)
+            }
+
+            VStack(alignment: .leading, spacing: 16) {
+                content()
+            }
+            .padding(16)
+            .background(AppColors.surface)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(AppColors.border.opacity(0.35), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+
     private var existingCourses: [String] {
         let courses = Set(eventStore.events.map { $0.courseCode }).filter { !$0.isEmpty }
         return courses.sorted()
     }
-    
-    // Validation for Save button
+
     private var canSave: Bool {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCourseCode = courseCode.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -483,7 +553,6 @@ struct EventEditView: View {
     private var hasUnsavedChanges: Bool {
         if title != event.title { return true }
         if type != event.type { return true }
-        // Always treat needsDate events as having changes once user picks a date
         if event.needsDate { return true }
         if startDate != event.start { return true }
         if includeEndDate != (event.end != nil) { return true }
@@ -542,6 +611,21 @@ struct EventEditView: View {
         case .officeHours: return "Office Hours"
         case .importantDate: return "Important Date"
         case .other: return "Other"
+        }
+    }
+
+    private func iconName(for type: EventItem.EventType) -> String {
+        switch type {
+        case .assignment: return "doc.text"
+        case .quiz: return "checkmark.circle"
+        case .midterm: return "pencil.and.ruler"
+        case .final: return "graduationcap"
+        case .lab: return "flask"
+        case .lecture: return "person.2"
+        case .tutorial: return "book"
+        case .officeHours: return "clock"
+        case .importantDate: return "star"
+        case .other: return "calendar"
         }
     }
 

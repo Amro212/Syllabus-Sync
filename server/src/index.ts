@@ -876,8 +876,10 @@ export default {
 					}
 
 					if (myCourseCodes.size > 0) {
+						const courseCodeFilters = Array.from(myCourseCodes);
 						const allCourseRows = await restSelect<SocialCourseMembershipRow>('courses', {
 							select: 'user_id,code',
+							code: inFilter(courseCodeFilters),
 						});
 
 						for (const row of allCourseRows) {

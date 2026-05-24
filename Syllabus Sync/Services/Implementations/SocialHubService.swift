@@ -171,6 +171,7 @@ final class SocialHubService {
             let serverUsers = try await fetchRecommendedUsersFromServer()
             return sortDiscoverUsers(serverUsers.filter(\.isRecommended))
         } catch {
+            print("⚠️ Server recommended users fetch failed, falling back to direct path: \(error)")
         }
 
         return await fetchRecommendedUsersDirect()

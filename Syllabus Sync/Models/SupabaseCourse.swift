@@ -74,7 +74,7 @@ struct SupabaseCourseInsert: Encodable {
     static func fromDomain(_ course: Course, userId: UUID) -> SupabaseCourseInsert {
         return SupabaseCourseInsert(
             userId: userId,
-            code: course.code,
+            code: course.code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(),
             title: course.title,
             colorHex: course.colorHex,
             instructor: course.instructor

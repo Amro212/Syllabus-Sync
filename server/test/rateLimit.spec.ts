@@ -1,13 +1,33 @@
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import worker from '../src/index';
 
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
+const goodEvent = {
+  id: 'a1',
+  courseCode: 'CS101',
+  type: 'ASSIGNMENT',
+  title: 'Assignment 1',
+  start: '2025-09-12T00:00:00.000-05:00',
+};
 
 describe('Rate Limiting (4.3)', () => {
+  let originalFetch: typeof fetch;
+
   beforeEach(() => {
     env.RATE_LIMIT_REQUESTS = '2';
     env.ALLOWED_ORIGINS = 'http://localhost:*';
+    env.OPENAI_API_KEY = 'test-key';
+    originalFetch = globalThis.fetch;
+    (globalThis as any).fetch = vi.fn(async () => new Response(
+      JSON.stringify({ choices: [{ message: { content: JSON.stringify([goodEvent]) } }] }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    ));
+  });
+
+  afterEach(() => {
+    (globalThis as any).fetch = originalFetch;
+    vi.restoreAllMocks();
   });
 
   async function doParse(ip: string) {
@@ -18,7 +38,7 @@ describe('Rate Limiting (4.3)', () => {
         'Content-Type': 'application/json',
         'CF-Connecting-IP': ip,
       },
-      body: JSON.stringify({ text: 'hello' }),
+      body: JSON.stringify({ text: 'hello', courseCode: 'CS101' }),
     });
     const ctx = createExecutionContext();
     const res = await worker.fetch(req, env, ctx);

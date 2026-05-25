@@ -22,7 +22,6 @@ jobs:
         
     - name: Build iOS App
       run: |
-        cd "Syllabus Sync"
         xcodebuild \
           -project "Syllabus Sync.xcodeproj" \
           -scheme "Syllabus Sync" \
@@ -34,7 +33,6 @@ jobs:
           
     - name: Run iOS Tests (if they exist)
       run: |
-        cd "Syllabus Sync"
         xcodebuild test \
           -project "Syllabus Sync.xcodeproj" \
           -scheme "Syllabus Sync" \

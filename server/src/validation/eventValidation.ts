@@ -202,8 +202,27 @@ export function validateEvents(
 
   for (let i = 0; i < rawEvents.length; i++) {
     const raw = rawEvents[i];
+    const candidate = { ...(raw as any) };
 
-    const validation = validateEventItemDTO(raw);
+    if (
+      (!candidate.courseCode || (typeof candidate.courseCode === 'string' && candidate.courseCode.trim().length === 0))
+      && config.defaultCourseCode
+    ) {
+      candidate.courseCode = config.defaultCourseCode;
+    }
+
+    let titleWasDefaulted = false;
+    if (
+      (candidate.title === undefined
+        || candidate.title === null
+        || (typeof candidate.title === 'string' && candidate.title.trim().length === 0))
+      && typeof candidate.type === 'string'
+    ) {
+      candidate.title = `${candidate.type.charAt(0) + candidate.type.slice(1).toLowerCase()}`;
+      titleWasDefaulted = true;
+    }
+
+    const validation = validateEventItemDTO(candidate);
     if (!validation.valid) {
       result.stats.invalidEvents++;
       result.valid = false;
@@ -212,8 +231,8 @@ export function validateEvents(
     }
 
     try {
-      const dto = { ...(raw as EventItemDTO) };
-      const defaults = applyDefaults(dto, config);
+      const dto = { ...(candidate as EventItemDTO) };
+      const defaults = applyDefaults(dto, config, titleWasDefaulted);
       if (defaults.defaultsApplied) {
         result.stats.defaultsApplied++;
       }
@@ -255,7 +274,11 @@ export function validateEvents(
 /**
  * Applies default values and processing rules
  */
-function applyDefaults(dto: EventItemDTO, config: ValidationConfig): { event: EventItemDTO; defaultsApplied: boolean } {
+function applyDefaults(
+  dto: EventItemDTO,
+  config: ValidationConfig,
+  titleWasDefaulted = false,
+): { event: EventItemDTO; defaultsApplied: boolean } {
   const result = { ...dto };
   let defaultsApplied = false;
 
@@ -269,7 +292,7 @@ function applyDefaults(dto: EventItemDTO, config: ValidationConfig): { event: Ev
     result.needsDate = true;
     defaultsApplied = true;
   }
-  
+
   // Apply allDay default if no time specified and no end date
   if (result.allDay === undefined) {
     if (result.start != null) {
@@ -283,8 +306,9 @@ function applyDefaults(dto: EventItemDTO, config: ValidationConfig): { event: Ev
   }
   
   // Ensure title is not empty
-  if (!result.title || result.title.trim().length === 0) {
-    result.title = `${result.type.charAt(0) + result.type.slice(1).toLowerCase()}`;
+  // If the title was defaulted earlier in validateEvents, prefer an all-day default
+  if (titleWasDefaulted && result.allDay === false) {
+    result.allDay = true;
     defaultsApplied = true;
   }
   

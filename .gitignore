@@ -9,7 +9,8 @@ tasks.md
 architecture.md
 /.agents
 /.agent
-/.github
+/.github/instructions
+/.github/prompts
 /.kilo
 /TestDocs
 skills-lock.json

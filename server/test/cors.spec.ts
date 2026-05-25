@@ -1,14 +1,34 @@
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import worker from '../src/index';
 
 // Workaround type helper for Request in workers test env
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
+const goodEvent = {
+  id: 'a1',
+  courseCode: 'CS101',
+  type: 'ASSIGNMENT',
+  title: 'Assignment 1',
+  start: '2025-09-12T00:00:00.000-05:00',
+};
 
 describe('CORS and Content Validation (4.2)', () => {
+  let originalFetch: typeof fetch;
+
   beforeEach(() => {
     // Configure allowed origins for tests
     env.ALLOWED_ORIGINS = 'http://localhost:*,capacitor://*';
+    env.OPENAI_API_KEY = 'test-key';
+    originalFetch = globalThis.fetch;
+    (globalThis as any).fetch = vi.fn(async () => new Response(
+      JSON.stringify({ choices: [{ message: { content: JSON.stringify([goodEvent]) } }] }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    ));
+  });
+
+  afterEach(() => {
+    (globalThis as any).fetch = originalFetch;
+    vi.restoreAllMocks();
   });
 
   it('allows preflight for allowed origin with correct headers', async () => {
@@ -65,7 +85,7 @@ describe('CORS and Content Validation (4.2)', () => {
         Origin: origin,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ text: 'hello world' }),
+      body: JSON.stringify({ text: 'hello world', courseCode: 'CS101' }),
     });
     const ctx = createExecutionContext();
     const res = await worker.fetch(req, env, ctx);
@@ -81,7 +101,7 @@ describe('CORS and Content Validation (4.2)', () => {
         Origin: 'null',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ text: 'ok' }),
+      body: JSON.stringify({ text: 'ok', courseCode: 'CS101' }),
     });
     const ctx = createExecutionContext();
     const res = await worker.fetch(req, env, ctx);

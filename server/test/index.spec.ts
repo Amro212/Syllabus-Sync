@@ -57,7 +57,7 @@ describe('Hello World worker', () => {
 				text: [
 					'CS101 Introduction to Testing',
 					'Grading Breakdown:',
-					'Final Exam 100%',
+					'Final Exam: 100%',
 				].join('\n'),
 			}),
 		});

@@ -53,7 +53,21 @@ type AuthenticatedUser = {
 	email?: string | null;
 };
 
-// Basic in-memory token buckets (per-isolate, best-effort outside production KV).
+type DurableLimitRequest = {
+	limit: number;
+	windowSec: number;
+	cost?: number;
+};
+
+type DurableLimitResponse = {
+	allowed: boolean;
+	remaining: number;
+	retryAfterSec: number;
+	limit: number;
+	used: number;
+};
+
+// Basic in-memory token buckets (local/test fallback only).
 const buckets = new Map<string, { tokens: number; lastRefill: number }>();
 
 // Basic in-memory OpenAI usage tracking (per-isolate, best-effort)
@@ -69,6 +83,49 @@ const openaiUsage: OpenAIUsage = {
 	totalCost: 0,
 	perIpCalls: new Map(),
 };
+
+export class AbuseLimiter {
+	constructor(private readonly state: DurableObjectState) {}
+
+	async fetch(request: Request): Promise<Response> {
+		if (request.method !== 'POST') {
+			return new Response('Method Not Allowed', { status: 405 });
+		}
+
+		const body = await request.json() as DurableLimitRequest;
+		const limit = Math.max(1, Math.floor(body.limit));
+		const windowSec = Math.max(1, Math.floor(body.windowSec));
+		const cost = Math.max(0, Number(body.cost ?? 1));
+		const now = Date.now();
+		const windowMs = windowSec * 1000;
+		const stored = await this.state.storage.get<{ used: number; resetAt: number }>('window');
+		const current = stored && stored.resetAt > now
+			? stored
+			: { used: 0, resetAt: now + windowMs };
+		const nextUsed = current.used + cost;
+
+		if (nextUsed > limit) {
+			const retryAfterSec = Math.max(1, Math.ceil((current.resetAt - now) / 1000));
+			return Response.json({
+				allowed: false,
+				remaining: Math.max(0, Math.floor(limit - current.used)),
+				retryAfterSec,
+				limit,
+				used: current.used,
+			} satisfies DurableLimitResponse);
+		}
+
+		current.used = nextUsed;
+		await this.state.storage.put('window', current);
+		return Response.json({
+			allowed: true,
+			remaining: Math.max(0, Math.floor(limit - current.used)),
+			retryAfterSec: 0,
+			limit,
+			used: current.used,
+		} satisfies DurableLimitResponse);
+	}
+}
 
 function normalizedCourseCode(code: string): string {
 	return code.trim().toUpperCase();
@@ -127,6 +184,41 @@ function getClientIp(req: Request): string {
 	const h = req.headers;
 	const ip = h.get('CF-Connecting-IP') || h.get('x-forwarded-for')?.split(',')[0].trim();
 	return ip || 'unknown';
+}
+
+function isProduction(env: Env): boolean {
+	return (env.NODE_ENV || '').toLowerCase() === 'production';
+}
+
+function isUnsafeProductionOrigin(origin: string): boolean {
+	if (origin.includes('*')) return true;
+	try {
+		const url = new URL(origin);
+		const hostname = url.hostname.toLowerCase();
+		return url.protocol !== 'https:'
+			|| hostname === 'localhost'
+			|| hostname === '127.0.0.1'
+			|| hostname === '::1'
+			|| hostname.endsWith('.localhost');
+	} catch {
+		return true;
+	}
+}
+
+function validateProductionConfig(env: Env): string | null {
+	if (!isProduction(env)) return null;
+	if ((env as any).DEBUG_ALLOW_TEST_FAILURES === 'true') {
+		return 'Production debug failure injection is enabled.';
+	}
+	if (!(env as any).ABUSE_LIMITER) {
+		return 'Production abuse limiter binding is not configured.';
+	}
+	const origins = (env.ALLOWED_ORIGINS ?? '').split(',').map((s: string) => s.trim()).filter(Boolean);
+	const unsafeOrigin = origins.find(isUnsafeProductionOrigin);
+	if (unsafeOrigin) {
+		return `Production CORS origin is unsafe: ${unsafeOrigin}`;
+	}
+	return null;
 }
 
 function bearerTokenFrom(request: Request): string {
@@ -197,6 +289,43 @@ function checkRateLimit(env: Env, key: string) {
 	return { allowed: false, remaining: 0, retryAfterSec, limit: MAX_REQUESTS } as const;
 }
 
+async function consumeDurableLimit(
+	env: Env,
+	key: string,
+	limit: number,
+	windowSec: number,
+	cost = 1,
+): Promise<DurableLimitResponse | null> {
+	const limiter = (env as any).ABUSE_LIMITER as DurableObjectNamespace | undefined;
+	if (!limiter) return null;
+
+	const id = limiter.idFromName(key);
+	const response = await limiter.get(id).fetch('https://abuse-limiter.local/consume', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ limit, windowSec, cost } satisfies DurableLimitRequest),
+	});
+	if (!response.ok) {
+		throw new Error(`Abuse limiter failed with ${response.status}`);
+	}
+	return await response.json<DurableLimitResponse>();
+}
+
+async function enforceRequestLimit(
+	env: Env,
+	key: string,
+	limit: number,
+	windowSec: number,
+) {
+	const durable = await consumeDurableLimit(env, key, limit, windowSec);
+	if (durable) return durable;
+	if (isProduction(env)) {
+		return { allowed: false, remaining: 0, retryAfterSec: 60, limit, used: 0 } satisfies DurableLimitResponse;
+	}
+	const memory = checkRateLimit(env, key);
+	return { ...memory, used: limit - memory.remaining } satisfies DurableLimitResponse;
+}
+
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
@@ -218,10 +347,13 @@ export default {
 			if (origin === 'null') return true;
 			if (!origin) return true; // Non-CORS requests or server-to-server
 			for (const pattern of allowedOriginPatterns) {
+				if (isProduction(env)) {
+					if (isUnsafeProductionOrigin(pattern)) continue;
+					return pattern === origin;
+				}
 				// Exact match
 				if (pattern === origin) return true;
 				// Wildcard pattern support, e.g., http://localhost:* or capacitor://*
-				if ((env.NODE_ENV || '').toLowerCase() === 'production' && pattern.includes('*')) continue;
 				const regexStr = '^' + pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$';
 				const regex: RegExp = new RegExp(regexStr);
 				if (regex.test(origin)) return true;
@@ -257,6 +389,24 @@ export default {
 				error: { message: openaiCheck.message, code: openaiCheck.code },
 			});
 			return new Response(JSON.stringify({ error: openaiCheck.message, code: openaiCheck.code }), {
+				status,
+				headers: { 'Content-Type': 'application/json', ...corsHeaders },
+			});
+		}
+
+		const productionConfigError = validateProductionConfig(env);
+		if (productionConfigError) {
+			const status = 500;
+			logError(env, {
+				ts: nowIso(),
+				requestId,
+				route: path,
+				method,
+				status,
+				durationMs: Date.now() - startedAt,
+				error: { message: productionConfigError, code: 'PRODUCTION_CONFIG_INVALID' },
+			});
+			return new Response(JSON.stringify({ error: 'Server security configuration is invalid.', code: 'PRODUCTION_CONFIG_INVALID' }), {
 				status,
 				headers: { 'Content-Type': 'application/json', ...corsHeaders },
 			});
@@ -329,8 +479,9 @@ export default {
 						});
 					}
 
-					for (const key of [`ip:${getClientIp(request)}`, `user:${auth.user.id}`]) {
-						const rl = checkRateLimit(env, key);
+					const requestLimit = Number.parseInt(env.RATE_LIMIT_REQUESTS || '100', 10) || 100;
+					for (const key of [`parse:ip:${getClientIp(request)}`, `parse:user:${auth.user.id}`]) {
+						const rl = await enforceRequestLimit(env, key, requestLimit, 60 * 60);
 						if (!rl.allowed) {
 							const status = 429;
 							const durationMs = Date.now() - startedAt;
@@ -503,21 +654,31 @@ export default {
 					const costPerCall = Number.parseFloat(((env as any).OPENAI_COST_PER_CALL as string) || '0.02');
 					const usageKey = `${auth.user.id}:${ip}`;
 					const usedByIp = openaiUsage.perIpCalls.get(usageKey) || 0;
+					const openAiWindowSec = 24 * 60 * 60;
+					const openAiLimiter = await consumeDurableLimit(env, `openai:user:${auth.user.id}`, perIpLimit, openAiWindowSec);
 
-					if (usedByIp >= perIpLimit) {
+					if (openAiLimiter ? !openAiLimiter.allowed : usedByIp >= perIpLimit) {
 						const status = 429;
 						logRequest(env, 'info', {
 							ts: nowIso(), requestId, route: path, method, status,
 							durationMs: Date.now() - startedAt,
-							openaiDenied: 'per_ip_cap', perIpLimit, usedByIp,
+							openaiDenied: 'per_user_cap', perIpLimit, usedByIp,
 						});
 						return new Response(JSON.stringify({ error: 'OpenAI usage limit reached. Please try again later.' }), {
 							status,
-							headers: { 'Content-Type': 'application/json', ...corsHeaders },
+							headers: {
+								'Content-Type': 'application/json',
+								...(openAiLimiter ? { 'Retry-After': String(openAiLimiter.retryAfterSec) } : {}),
+								...corsHeaders,
+							},
 						});
 					}
 
-					if (dailyBudget > 0 && (openaiUsage.totalCost + costPerCall) > dailyBudget) {
+					const budgetLimiter = dailyBudget > 0
+						? await consumeDurableLimit(env, `openai:budget:${new Date().toISOString().slice(0, 10)}`, Math.ceil(dailyBudget * 100_000), openAiWindowSec, Math.ceil(costPerCall * 100_000))
+						: null;
+
+					if (budgetLimiter ? !budgetLimiter.allowed : dailyBudget > 0 && (openaiUsage.totalCost + costPerCall) > dailyBudget) {
 						const status = 429;
 						logRequest(env, 'info', {
 							ts: nowIso(), requestId, route: path, method, status,

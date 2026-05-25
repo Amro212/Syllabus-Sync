@@ -18,6 +18,7 @@ describe('CORS and Content Validation (4.2)', () => {
   beforeEach(() => {
     // Configure allowed origins for tests
     env.ALLOWED_ORIGINS = 'http://localhost:*,capacitor://*';
+    env.NODE_ENV = 'test';
     env.OPENAI_API_KEY = 'test-key';
     env.SUPABASE_URL = 'https://example.supabase.co';
     env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-test-key';
@@ -206,5 +207,45 @@ describe('CORS and Content Validation (4.2)', () => {
     const res = await worker.fetch(req, env, ctx);
     await waitOnExecutionContext(ctx);
     expect(res.status).toBe(401);
+  });
+
+  it('fails closed in production when CORS contains wildcard or localhost origins', async () => {
+    env.NODE_ENV = 'production';
+    env.ALLOWED_ORIGINS = 'http://localhost:*,https://app.example.com';
+
+    const req = new IncomingRequest('https://api.example.com/health', {
+      method: 'GET',
+      headers: { Origin: 'https://app.example.com' },
+    });
+    const ctx = createExecutionContext();
+    const res = await worker.fetch(req, env, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toMatchObject({ code: 'PRODUCTION_CONFIG_INVALID' });
+  });
+
+  it('allows only exact HTTPS origins in production', async () => {
+    env.NODE_ENV = 'production';
+    env.ALLOWED_ORIGINS = 'https://app.example.com';
+
+    const allowedReq = new IncomingRequest('https://api.example.com/health', {
+      method: 'GET',
+      headers: { Origin: 'https://app.example.com' },
+    });
+    const allowedCtx = createExecutionContext();
+    const allowedRes = await worker.fetch(allowedReq, env, allowedCtx);
+    await waitOnExecutionContext(allowedCtx);
+    expect(allowedRes.status).toBe(200);
+    expect(allowedRes.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.com');
+
+    const blockedReq = new IncomingRequest('https://api.example.com/health', {
+      method: 'GET',
+      headers: { Origin: 'https://sub.app.example.com' },
+    });
+    const blockedCtx = createExecutionContext();
+    const blockedRes = await worker.fetch(blockedReq, env, blockedCtx);
+    await waitOnExecutionContext(blockedCtx);
+    expect(blockedRes.status).toBe(200);
+    expect(blockedRes.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 });

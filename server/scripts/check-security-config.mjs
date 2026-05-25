@@ -50,7 +50,7 @@ for (const marker of [
 }
 
 const migration = read('supabase/migrations/202605250001_security_rls.sql');
-for (const table of [
+const rlsTables = [
   'users',
   'courses',
   'events',
@@ -60,9 +60,45 @@ for (const table of [
   'blocked_users',
   'user_preferences',
   'social_action_rate_limits',
-]) {
+];
+for (const table of rlsTables) {
   if (!migration.includes(`alter table public.${table} enable row level security`)) {
     fail(`RLS enable statement missing for public.${table}`);
+  }
+}
+
+const requiredPolicies = [
+  'users_select_safe_profiles',
+  'users_insert_self',
+  'users_update_self',
+  'courses_select_owned_or_visible_schedule',
+  'courses_insert_self',
+  'courses_update_self',
+  'courses_delete_self',
+  'events_select_owned_or_visible_schedule',
+  'events_insert_self',
+  'events_update_self',
+  'events_delete_self',
+  'grading_entries_select_self',
+  'grading_entries_insert_self',
+  'grading_entries_update_self',
+  'grading_entries_delete_self',
+  'friend_requests_select_participant',
+  'friend_requests_insert_self',
+  'friend_requests_update_participant',
+  'friends_select_participant',
+  'friends_insert_participant',
+  'friends_delete_participant',
+  'blocked_users_select_self',
+  'blocked_users_insert_self',
+  'blocked_users_delete_self',
+  'user_preferences_select_self',
+  'user_preferences_insert_self',
+  'user_preferences_update_self',
+];
+for (const policy of requiredPolicies) {
+  if (!migration.includes(`create policy ${policy}`)) {
+    fail(`RLS policy missing from migration: ${policy}`);
   }
 }
 for (const marker of [
@@ -73,6 +109,24 @@ for (const marker of [
 ]) {
   if (!migration.includes(marker)) {
     fail(`social abuse control missing from migration: ${marker}`);
+  }
+}
+
+const rlsTest = read('supabase/tests/security_rls.sql');
+for (const table of rlsTables) {
+  if (!rlsTest.includes(table)) {
+    fail(`RLS test does not mention public.${table}`);
+  }
+}
+for (const marker of [
+  'RLS is not enabled',
+  'No RLS policies found',
+  'friend_requests rate-limit trigger missing',
+  'friends rate-limit trigger missing',
+  'blocked_users rate-limit trigger missing',
+]) {
+  if (!rlsTest.includes(marker)) {
+    fail(`RLS DB test assertion missing: ${marker}`);
   }
 }
 

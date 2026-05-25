@@ -8,13 +8,6 @@
 import Foundation
 import SwiftUI
 
-private let defaultAPIBaseURL: URL = {
-    if let env = ProcessInfo.processInfo.environment["API_BASE_URL"], let url = URL(string: env) {
-        return url
-    }
-    return URL(string: "http://localhost:8787")!
-}()
-
 // MARK: - App Routes
 
 /// Centralized route management for the entire app
@@ -140,16 +133,7 @@ struct AppRoot: View {
         let store = EventStore()
         let gradingRepo = GradingRepository()
         let courseRepo = CourseRepository()
-        let parser = {
-            let config = URLSessionAPIClient.Configuration(
-                baseURL: defaultAPIBaseURL,
-                defaultHeaders: ["Content-Type": "application/json"],
-                requestTimeout: 90,
-                maxRetryCount: 2
-            )
-            let client = URLSessionAPIClient(configuration: config)
-            return SyllabusParserRemote(apiClient: client)
-        }()
+        let parser = SyllabusParserRemote(apiClient: AppConfiguration.makeAPIClient(requestTimeout: 90, maxRetryCount: 2))
         _eventStore = StateObject(wrappedValue: store)
         _gradingRepository = StateObject(wrappedValue: gradingRepo)
         _courseRepository = StateObject(wrappedValue: courseRepo)
@@ -179,9 +163,7 @@ struct AppRoot: View {
         .task(id: navigationManager.currentRoute) {
             await loadAuthenticatedDataIfNeeded()
         }
-        .onAppear {
-            print("🏠 AppRoot appeared, currentRoute: \(navigationManager.currentRoute)")
-        }
+        .onAppear { AppLog.debug("AppRoot appeared, currentRoute: \(navigationManager.currentRoute)") }
     }
 
     private func loadAuthenticatedDataIfNeeded() async {
@@ -575,20 +557,20 @@ struct LaunchScreenView: View {
             // Trigger haptic feedback
             HapticFeedbackManager.shared.mediumImpact()
 
-            print("🚀 LaunchScreenView appeared")
-            print("🔐 isAuthenticated: \(SupabaseAuthService.shared.isAuthenticated)")
+            AppLog.debug("LaunchScreenView appeared")
+            AppLog.debug("isAuthenticated: \(SupabaseAuthService.shared.isAuthenticated)")
 
             // Check authentication state and navigate accordingly
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                print("⏰ 2 second delay complete, navigating...")
+                AppLog.debug("Launch delay complete, navigating")
                 withAnimation(.spring(response: 0.7, dampingFraction: 0.8)) {
                     if SupabaseAuthService.shared.isAuthenticated {
                         // User is logged in, go directly to dashboard
-                        print("✅ Navigating to dashboard")
+                        AppLog.debug("Navigating to dashboard")
                         navigationManager.setRoot(to: .dashboard)
                     } else {
                         // User is not logged in, show auth screen
-                        print("🔓 Navigating to auth")
+                        AppLog.debug("Navigating to auth")
                         navigationManager.setRoot(to: .auth)
                     }
                 }

@@ -19,11 +19,22 @@ describe('CORS and Content Validation (4.2)', () => {
     // Configure allowed origins for tests
     env.ALLOWED_ORIGINS = 'http://localhost:*,capacitor://*';
     env.OPENAI_API_KEY = 'test-key';
+    env.SUPABASE_URL = 'https://example.supabase.co';
+    env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-test-key';
     originalFetch = globalThis.fetch;
-    (globalThis as any).fetch = vi.fn(async () => new Response(
-      JSON.stringify({ choices: [{ message: { content: JSON.stringify([goodEvent]) } }] }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    ));
+    (globalThis as any).fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/auth/v1/user')) {
+        return new Response(JSON.stringify({ id: '11111111-1111-1111-1111-111111111111' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: JSON.stringify([goodEvent]) } }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    });
   });
 
   afterEach(() => {
@@ -68,6 +79,7 @@ describe('CORS and Content Validation (4.2)', () => {
       headers: {
         Origin: 'https://evil.com',
         'Content-Type': 'application/json',
+        Authorization: 'Bearer valid-token',
       },
       body: JSON.stringify({ text: 'hello' }),
     });
@@ -84,6 +96,7 @@ describe('CORS and Content Validation (4.2)', () => {
       headers: {
         Origin: origin,
         'Content-Type': 'application/json',
+        Authorization: 'Bearer valid-token',
       },
       body: JSON.stringify({ text: 'hello world', courseCode: 'CS101' }),
     });
@@ -100,6 +113,7 @@ describe('CORS and Content Validation (4.2)', () => {
       headers: {
         Origin: 'null',
         'Content-Type': 'application/json',
+        Authorization: 'Bearer valid-token',
       },
       body: JSON.stringify({ text: 'ok', courseCode: 'CS101' }),
     });
@@ -116,6 +130,7 @@ describe('CORS and Content Validation (4.2)', () => {
       headers: {
         Origin: 'http://localhost:3000',
         'Content-Type': 'text/plain',
+        Authorization: 'Bearer valid-token',
       },
       body: 'plain text',
     });
@@ -135,6 +150,7 @@ describe('CORS and Content Validation (4.2)', () => {
         Origin: 'http://localhost:3000',
         'Content-Type': 'application/json',
         'Content-Length': String(body.length),
+        Authorization: 'Bearer valid-token',
       },
       body,
     });
@@ -151,6 +167,7 @@ describe('CORS and Content Validation (4.2)', () => {
       headers: {
         Origin: 'http://localhost:3000',
         'Content-Type': 'application/json',
+        Authorization: 'Bearer valid-token',
       },
       body: JSON.stringify({ text: longText }),
     });
@@ -166,6 +183,7 @@ describe('CORS and Content Validation (4.2)', () => {
       headers: {
         Origin: 'http://localhost:3000',
         'Content-Type': 'application/json',
+        Authorization: 'Bearer valid-token',
       },
       body: '{ invalid json',
     });
@@ -174,5 +192,19 @@ describe('CORS and Content Validation (4.2)', () => {
     await waitOnExecutionContext(ctx);
     expect(res.status).toBe(400);
   });
-});
 
+  it('rejects POST /parse without bearer token', async () => {
+    const req = new IncomingRequest('http://example.com/parse', {
+      method: 'POST',
+      headers: {
+        Origin: 'http://localhost:3000',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text: 'hello world', courseCode: 'CS101' }),
+    });
+    const ctx = createExecutionContext();
+    const res = await worker.fetch(req, env, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(res.status).toBe(401);
+  });
+});

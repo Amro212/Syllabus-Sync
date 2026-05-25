@@ -18,11 +18,28 @@ describe('Rate Limiting (4.3)', () => {
     env.RATE_LIMIT_REQUESTS = '2';
     env.ALLOWED_ORIGINS = 'http://localhost:*';
     env.OPENAI_API_KEY = 'test-key';
+    env.SUPABASE_URL = 'https://example.supabase.co';
+    env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-test-key';
     originalFetch = globalThis.fetch;
-    (globalThis as any).fetch = vi.fn(async () => new Response(
-      JSON.stringify({ choices: [{ message: { content: JSON.stringify([goodEvent]) } }] }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    ));
+    (globalThis as any).fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/auth/v1/user')) {
+        const authorization = new Headers(init?.headers).get('authorization') || '';
+        const id = authorization.includes('other-token')
+          ? '22222222-2222-2222-2222-222222222222'
+          : authorization.includes('bucket-token')
+          ? '33333333-3333-3333-3333-333333333333'
+          : '11111111-1111-1111-1111-111111111111';
+        return new Response(JSON.stringify({ id }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: JSON.stringify([goodEvent]) } }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    });
   });
 
   afterEach(() => {
@@ -30,13 +47,14 @@ describe('Rate Limiting (4.3)', () => {
     vi.restoreAllMocks();
   });
 
-  async function doParse(ip: string) {
+  async function doParse(ip: string, token = 'valid-token') {
     const req = new IncomingRequest('http://example.com/parse', {
       method: 'POST',
       headers: {
         Origin: 'http://localhost:3000',
         'Content-Type': 'application/json',
         'CF-Connecting-IP': ip,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ text: 'hello', courseCode: 'CS101' }),
     });
@@ -60,14 +78,17 @@ describe('Rate Limiting (4.3)', () => {
 
   it('uses separate buckets for different IPs', async () => {
     // First IP consumes 2 tokens
-    await doParse('10.0.0.1');
-    await doParse('10.0.0.1');
-    const blocked = await doParse('10.0.0.1');
+    await doParse('10.0.0.1', 'bucket-token');
+    await doParse('10.0.0.1', 'bucket-token');
+    const blocked = await doParse('10.0.0.1', 'bucket-token');
     expect(blocked.status).toBe(429);
 
-    // Different IP should still be allowed
-    const other1 = await doParse('10.0.0.2');
-    expect(other1.status).toBe(200);
+    // Same user is blocked even from a different IP.
+    const other1 = await doParse('10.0.0.2', 'bucket-token');
+    expect(other1.status).toBe(429);
+
+    // Different user has a separate authenticated bucket.
+    const otherUser = await doParse('10.0.0.2', 'other-token');
+    expect(otherUser.status).toBe(200);
   });
 });
-

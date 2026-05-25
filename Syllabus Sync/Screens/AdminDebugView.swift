@@ -289,29 +289,29 @@ struct AdminDebugView: View {
         // 1. Sign out from Supabase (invalidates JWT immediately)
         do {
             try await SupabaseAuthService.shared.signOut()
-            print("✅ Signed out from Supabase")
+            AppLog.debug("✅ Signed out from Supabase")
         } catch {
-            print("⚠️ Sign out error: \(error)")
+            AppLog.debug("⚠️ Sign out error: \(error)")
         }
 
         // 2. Clear Event Store (safe now — any re-fetch will fail auth)
         await MainActor.run {
             eventStore.clearEvents()
         }
-        print("✅ EventStore cleared")
+        AppLog.debug("✅ EventStore cleared")
 
         // 3. Clear UserDefaults
         if let bundleId = Bundle.main.bundleIdentifier {
             UserDefaults.standard.removePersistentDomain(forName: bundleId)
             UserDefaults.standard.synchronize()
-            print("✅ UserDefaults cleared")
+            AppLog.debug("✅ UserDefaults cleared")
         }
 
         // 4. Navigate to auth screen
         await MainActor.run {
             dismiss()
             navigationManager.setRoot(to: .auth)
-            print("✅ Navigated to auth screen")
+            AppLog.debug("✅ Navigated to auth screen")
         }
     }
 

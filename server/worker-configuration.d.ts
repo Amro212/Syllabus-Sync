@@ -9,6 +9,7 @@ declare namespace Cloudflare {
         OPENAI_DAILY_BUDGET: string;
         OPENAI_COST_PER_CALL: string;
         OPENAI_MODEL: string;
+        OPENAI_MAX_COMPLETION_TOKENS: string;
         PARSE_CONFIDENCE_THRESHOLD: string;
         OPENAI_TIMEOUT_MS: string;
         OPENAI_RETRIES: string;

@@ -25,3 +25,17 @@ protocol PDFTextExtractor {
     /// - Returns: Tuple containing joined plain text, TSV formatted rows, and page count.
     func extractStructured(from url: URL) async throws -> (plain: String, tsv: String, pages: Int)
 }
+
+enum PDFTextExtractorError: LocalizedError {
+    case fileTooLarge(maxMB: Int)
+    case tooManyPages(maxPages: Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .fileTooLarge(let maxMB):
+            return "The PDF is too large. Please choose a file under \(maxMB) MB."
+        case .tooManyPages(let maxPages):
+            return "The PDF has too many pages. Please choose a file with \(maxPages) pages or fewer."
+        }
+    }
+}

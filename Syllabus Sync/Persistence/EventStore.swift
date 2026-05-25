@@ -23,7 +23,7 @@ final class EventStore: ObservableObject {
                 self.events = EventStore.sorted(fetchedEvents)
             }
         case .failure(let error):
-            print("Failed to fetch events: \(error)")
+            AppLog.debug("Failed to fetch events: \(error)")
         }
     }
 
@@ -60,7 +60,7 @@ final class EventStore: ObservableObject {
                 self.events = EventStore.sorted(self.events)
             }
         case .failure(let error):
-            print("Failed to save event: \(error)")
+            AppLog.debug("Failed to save event: \(error)")
         }
     }
     
@@ -81,7 +81,7 @@ final class EventStore: ObservableObject {
                 self.events = EventStore.sorted(updatedEvents)
             }
         case .failure(let error):
-            print("Failed to save events: \(error)")
+            AppLog.debug("Failed to save events: \(error)")
         }
     }
 
@@ -94,7 +94,7 @@ final class EventStore: ObservableObject {
                 self.debugMessage = nil
             }
         case .failure(let error):
-            print("Failed to delete all events: \(error)")
+            AppLog.debug("Failed to delete all events: \(error)")
         }
     }
     
@@ -106,7 +106,7 @@ final class EventStore: ObservableObject {
                 self.events.removeAll { $0.id == event.id }
             }
         case .failure(let error):
-            print("Failed to delete event: \(error)")
+            AppLog.debug("Failed to delete event: \(error)")
         }
     }
 
@@ -127,7 +127,7 @@ final class EventStore: ObservableObject {
                 self.events = EventStore.sorted(self.events)
             }
         case .failure(let error):
-            print("Failed to update event: \(error)")
+            AppLog.debug("Failed to update event: \(error)")
         }
     }
     

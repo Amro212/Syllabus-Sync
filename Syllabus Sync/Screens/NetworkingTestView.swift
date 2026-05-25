@@ -15,26 +15,9 @@ struct NetworkingTestView: View {
     @State private var isRunning = false
     @State private var serverStatus = "Unknown"
     
-    private let apiClient: APIClient = {
-        let config = URLSessionAPIClient.Configuration(
-            baseURL: URL(string: "http://localhost:8787")!,
-            defaultHeaders: ["Content-Type": "application/json"],
-            requestTimeout: 10,
-            maxRetryCount: 1
-        )
-        return URLSessionAPIClient(configuration: config)
-    }()
+    private let apiClient: APIClient = AppConfiguration.makeAPIClient(requestTimeout: 10, maxRetryCount: 1)
     
-    private let parser: SyllabusParser = {
-        let config = URLSessionAPIClient.Configuration(
-            baseURL: URL(string: "http://localhost:8787")!,
-            defaultHeaders: ["Content-Type": "application/json"],
-            requestTimeout: 10,
-            maxRetryCount: 1
-        )
-        let client = URLSessionAPIClient(configuration: config)
-        return SyllabusParserRemote(apiClient: client)
-    }()
+    private let parser: SyllabusParser = SyllabusParserRemote(apiClient: AppConfiguration.makeAPIClient(requestTimeout: 10, maxRetryCount: 1))
     
     var body: some View {
         NavigationView {

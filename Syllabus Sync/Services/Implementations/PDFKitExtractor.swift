@@ -15,6 +15,8 @@ import UIKit
 /// before returning plain text or TSV representations.
 final class PDFKitExtractor: PDFTextExtractor {
     private let minimumConfidence: VNConfidence = 0.6
+    private let maxFileBytes = 15 * 1024 * 1024
+    private let maxPageCount = 50
 
     func extract(from url: URL, deleteAfterExtract: Bool = false) async throws -> String {
         let result = try await performOCR(from: url)
@@ -62,8 +64,18 @@ final class PDFKitExtractor: PDFTextExtractor {
         let needsSecurity = url.startAccessingSecurityScopedResource()
         defer { if needsSecurity { url.stopAccessingSecurityScopedResource() } }
 
+        if let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey]),
+           let fileSize = resourceValues.fileSize,
+           fileSize > maxFileBytes {
+            throw PDFTextExtractorError.fileTooLarge(maxMB: maxFileBytes / 1024 / 1024)
+        }
+
         guard let document = PDFDocument(url: url) else {
             return (plain: "", tsv: "", pages: 0)
+        }
+
+        if document.pageCount > maxPageCount {
+            throw PDFTextExtractorError.tooManyPages(maxPages: maxPageCount)
         }
 
         var pages: [RecognizedPage] = []

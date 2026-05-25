@@ -205,7 +205,7 @@ struct AISyllabusScanModal: View {
             selectedFileURL = url
             startScan()
         case .failure(let error):
-            print("File import error: \(error)")
+            AppLog.debug("File import error: \(error)")
         }
     }
     

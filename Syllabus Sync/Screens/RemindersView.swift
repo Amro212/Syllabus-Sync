@@ -508,6 +508,7 @@ struct RemindersView: View {
                         .foregroundColor(AppColors.textPrimary)
                 }
 
+                #if DEBUG
                 Button {
                     HapticFeedbackManager.shared.lightImpact()
                     showingAdminDebug = true
@@ -516,6 +517,7 @@ struct RemindersView: View {
                         .font(.lexend(size: 22, weight: .regular))
                         .foregroundColor(.orange)
                 }
+                #endif
             }
         }
         .padding(.horizontal, Layout.Spacing.md)
@@ -603,6 +605,7 @@ struct RemindersView: View {
                 .presentationCornerRadius(20)
                 .presentationBackground(.ultraThinMaterial)
         }
+        #if DEBUG
         .sheet(isPresented: $showingAdminDebug) {
             AdminDebugView()
                 .environmentObject(eventStore)
@@ -612,6 +615,7 @@ struct RemindersView: View {
                 .presentationCornerRadius(20)
                 .presentationBackground(.ultraThinMaterial)
         }
+        #endif
         .task {
             loadUserPreference()
             loadCompletedEvents()

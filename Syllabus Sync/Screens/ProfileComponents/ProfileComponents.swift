@@ -46,14 +46,7 @@ struct ProfileHeaderView: View {
                         .foregroundColor(AppColors.textSecondary)
                 }
 
-                if !viewModel.bio.isEmpty {
-                    Text(viewModel.bio)
-                        .font(.lexend(size: 14, weight: .regular))
-                        .foregroundColor(AppColors.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, Layout.Spacing.lg)
-                        .padding(.top, Layout.Spacing.xs)
-                }
+                
 
                 // Email with provider badge
                 HStack(spacing: Layout.Spacing.sm) {

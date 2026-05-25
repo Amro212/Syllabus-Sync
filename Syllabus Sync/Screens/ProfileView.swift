@@ -50,12 +50,7 @@ struct ProfileView: View {
                                 onTap: { viewModel.showEditDisplayName = true }
                             )
 
-                            EditableFieldRow(
-                                title: "Bio",
-                                value: viewModel.bio.isEmpty ? "Add a bio" : viewModel.bio,
-                                icon: "text.alignleft",
-                                onTap: { viewModel.showEditBio = true }
-                            )
+
 
                             InfoRow(
                                 title: "Email",
@@ -86,12 +81,7 @@ struct ProfileView: View {
                                 }
                             )
 
-                            NavigationRow(
-                                title: "Blocked Users",
-                                icon: "person.slash",
-                                badge: viewModel.blockedUsers.count,
-                                onTap: { viewModel.showBlockedUsers = true }
-                            )
+                            
 
                             ToggleRow(
                                 title: "Friend Request Notifications",
@@ -207,12 +197,7 @@ struct ProfileView: View {
         .sheet(isPresented: $viewModel.showEditDisplayName) {
             EditDisplayNameSheet(viewModel: viewModel)
         }
-        .sheet(isPresented: $viewModel.showEditBio) {
-            EditBioSheet(viewModel: viewModel)
-        }
-        .sheet(isPresented: $viewModel.showBlockedUsers) {
-            BlockedUsersSheet(viewModel: viewModel)
-        }
+        
         .sheet(isPresented: $viewModel.showFriendRequests) {
             FriendRequestsSheet(viewModel: viewModel)
         }

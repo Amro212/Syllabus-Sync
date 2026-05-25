@@ -16,7 +16,6 @@ final class ProfileViewModel: ObservableObject {
     @Published var currentUser: AuthUser?
     @Published var username: String = ""
     @Published var displayName: String = ""
-    @Published var bio: String = ""
     @Published var email: String = ""
     @Published var photoURL: URL?
     @Published var provider: AuthProvider = .email
@@ -27,7 +26,6 @@ final class ProfileViewModel: ObservableObject {
     @Published var friendRequestNotifications: Bool = true
     @Published var pendingRequestsCount: Int = 0
     @Published var friendsCount: Int = 0
-    @Published var blockedUsers: [BlockedUser] = []
 
     // MARK: - App Preferences
 
@@ -40,8 +38,7 @@ final class ProfileViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var showEditUsername: Bool = false
     @Published var showEditDisplayName: Bool = false
-    @Published var showEditBio: Bool = false
-    @Published var showBlockedUsers: Bool = false
+    
     @Published var showFriendRequests: Bool = false
     @Published var showDeleteCloudDataAlert: Bool = false
     @Published var showResetAppDataAlert: Bool = false
@@ -51,7 +48,6 @@ final class ProfileViewModel: ObservableObject {
 
     @Published var editingUsername: String = ""
     @Published var editingDisplayName: String = ""
-    @Published var editingBio: String = ""
     @Published var usernameError: String?
     @Published var isSaving: Bool = false
 
@@ -110,9 +106,6 @@ final class ProfileViewModel: ObservableObject {
         let friends = await socialHubService.fetchFriends()
         friendsCount = friends.count
 
-        // Fetch blocked users
-        blockedUsers = await socialHubService.fetchBlockedUsers()
-
         isLoading = false
     }
 
@@ -122,19 +115,17 @@ final class ProfileViewModel: ObservableObject {
         do {
             struct UserProfileRow: Codable {
                 let displayName: String?
-                let bio: String?
                 let scheduleVisibility: String?
 
                 enum CodingKeys: String, CodingKey {
                     case displayName = "display_name"
-                    case bio
                     case scheduleVisibility = "schedule_visibility"
                 }
             }
 
             let rows: [UserProfileRow] = try await authService.supabase
                 .from("users")
-                .select("display_name, bio, schedule_visibility")
+                .select("display_name, schedule_visibility")
                 .eq("id", value: uid)
                 .limit(1)
                 .execute()
@@ -142,7 +133,6 @@ final class ProfileViewModel: ObservableObject {
 
             if let row = rows.first {
                 displayName = row.displayName ?? ""
-                bio = row.bio ?? ""
                 if let visibility = row.scheduleVisibility,
                    let parsedVisibility = ScheduleVisibility(rawValue: visibility) {
                     scheduleVisibility = parsedVisibility
@@ -235,21 +225,7 @@ final class ProfileViewModel: ObservableObject {
         showToastMessage("✓ Display name updated!")
     }
 
-    func updateBio(_ newBio: String) async {
-        isSaving = true
-
-        if let error = await socialHubService.updateBio(newBio.isEmpty ? nil : newBio) {
-            isSaving = false
-            showToastMessage(error)
-            return
-        }
-
-        bio = newBio
-        isSaving = false
-        showEditBio = false
-        HapticFeedbackManager.shared.success()
-        showToastMessage("✓ Bio updated!")
-    }
+    
 
     // MARK: - Schedule Visibility
 
@@ -264,37 +240,7 @@ final class ProfileViewModel: ObservableObject {
         showToastMessage("✓ Schedule visibility updated!")
     }
 
-    // MARK: - Blocking
-
-    func blockUser(_ userId: String) async {
-        if let error = await socialHubService.blockUser(userId) {
-            showToastMessage(error)
-            return
-        }
-
-        // Refresh blocked users list
-        blockedUsers = await socialHubService.fetchBlockedUsers()
-
-        // Refresh friends count (friendship was removed)
-        let friends = await socialHubService.fetchFriends()
-        friendsCount = friends.count
-
-        HapticFeedbackManager.shared.success()
-        showToastMessage("✓ User blocked")
-    }
-
-    func unblockUser(_ userId: String) async {
-        if let error = await socialHubService.unblockUser(userId) {
-            showToastMessage(error)
-            return
-        }
-
-        // Remove from local list
-        blockedUsers.removeAll { $0.userId == userId }
-
-        HapticFeedbackManager.shared.success()
-        showToastMessage("✓ User unblocked")
-    }
+    
 
     // MARK: - Preferences
 

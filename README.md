@@ -1,153 +1,40 @@
-# Syllabus Sync
+<p align="center">
+   <img src="./Syllabus%20Sync/Assets.xcassets/SyllabusIcon.imageset/app-icon.png" width="96" alt="Syllabus Sync logo" />
+</p>
 
-[![CI](https://github.com/USERNAME/syllabus-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/syllabus-sync/actions/workflows/ci.yml)
+<h1 align="center">Syllabus Sync</h1>
 
-> **Note**: Replace `USERNAME` with your actual GitHub username once you create the repository.
+<p align="center">
+   Turn messy course PDFs into a clean, editable academic timeline with one‑tap calendar sync.
+</p>
 
-**Syllabus Sync** lets students import course syllabi (PDFs), extract key dates, preview a clean timeline/calendar, and one‑tap sync to Apple Calendar with reminders. The app favors **delightful motion, microinteractions, and clarity** over heavy configuration.
+<p align="center">
+   <img src="./Syllabus%20Sync/Assets.xcassets/BooksIllustration.imageset/books-icon.png" width="140" alt="Books icon" />
+</p>
 
-## 🏗️ Architecture
+## Overview
 
-This is a **hybrid iOS + serverless backend** project with:
+Syllabus Sync is a focused iOS app that transforms course syllabi into structured schedules. It extracts key dates, presents them in a clear timeline, and lets students sync reminders to Apple Calendar without wrestling with manual entry.
 
-- **iOS App**: SwiftUI (iOS 17+) with MVVM pattern
-- **Server**: Cloudflare Workers with TypeScript  
-- **Parsing**: OpenAI-powered parsing (server-side only)
-- **Persistence**: Core Data + CloudKit for iCloud sync
-- **Calendar**: EventKit integration for Apple Calendar sync
+## Core Capabilities
 
-## 📁 Project Structure
+- Import PDF syllabi and parse important dates
+- Review and edit events before they hit your calendar
+- Create a clean academic timeline with reminders
+- Keep data synced across devices via iCloud
 
-```
-Syllabus Sync/
-├── Syllabus Sync/          # iOS app (Xcode project)
-├── server/                 # Cloudflare Workers API
-├── .github/workflows/      # CI/CD pipelines
-├── architecture.md         # Detailed technical architecture
-└── tasks.md               # Development roadmap
-```
+## Product Principles
 
-## 🚀 Quick Start
+- Clarity first, configuration last
+- Minimal friction from PDF to calendar
+- Privacy‑aware by default with server‑side parsing
 
-### iOS App
-```bash
-# Open in Xcode
-open "Syllabus Sync.xcodeproj"
+## Tech Snapshot
 
-# Or build from command line
-cd "Syllabus Sync"
-xcodebuild -project "Syllabus Sync.xcodeproj" -scheme "Syllabus Sync" build
-```
+- iOS app built with SwiftUI
+- Serverless parsing backend on Cloudflare Workers
+- Core Data with CloudKit for device sync
 
-### Server
-```bash
-cd server
-npm install
-npm run start    # Local development
-npm test        # Run validation tests
-```
+## Status
 
-## 🧪 Development Status
-
-- ✅ **Milestone 0**: Project setup & configuration
-- ✅ **Milestone 1-3**: iOS Design System & Screens (mock-first)
-- ✅ **Milestone 4-5**: Server scaffold & OpenAI parser
-- ✅ **Milestone 8**: Real Import Flow (Client ↔ Server)
-- ✅ **Milestone 9**: Full Event Editing UX
-- ✅ **Milestone 9.5**: Core Data + CloudKit Backup/Sync
-- ⏳ **Milestone 10**: Calendar & Notifications
-
-See [tasks.md](./tasks.md) for detailed milestone tracking.
-
-## 📊 Current Endpoints
-
-### Server API
-- `GET /health` - Health check
-- `POST /parse` - Parse syllabus text → structured events (OpenAI-powered)
-
-## ☁️ Cloud Backup & Sync
-
-### Core Data + CloudKit Integration
-
-**Syllabus Sync** uses **Core Data** backed by **CloudKit** to automatically backup and sync your data across devices.
-
-#### What's Stored in iCloud?
-
-Your app data is stored in **iCloud Private Database** (only you can access it):
-
-- **Courses**: Course codes, titles, instructors, colors
-- **Events**: All imported/edited events with dates, titles, types, locations, notes
-- **Preferences**: App settings and import history
-
-#### Important Notes
-
-- **PDFs are NOT stored** - Only extracted metadata
-- **iCloud account required** - Sign in on your device to enable sync
-- **Paid Apple Developer Account** - CloudKit requires a paid membership ($99/year)
-- **Simulator mode** - Uses local-only Core Data (no CloudKit sync)
-
-#### How to Delete Your Cloud Data
-
-If you need to wipe all your data:
-
-1. Open **Settings** in the app
-2. Scroll to **Data Management**
-3. Tap **Delete Cloud Backup**
-4. Confirm deletion
-
-This will:
-- ✅ Delete all Core Data records (Courses, Events, Preferences)
-- ✅ Remove data from iCloud (if CloudKit is enabled)
-- ✅ Cannot be undone - make sure you want to proceed!
-
-#### Developer Setup
-
-For CloudKit to work, you need:
-
-1. **Paid Apple Developer Account** ($99/year)
-2. **iCloud Capability enabled** in Xcode:
-   - Signing & Capabilities → iCloud → CloudKit
-   - Container: `iCloud.SylSyn.Syllabus-Sync`
-3. **Signed into iCloud** on your test device
-
-**Without paid account:**
-- ✅ App works perfectly with local Core Data only
-- ❌ CloudKit sync disabled (data doesn't sync between devices)
-- ✅ Data persists locally and survives app relaunches
-
-## 🛡️ Security & Privacy
-
-- **No API keys in client** - All sensitive operations server-side only
-- **OpenAI usage**: Server-side only for parsing
-- **Budget controls**: Rate limiting and cost guardrails
-- **Data minimization**: PDFs auto-deleted, minimal PII storage
-- **Private database**: CloudKit uses your iCloud Private DB (not shared)
-
-### Secrets Management
-
-**For developers:**
-```bash
-# 1. Copy example file 
-cp server/.dev.vars.example server/.dev.vars
-
-# 2. Add your OpenAI API key to .dev.vars
-# Never commit .dev.vars - it's in .gitignore
-
-# 3. For production deployment:
-cd server && wrangler secret put OPENAI_API_KEY
-```
-
-**Security principles:**
-- ✅ All secrets server-side only via Wrangler secrets
-- ✅ `.dev.vars` is git-ignored (local development only) 
-- ✅ Rate limiting prevents abuse
-- ✅ Budget caps prevent runaway costs
-- ✅ CloudKit Private DB - only you can access your data
-
-## 📄 License
-
-MIT License - see LICENSE file for details.
-
----
-
-**Status**: MVP development in progress - functional but not production-ready.
+MVP in active development.

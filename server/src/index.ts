@@ -872,6 +872,16 @@ export default {
 					const auth = await authenticateRequest(env, request);
 					if (!auth.ok) return json({ error: auth.error }, { status: auth.status });
 					const currentUserId = auth.user.id;
+					const socialLimit = Number.parseInt((env as any).RATE_LIMIT_SOCIAL || '60', 10) || 60;
+					for (const key of [`social:recommendations:ip:${getClientIp(request)}`, `social:recommendations:user:${currentUserId}`]) {
+						const rl = await enforceRequestLimit(env, key, socialLimit, 60 * 60);
+						if (!rl.allowed) {
+							return json({ error: 'Too Many Requests' }, {
+								status: 429,
+								headers: { 'Retry-After': String(rl.retryAfterSec) },
+							});
+						}
+					}
 
 					const restHeaders = {
 						'Authorization': `Bearer ${serviceRoleKey}`,

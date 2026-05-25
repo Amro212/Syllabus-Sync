@@ -67,6 +67,109 @@ alter table public.friends enable row level security;
 alter table public.blocked_users enable row level security;
 alter table public.user_preferences enable row level security;
 
+create table if not exists public.social_action_rate_limits (
+  user_id uuid not null,
+  action text not null,
+  window_start timestamptz not null,
+  count integer not null default 0,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, action, window_start)
+);
+
+alter table public.social_action_rate_limits enable row level security;
+
+create or replace function public.check_social_action_rate_limit(
+  actor_id uuid,
+  action_name text,
+  max_actions integer,
+  window_seconds integer default 3600
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_window timestamptz;
+  next_count integer;
+begin
+  if actor_id is null then
+    raise exception 'Not authenticated' using errcode = '28000';
+  end if;
+
+  current_window := to_timestamp(floor(extract(epoch from now()) / window_seconds) * window_seconds);
+
+  insert into public.social_action_rate_limits (user_id, action, window_start, count, updated_at)
+  values (actor_id, action_name, current_window, 1, now())
+  on conflict (user_id, action, window_start)
+  do update
+    set count = public.social_action_rate_limits.count + 1,
+        updated_at = now()
+  returning count into next_count;
+
+  if next_count > max_actions then
+    raise exception 'Social action rate limit exceeded for %', action_name using errcode = 'P0001';
+  end if;
+end;
+$$;
+
+create or replace function public.enforce_friend_request_rate_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT' then
+    perform public.check_social_action_rate_limit(new.from_user_id, 'friend_request_create', 20, 3600);
+  elsif tg_op = 'UPDATE' and old.status is distinct from new.status then
+    perform public.check_social_action_rate_limit(auth.uid(), 'friend_request_status_update', 60, 3600);
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.enforce_friendship_rate_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform public.check_social_action_rate_limit(auth.uid(), 'friendship_create', 30, 3600);
+  return new;
+end;
+$$;
+
+create or replace function public.enforce_block_rate_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform public.check_social_action_rate_limit(new.blocker_id, 'block_create', 30, 3600);
+  return new;
+end;
+$$;
+
+drop trigger if exists friend_requests_rate_limit on public.friend_requests;
+create trigger friend_requests_rate_limit
+before insert or update on public.friend_requests
+for each row execute function public.enforce_friend_request_rate_limit();
+
+drop trigger if exists friends_rate_limit on public.friends;
+create trigger friends_rate_limit
+before insert on public.friends
+for each row execute function public.enforce_friendship_rate_limit();
+
+drop trigger if exists blocked_users_rate_limit on public.blocked_users;
+create trigger blocked_users_rate_limit
+before insert on public.blocked_users
+for each row execute function public.enforce_block_rate_limit();
+
+grant execute on function public.check_social_action_rate_limit(uuid, text, integer, integer) to authenticated;
+
 drop policy if exists users_select_safe_profiles on public.users;
 create policy users_select_safe_profiles
 on public.users for select

@@ -20,6 +20,9 @@ const trackedFiles = execFileSync('/usr/bin/env', ['git', 'ls-files'], { cwd: re
   .filter(Boolean);
 
 for (const file of trackedFiles) {
+  if (/(^|\/)(\.env|\.dev\.vars)\.example$/.test(file)) {
+    continue;
+  }
   if (/(^|\/)(\.env|\.dev\.vars)(\.|$)/.test(file)) {
     fail(`tracked local secret file: ${file}`);
   }

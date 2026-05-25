@@ -260,6 +260,10 @@ final class ProfileViewModel: ObservableObject {
             return
         }
 
+        await AppNotificationCoordinator.shared.applyNotificationPreference(
+            notificationsEnabled,
+            events: eventStore?.events ?? []
+        )
         HapticFeedbackManager.shared.success()
         showToastMessage("✓ Preferences saved!")
     }
@@ -282,6 +286,8 @@ final class ProfileViewModel: ObservableObject {
     }
 
     func signOut() async {
+        let signedOutUserId = currentUser?.id
+
         do {
             // CRITICAL: Sign out from Supabase FIRST to invalidate the session.
             // This ensures no background fetch can re-populate local stores
@@ -306,6 +312,8 @@ final class ProfileViewModel: ObservableObject {
                 print("✅ UserDefaults cleared")
             }
 
+            AppNotificationCoordinator.shared.clearForSignOut(userId: signedOutUserId)
+
             // 4. Navigate to auth screen
             await MainActor.run {
                 if let navManager = navigationManager {
@@ -326,6 +334,7 @@ final class ProfileViewModel: ObservableObject {
                 UserDefaults.standard.removePersistentDomain(forName: bundleId)
                 UserDefaults.standard.synchronize()
             }
+            AppNotificationCoordinator.shared.clearForSignOut(userId: signedOutUserId)
             await MainActor.run {
                 showToastMessage("Failed to sign out: \(error.localizedDescription)")
             }

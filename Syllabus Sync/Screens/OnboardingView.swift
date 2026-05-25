@@ -9,6 +9,7 @@ import SwiftUI
 
 struct OnboardingView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
+    @EnvironmentObject var notificationCoordinator: AppNotificationCoordinator
     @State private var currentPage = 0
     @State private var dragOffset: CGFloat = 0
     
@@ -119,8 +120,13 @@ struct OnboardingView: View {
                         } else {
                             PrimaryCTAButton("Get Started") {
                                 HapticFeedbackManager.shared.success()
-                                withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                                    navigationManager.setRoot(to: .dashboard)
+                                Task {
+                                    await notificationCoordinator.requestAuthorization()
+                                    await MainActor.run {
+                                        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                                            navigationManager.setRoot(to: .dashboard)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -200,4 +206,5 @@ struct OnboardingPageView: View {
     OnboardingView()
         .environmentObject(AppNavigationManager())
         .environmentObject(ThemeManager())
+        .environmentObject(AppNotificationCoordinator.shared)
 }

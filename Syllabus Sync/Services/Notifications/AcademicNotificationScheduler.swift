@@ -4,22 +4,35 @@ import UserNotifications
 protocol AcademicNotificationScheduling {
     func reconcile(events: [EventItem], userId: String, preferredHour: Int?) async
     func cancel(eventId: String)
-    func cancelAll()
+    func cancelAll() async
+}
+
+protocol UserNotificationCenterProviding {
+    func authorizationStatus() async -> UNAuthorizationStatus
+    func pendingNotificationRequests() async -> [UNNotificationRequest]
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String])
+    func add(_ request: UNNotificationRequest) async throws
+}
+
+extension UNUserNotificationCenter: UserNotificationCenterProviding {
+    func authorizationStatus() async -> UNAuthorizationStatus {
+        await notificationSettings().authorizationStatus
+    }
 }
 
 struct AcademicNotificationScheduler: AcademicNotificationScheduling {
-    private let center: UNUserNotificationCenter
+    private let center: UserNotificationCenterProviding
     private let calendar: Calendar
 
-    init(center: UNUserNotificationCenter = .current(), calendar: Calendar = .current) {
+    init(center: UserNotificationCenterProviding = UNUserNotificationCenter.current(), calendar: Calendar = .current) {
         self.center = center
         self.calendar = calendar
     }
 
     func reconcile(events: [EventItem], userId: String, preferredHour: Int?) async {
-        let status = await center.notificationSettings().authorizationStatus
+        let status = await center.authorizationStatus()
         guard Self.canSchedule(status) else {
-            cancelAll()
+            await cancelAll()
             return
         }
 
@@ -32,13 +45,17 @@ struct AcademicNotificationScheduler: AcademicNotificationScheduling {
             .map(\.identifier)
             .filter { !plannedIds.contains($0) }
 
-        if !staleIds.isEmpty {
-            center.removePendingNotificationRequests(withIdentifiers: staleIds)
+        let existingPlannedIds = ownedPending
+            .map(\.identifier)
+            .filter { plannedIds.contains($0) }
+        let idsToReplace = staleIds + existingPlannedIds
+
+        if !idsToReplace.isEmpty {
+            center.removePendingNotificationRequests(withIdentifiers: idsToReplace)
         }
 
-        let existingIds = Set(ownedPending.map(\.identifier)).subtracting(staleIds)
-        for notification in planned where !existingIds.contains(notification.identifier) {
-            schedule(notification, userId: userId)
+        for notification in planned {
+            await schedule(notification, userId: userId)
         }
     }
 
@@ -49,17 +66,15 @@ struct AcademicNotificationScheduler: AcademicNotificationScheduling {
         ])
     }
 
-    func cancelAll() {
-        Task {
-            let pending = await center.pendingNotificationRequests()
-            let ids = pending
-                .map(\.identifier)
-                .filter { $0.hasPrefix(AcademicNotificationPlanner.requestIdentifierPrefix) }
-            center.removePendingNotificationRequests(withIdentifiers: ids)
-        }
+    func cancelAll() async {
+        let pending = await center.pendingNotificationRequests()
+        let ids = pending
+            .map(\.identifier)
+            .filter { $0.hasPrefix(AcademicNotificationPlanner.requestIdentifierPrefix) }
+        center.removePendingNotificationRequests(withIdentifiers: ids)
     }
 
-    private func schedule(_ notification: PlannedAcademicNotification, userId: String) {
+    private func schedule(_ notification: PlannedAcademicNotification, userId: String) async {
         let content = UNMutableNotificationContent()
         content.title = notification.title
         content.body = notification.body
@@ -72,10 +87,10 @@ struct AcademicNotificationScheduler: AcademicNotificationScheduling {
 
         let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
         let request = UNNotificationRequest(identifier: notification.identifier, content: content, trigger: trigger)
-        center.add(request) { error in
-            if let error {
-                print("Failed to schedule notification \(notification.identifier): \(error)")
-            }
+        do {
+            try await center.add(request)
+        } catch {
+            print("Failed to schedule notification \(notification.identifier): \(error)")
         }
     }
 

@@ -312,7 +312,7 @@ final class ProfileViewModel: ObservableObject {
                 print("✅ UserDefaults cleared")
             }
 
-            AppNotificationCoordinator.shared.clearForSignOut(userId: signedOutUserId)
+            await AppNotificationCoordinator.shared.clearForSignOut(userId: signedOutUserId)
 
             // 4. Navigate to auth screen
             await MainActor.run {
@@ -334,7 +334,7 @@ final class ProfileViewModel: ObservableObject {
                 UserDefaults.standard.removePersistentDomain(forName: bundleId)
                 UserDefaults.standard.synchronize()
             }
-            AppNotificationCoordinator.shared.clearForSignOut(userId: signedOutUserId)
+            await AppNotificationCoordinator.shared.clearForSignOut(userId: signedOutUserId)
             await MainActor.run {
                 showToastMessage("Failed to sign out: \(error.localizedDescription)")
             }

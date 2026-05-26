@@ -45,14 +45,14 @@ final class AppNotificationCoordinator: NSObject, ObservableObject {
 
     func reconcile(events: [EventItem]) async {
         guard let userId = SupabaseAuthService.shared.currentUser?.id else {
-            scheduler.cancelAll()
+            await scheduler.cancelAll()
             return
         }
 
         await refreshAuthorizationStatus()
 
         guard await notificationsEnabled() else {
-            scheduler.cancelAll()
+            await scheduler.cancelAll()
             return
         }
 
@@ -65,14 +65,14 @@ final class AppNotificationCoordinator: NSObject, ObservableObject {
 
     func applyNotificationPreference(_ enabled: Bool, events: [EventItem]) async {
         guard let userId = SupabaseAuthService.shared.currentUser?.id else {
-            scheduler.cancelAll()
+            await scheduler.cancelAll()
             return
         }
 
         await refreshAuthorizationStatus()
 
         guard enabled else {
-            scheduler.cancelAll()
+            await scheduler.cancelAll()
             return
         }
 
@@ -87,11 +87,11 @@ final class AppNotificationCoordinator: NSObject, ObservableObject {
         scheduler.cancel(eventId: eventId)
     }
 
-    func clearForSignOut(userId: String?) {
+    func clearForSignOut(userId: String?) async {
         if let userId {
             behaviorStore.clear(for: userId)
         }
-        scheduler.cancelAll()
+        await scheduler.cancelAll()
     }
 
     private func notificationsEnabled() async -> Bool {

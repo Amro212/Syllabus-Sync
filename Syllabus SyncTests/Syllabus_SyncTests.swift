@@ -90,15 +90,14 @@ struct Syllabus_SyncTests {
         let store = NotificationBehaviorStore(defaults: defaults, calendar: calendar)
         let userId = "user-1"
 
-        for day in 1...6 {
+        for day in 1...3 {
             store.recordAppOpen(for: userId, at: try date("2026-01-0\(day)T09:00:00Z"))
         }
         #expect(store.preferredDeliveryHour(for: userId) == nil)
 
-        store.recordAppOpen(for: userId, at: try date("2026-01-07T20:00:00Z"))
-        store.recordAppOpen(for: userId, at: try date("2026-01-08T20:00:00Z"))
-        store.recordAppOpen(for: userId, at: try date("2026-01-09T20:00:00Z"))
-        store.recordAppOpen(for: userId, at: try date("2026-01-10T20:00:00Z"))
+        for day in 4...10 {
+            store.recordAppOpen(for: userId, at: try date("2026-01-\(String(format: "%02d", day))T20:00:00Z"))
+        }
 
         #expect(store.preferredDeliveryHour(for: userId) == 20)
     }

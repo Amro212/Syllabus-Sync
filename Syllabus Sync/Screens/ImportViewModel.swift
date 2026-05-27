@@ -463,7 +463,7 @@ final class ImportViewModel: ObservableObject {
 
         guard !gradingScheme.isEmpty else { return }
         guard uniqueCourseCodes.count == 1, let onlyCourseCode = uniqueCourseCodes.first, let savedCourse = savedCoursesByCode[onlyCourseCode] else {
-            print("ImportViewModel: skipped grading persistence because the import resolved to multiple course codes")
+            AppLog.debug("ImportViewModel: skipped grading persistence because the import resolved to multiple course codes")
             return
         }
 
@@ -473,7 +473,7 @@ final class ImportViewModel: ObservableObject {
     private func logImportError(state: ImportErrorState, underlying: Error) {
         let formatter = ISO8601DateFormatter()
         let timestamp = formatter.string(from: state.timestamp)
-        print("[ImportError][\(state.requestID)] [\(timestamp)] type=\(state.type.rawValue) message=\(state.message) underlying=\(underlying.localizedDescription)")
+        AppLog.debug("[ImportError][\(state.requestID)] [\(timestamp)] type=\(state.type.rawValue) message=\(state.message) underlying=\(underlying.localizedDescription)")
     }
 
     private func buildDiagnosticsString(from diagnostics: ParseDiagnostics?) -> String? {

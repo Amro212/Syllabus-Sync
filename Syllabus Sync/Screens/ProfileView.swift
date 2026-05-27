@@ -81,9 +81,6 @@ struct ProfileView: View {
                                     await viewModel.updateScheduleVisibility(visibility)
                                 }
                             )
-
-                            
-
                             ToggleRow(
                                 title: "Friend Request Notifications",
                                 icon: "bell.fill",
@@ -203,7 +200,7 @@ struct ProfileView: View {
         .sheet(isPresented: $viewModel.showEditDisplayName) {
             EditDisplayNameSheet(viewModel: viewModel)
         }
-        
+
         .sheet(isPresented: $viewModel.showFriendRequests) {
             FriendRequestsSheet(viewModel: viewModel)
         }

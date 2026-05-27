@@ -48,9 +48,7 @@ class SupabaseAuthService: NSObject, AuthService {
     
     func signInWithGoogle() async -> AuthResult {
         do {
-            print("🔵 Starting Google Sign-In...")
-            print("🔵 Supabase URL: \(SupabaseConfig.url)")
-            print("🔵 Redirect URL: syllabussync://auth/callback")
+            AppLog.debug("Starting Google Sign-In")
             
             // Use Supabase SDK's OAuth method with redirect URL
             let session = try await supabase.auth.signInWithOAuth(
@@ -62,7 +60,7 @@ class SupabaseAuthService: NSObject, AuthService {
                 session.prefersEphemeralWebBrowserSession = true
             }
             
-            print("🟢 Google Sign-In successful!")
+            AppLog.debug("Google Sign-In successful")
             
             // Convert Supabase session to our AuthUser
             let user = AuthUser(
@@ -90,7 +88,7 @@ class SupabaseAuthService: NSObject, AuthService {
             return .success(user: user)
 
         } catch {
-            print("🔴 Google Sign-In Error: \(error)")
+            AppLog.debug("Google Sign-In error: \(error)")
             
             // Handle user cancellation specifically
             if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
@@ -138,11 +136,11 @@ class SupabaseAuthService: NSObject, AuthService {
                 data: metadata
             )
             
-            print("✅ Sign-up initiated for \(email), confirmation email sent")
+            AppLog.debug("Sign-up initiated; confirmation email sent")
             return .success(())
             
         } catch {
-            print("❌ Sign-up failed: \(error)")
+            AppLog.debug("Sign-up failed: \(error)")
             let mappedError = AuthErrorHandler.mapError(error.localizedDescription)
             return .failure(mappedError)
         }
@@ -168,7 +166,7 @@ class SupabaseAuthService: NSObject, AuthService {
             return .success(user: user)
             
         } catch {
-            print("❌ Sign-in failed: \(error)")
+            AppLog.debug("Sign-in failed: \(error)")
             let mappedError = AuthErrorHandler.mapError(error.localizedDescription)
             return .failure(error: mappedError)
         }
@@ -181,72 +179,10 @@ class SupabaseAuthService: NSObject, AuthService {
     
     // MARK: - User Provider Check
     
-    /// Check if a user exists and what auth provider they use
-    /// Uses Supabase client to check user's auth provider from app_metadata
+    /// Provider lookup is intentionally disabled to avoid account enumeration.
+    /// Supabase remains the source of truth for sign-up/sign-in errors.
     func checkUserProvider(email: String) async -> Result<UserProviderInfo, AuthError> {
-        do {
-            // Try to sign in with a magic link to trigger user lookup
-            // This will fail if user doesn't exist, but we can catch the error
-            // Note: We're not actually sending an OTP, just checking if user exists
-            
-            // Alternative approach: Use the admin API through Supabase client
-            // Since we can't access admin API from client, we'll use a different strategy:
-            // Try to send OTP with shouldCreateUser: false
-            // If user doesn't exist, Supabase will return an error
-            // If user exists but used OAuth, we can't detect it this way
-            
-            // Best approach: Check via server endpoint (current implementation)
-            guard let serverURL = URL(string: "http://localhost:8787/auth/check-provider") else {
-                return .success(UserProviderInfo(exists: false, provider: nil))
-            }
-            
-            var request = URLRequest(url: serverURL)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try? JSONEncoder().encode(["email": email])
-            request.timeoutInterval = 10
-            
-            do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    return .success(UserProviderInfo(exists: false, provider: nil))
-                }
-                
-                // If server endpoint doesn't exist (404), fall back to allowing OTP
-                if httpResponse.statusCode == 404 {
-                    return .success(UserProviderInfo(exists: false, provider: nil))
-                }
-                
-                guard httpResponse.statusCode == 200 else {
-                    return .success(UserProviderInfo(exists: false, provider: nil))
-                }
-                
-                // Parse response
-                struct ProviderResponse: Decodable {
-                    let exists: Bool
-                    let provider: String?
-                    let emailConfirmed: Bool?
-                }
-                
-                let result = try JSONDecoder().decode(ProviderResponse.self, from: data)
-                let authProvider: AuthProvider? = result.provider.flatMap { AuthProvider(rawValue: $0) }
-                // Default confirmed=true when the field is absent (older server) so we don't
-                // wrongly unlock re-signup for fully verified accounts.
-                let isConfirmed = result.emailConfirmed ?? true
-                
-                return .success(UserProviderInfo(exists: result.exists, provider: authProvider, isEmailConfirmed: isConfirmed))
-                
-            } catch {
-                // On network error, allow the flow to continue (fail open)
-                print("⚠️ Provider check failed, continuing: \(error)")
-                return .success(UserProviderInfo(exists: false, provider: nil))
-            }
-            
-        } catch {
-            print("⚠️ Provider check error: \(error)")
-            return .success(UserProviderInfo(exists: false, provider: nil))
-        }
+        return .success(UserProviderInfo(exists: false, provider: nil, isEmailConfirmed: false))
     }
     
     // MARK: - OTP Authentication
@@ -277,11 +213,11 @@ class SupabaseAuthService: NSObject, AuthService {
                 data: metadata.isEmpty ? nil : metadata
             )
             
-            print("✅ OTP code sent to \(email)")
+            AppLog.debug("OTP code sent")
             return .success(())
             
         } catch {
-            print("❌ Failed to send OTP: \(error)")
+            AppLog.debug("Failed to send OTP: \(error)")
             // Use AuthErrorHandler to map raw error to user-friendly message
             let mappedError = AuthErrorHandler.mapError(error.localizedDescription)
             return .failure(mappedError)
@@ -297,7 +233,7 @@ class SupabaseAuthService: NSObject, AuthService {
                 type: .email
             )
             
-            print("✅ OTP verified for \(email)")
+            AppLog.debug("OTP verified")
             
             let user = AuthUser(
                 id: session.user.id.uuidString,
@@ -317,11 +253,10 @@ class SupabaseAuthService: NSObject, AuthService {
             return .success(user: user)
             
         } catch {
-            print("❌ OTP verification failed: \(error)")
-            print("🔍 Raw error description: \(error.localizedDescription)")
+            AppLog.debug("OTP verification failed: \(error)")
             // Map verification errors to user-friendly messages
             let mappedError = AuthErrorHandler.mapError(error.localizedDescription)
-            print("📋 Mapped to: \(mappedError)")
+            AppLog.debug("Mapped OTP error: \(mappedError)")
             return .failure(error: mappedError)
         }
     }
@@ -335,7 +270,7 @@ class SupabaseAuthService: NSObject, AuthService {
                 email: email
             )
             
-            print("✅ New OTP sent to \(email)")
+            AppLog.debug("New OTP sent")
             
             // Return success (no user object yet since they haven't verified)
             let dummyUser = AuthUser(
@@ -348,7 +283,7 @@ class SupabaseAuthService: NSObject, AuthService {
             return .success(user: dummyUser)
             
         } catch {
-            print("❌ Failed to resend OTP: \(error)")
+            AppLog.debug("Failed to resend OTP: \(error)")
             let mappedError = AuthErrorHandler.mapError(error.localizedDescription)
             return .failure(error: mappedError)
         }
@@ -365,9 +300,9 @@ class SupabaseAuthService: NSObject, AuthService {
                     "updated_at": ISO8601DateFormatter().string(from: Date())
                 ])
                 .execute()
-            print("✅ Username '\(username)' stored in database")
+            AppLog.debug("Username stored in database")
         } catch {
-            print("⚠️ Failed to store username in database: \(error)")
+            AppLog.debug("Failed to store username in database: \(error)")
         }
     }
 
@@ -386,7 +321,7 @@ class SupabaseAuthService: NSObject, AuthService {
                 .value
             return rows.first?.username
         } catch {
-            print("⚠️ Failed to fetch username: \(error)")
+            AppLog.debug("Failed to fetch username: \(error)")
             return nil
         }
     }

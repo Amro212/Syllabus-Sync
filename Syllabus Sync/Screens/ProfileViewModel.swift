@@ -38,7 +38,7 @@ final class ProfileViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var showEditUsername: Bool = false
     @Published var showEditDisplayName: Bool = false
-    
+
     @Published var showFriendRequests: Bool = false
     @Published var showDeleteCloudDataAlert: Bool = false
     @Published var showResetAppDataAlert: Bool = false
@@ -139,7 +139,7 @@ final class ProfileViewModel: ObservableObject {
                 }
             }
         } catch {
-            print("⚠️ Fetch user profile failed: \(error)")
+            AppLog.debug("⚠️ Fetch user profile failed: \(error)")
         }
     }
 
@@ -225,7 +225,7 @@ final class ProfileViewModel: ObservableObject {
         showToastMessage("✓ Display name updated!")
     }
 
-    
+
 
     // MARK: - Schedule Visibility
 
@@ -240,7 +240,7 @@ final class ProfileViewModel: ObservableObject {
         showToastMessage("✓ Schedule visibility updated!")
     }
 
-    
+
 
     // MARK: - Preferences
 
@@ -295,21 +295,21 @@ final class ProfileViewModel: ObservableObject {
 
             // 1. Sign out from Supabase (invalidates JWT immediately)
             try await authService.signOut()
-            print("✅ Signed out from Supabase")
+            AppLog.debug("✅ Signed out from Supabase")
 
             // 2. Clear Event Store (safe now — any re-fetch will fail auth)
             if let store = eventStore {
                 await MainActor.run {
                     store.clearEvents()
                 }
-                print("✅ EventStore cleared")
+                AppLog.debug("✅ EventStore cleared")
             }
 
             // 3. Clear UserDefaults
             if let bundleId = Bundle.main.bundleIdentifier {
                 UserDefaults.standard.removePersistentDomain(forName: bundleId)
                 UserDefaults.standard.synchronize()
-                print("✅ UserDefaults cleared")
+                AppLog.debug("✅ UserDefaults cleared")
             }
 
             await AppNotificationCoordinator.shared.clearForSignOut(userId: signedOutUserId)
@@ -318,7 +318,7 @@ final class ProfileViewModel: ObservableObject {
             await MainActor.run {
                 if let navManager = navigationManager {
                     navManager.setRoot(to: .auth)
-                    print("✅ Navigated to auth screen")
+                    AppLog.debug("✅ Navigated to auth screen")
                 }
                 HapticFeedbackManager.shared.success()
             }

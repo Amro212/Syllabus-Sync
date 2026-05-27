@@ -112,7 +112,7 @@ npm test -- --watch   # Watch mode for development
    RATE_LIMIT_OPENAI=10
    OPENAI_DAILY_BUDGET=10.00
    
-   # CORS allowed origins
+   # CORS allowed origins for local development
    ALLOWED_ORIGINS=capacitor://*,http://localhost:*
    ```
 
@@ -120,29 +120,40 @@ npm test -- --watch   # Watch mode for development
    ```bash
    # Set production secrets (never commit these!)
    wrangler secret put OPENAI_API_KEY
+   wrangler secret put SUPABASE_URL
+   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+   wrangler secret put ALLOWED_ORIGINS
    wrangler secret put RATE_LIMIT_REQUESTS
    wrangler secret put RATE_LIMIT_OPENAI
+   wrangler secret put RATE_LIMIT_SOCIAL
    ```
+
+   Production `ALLOWED_ORIGINS` must contain exact HTTPS origins only, such as
+   `https://syllabussync.example`. Wildcards, localhost, and plaintext HTTP make
+   the Worker fail closed with `PRODUCTION_CONFIG_INVALID`.
 
 ### Security Notes
 - ⚠️ **Never commit `.dev.vars`** - it contains your API keys
 - ✅ The `.dev.vars.example` file is safe to commit (no real secrets)  
 - ✅ Use `wrangler secret put` for production secrets
 - ✅ All secrets are server-side only (never exposed to client)
+- ✅ Durable Object `ABUSE_LIMITER` backs production parse/OpenAI/social limits
 
 ### Wrangler Configuration
 See `wrangler.jsonc` for Workers-specific settings:
 - Compatibility date
 - Environment variables
 - Custom domains (when deployed)
+- Durable Object abuse limiter binding and migration
 
 ## 🛡️ Security Features
 
-- **CORS**: Env-based allowlist for origins
-- **Rate Limiting**: IP-based request throttling  
+- **CORS**: Env-based allowlist; production allows exact HTTPS origins only
+- **Rate Limiting**: Durable Object-backed user/IP request throttling  
 - **Input Validation**: Strict runtime type checking
 - **Error Handling**: Structured error responses
-- **Budget Controls**: OpenAI usage limits per IP and daily budget
+- **Budget Controls**: Durable OpenAI per-user caps and daily budget
+- **Social Abuse Controls**: Server recommendation throttles plus Supabase social action triggers
 
 ## 📋 Development Workflow
 
@@ -154,7 +165,7 @@ See `wrangler.jsonc` for Workers-specific settings:
 
 2. **Testing**:
    ```bash
-   npm test
+   npm test -- --run
    ```
 
 3. **Type Checking**:
@@ -162,7 +173,12 @@ See `wrangler.jsonc` for Workers-specific settings:
    npx tsc --noEmit
    ```
 
-4. **Deploy**:
+4. **Security Release Gate**:
+   ```bash
+   npm run security:scan
+   ```
+
+5. **Deploy**:
    ```bash
    npm run deploy
    ```

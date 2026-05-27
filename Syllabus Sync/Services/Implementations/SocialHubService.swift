@@ -65,9 +65,13 @@ final class SocialHubService {
         SupabaseAuthService.shared.currentUser?.id.lowercased()
     }
 
+    private func isValidUUIDString(_ value: String) -> Bool {
+        UUID(uuidString: value) != nil
+    }
+
     private init() {
         self.supabase = SupabaseAuthService.shared.supabase
-        if let env = ProcessInfo.processInfo.environment["API_BASE_URL"], let url = URL(string: env) {
+        if let url = AppConfiguration.apiBaseURL {
             self.apiClient = URLSessionAPIClient(configuration: .init(
                 baseURL: url,
                 defaultHeaders: ["Content-Type": "application/json"],
@@ -126,12 +130,12 @@ final class SocialHubService {
     /// Search users by username prefix and rank them using mutual social context.
     func searchUsers(prefix: String) async -> [DiscoverUserDisplay] {
         guard let uid = currentUserId else {
-            print("⚠️ Cannot search: not authenticated")
+            AppLog.debug("⚠️ Cannot search: not authenticated")
             return []
         }
         let trimmedPrefix = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedPrefix.count >= 2 else {
-            print("⚠️ Search query too short: \(prefix.count) chars")
+            AppLog.debug("⚠️ Search query too short: \(prefix.count) chars")
             return []
         }
 
@@ -155,10 +159,10 @@ final class SocialHubService {
             )
             return sortDiscoverUsers(users)
         } catch let error as URLError {
-            print("⚠️ Network error searching users: \(error)")
+            AppLog.debug("⚠️ Network error searching users: \(error)")
             return []
         } catch {
-            print("⚠️ Search users failed: \(error)")
+            AppLog.debug("⚠️ Search users failed: \(error)")
             return []
         }
     }
@@ -170,7 +174,7 @@ final class SocialHubService {
                 let serverUsers = try await fetchRecommendedUsersFromServer(using: apiClient)
                 return sortDiscoverUsers(serverUsers.filter(\.isRecommended))
             } catch {
-                print("⚠️ Server recommended users fetch failed, falling back to direct path: \(error)")
+                AppLog.debug("⚠️ Server recommended users fetch failed, falling back to direct path: \(error)")
             }
         }
 
@@ -179,7 +183,7 @@ final class SocialHubService {
 
     private func fetchRecommendedUsersDirect() async -> [DiscoverUserDisplay] {
         guard let uid = currentUserId else {
-            print("⚠️ Cannot load discover recommendations: not authenticated")
+            AppLog.debug("⚠️ Cannot load discover recommendations: not authenticated")
             return []
         }
 
@@ -203,7 +207,7 @@ final class SocialHubService {
             let recommendedOnly = users.filter(\.isRecommended)
             return sortDiscoverUsers(recommendedOnly)
         } catch {
-            print("⚠️ Fetch recommended users failed: \(error)")
+            AppLog.debug("⚠️ Fetch recommended users failed: \(error)")
             return []
         }
     }
@@ -249,6 +253,7 @@ final class SocialHubService {
     /// Send a friend request. Returns nil on success, error message on failure.
     func sendFriendRequest(toUserId: String) async -> String? {
         guard let uid = currentUserId else { return "Not authenticated" }
+        guard isValidUUIDString(toUserId) else { return "Invalid user" }
 
         // Validate: cannot send to yourself
         if toUserId == uid { return "You cannot send a friend request to yourself" }
@@ -271,7 +276,7 @@ final class SocialHubService {
 
             if !existing.isEmpty {
                 // Check if the pending request is from them to us
-                if let incomingRequest = existing.first(where: { $0.fromUserId == toUserId && $0.toUserId == uid }) {
+                if existing.contains(where: { $0.fromUserId == toUserId && $0.toUserId == uid }) {
                     return "This user has already sent you a friend request. Check your Pending Requests."
                 }
                 // Otherwise it's our outgoing request
@@ -290,35 +295,37 @@ final class SocialHubService {
                 .insert(insert)
                 .execute()
 
-            print("✅ Friend request sent to \(toUserId)")
+            AppLog.debug("✅ Friend request sent to \(toUserId)")
             return nil
         } catch let error as URLError {
-            print("⚠️ Network error sending friend request: \(error)")
+            AppLog.debug("⚠️ Network error sending friend request: \(error)")
             return "Network error. Please check your connection and try again."
         } catch {
-            print("⚠️ Send friend request failed: \(error)")
+            AppLog.debug("⚠️ Send friend request failed: \(error)")
             return "Unable to send friend request. Please try again."
         }
     }
 
     /// Cancel an outgoing friend request
     func cancelFriendRequest(requestId: String) async -> String? {
-        guard currentUserId != nil else { return "Not authenticated" }
+        guard let uid = currentUserId else { return "Not authenticated" }
+        guard isValidUUIDString(requestId) else { return "Invalid request" }
 
         do {
             try await supabase
                 .from("friend_requests")
                 .update(["status": "cancelled", "updated_at": ISO8601DateFormatter().string(from: Date())])
                 .eq("id", value: requestId)
+                .eq("from_user_id", value: uid)
                 .eq("status", value: "pending")
                 .execute()
-            print("✅ Friend request cancelled")
+            AppLog.debug("✅ Friend request cancelled")
             return nil
         } catch let error as URLError {
-            print("⚠️ Network error cancelling request: \(error)")
+            AppLog.debug("⚠️ Network error cancelling request: \(error)")
             return "Network error. Please check your connection."
         } catch {
-            print("⚠️ Cancel request failed: \(error)")
+            AppLog.debug("⚠️ Cancel request failed: \(error)")
             return "Unable to cancel request. Please try again."
         }
     }
@@ -326,6 +333,7 @@ final class SocialHubService {
     /// Accept an incoming friend request – creates friendship and updates request status
     func acceptFriendRequest(requestId: String, fromUserId: String) async -> String? {
         guard let uid = currentUserId else { return "Not authenticated" }
+        guard isValidUUIDString(requestId), isValidUUIDString(fromUserId) else { return "Invalid request" }
 
         do {
             // Check if already friends (race condition protection)
@@ -355,35 +363,37 @@ final class SocialHubService {
                 .insert(friendship)
                 .execute()
 
-            print("✅ Friend request accepted, friendship created")
+            AppLog.debug("✅ Friend request accepted, friendship created")
             return nil
         } catch let error as URLError {
-            print("⚠️ Network error accepting request: \(error)")
+            AppLog.debug("⚠️ Network error accepting request: \(error)")
             return "Network error. Please check your connection and try again."
         } catch {
-            print("⚠️ Accept friend request failed: \(error)")
+            AppLog.debug("⚠️ Accept friend request failed: \(error)")
             return "Unable to accept request. Please try again."
         }
     }
 
     /// Decline an incoming friend request
     func declineFriendRequest(requestId: String) async -> String? {
-        guard currentUserId != nil else { return "Not authenticated" }
+        guard let uid = currentUserId else { return "Not authenticated" }
+        guard isValidUUIDString(requestId) else { return "Invalid request" }
 
         do {
             try await supabase
                 .from("friend_requests")
                 .update(["status": "declined", "updated_at": ISO8601DateFormatter().string(from: Date())])
                 .eq("id", value: requestId)
+                .eq("to_user_id", value: uid)
                 .eq("status", value: "pending")
                 .execute()
-            print("✅ Friend request declined")
+            AppLog.debug("✅ Friend request declined")
             return nil
         } catch let error as URLError {
-            print("⚠️ Network error declining request: \(error)")
+            AppLog.debug("⚠️ Network error declining request: \(error)")
             return "Network error. Please check your connection."
         } catch {
-            print("⚠️ Decline request failed: \(error)")
+            AppLog.debug("⚠️ Decline request failed: \(error)")
             return "Unable to decline request. Please try again."
         }
     }
@@ -429,7 +439,7 @@ final class SocialHubService {
                 )
             }
         } catch {
-            print("⚠️ Fetch pending requests failed: \(error)")
+            AppLog.debug("⚠️ Fetch pending requests failed: \(error)")
             return []
         }
     }
@@ -454,7 +464,7 @@ final class SocialHubService {
             }
             return ids
         } catch {
-            print("⚠️ Fetch friend ids failed: \(error)")
+            AppLog.debug("⚠️ Fetch friend ids failed: \(error)")
             return []
         }
     }
@@ -501,7 +511,7 @@ final class SocialHubService {
                 )
             }
         } catch {
-            print("⚠️ Fetch friends failed: \(error)")
+            AppLog.debug("⚠️ Fetch friends failed: \(error)")
             return []
         }
     }
@@ -806,14 +816,14 @@ final class SocialHubService {
     /// Fetch a friend's events (read-only). Only works for accepted friends.
     func fetchFriendEvents(friendUserId: String) async -> [EventItem] {
         guard currentUserId != nil else {
-            print("⚠️ Not authenticated")
+            AppLog.debug("⚠️ Not authenticated")
             return []
         }
 
         // Verify friendship exists
         let friendIds = await fetchFriendUserIds()
         guard friendIds.contains(friendUserId) else {
-            print("⚠️ Not friends with \(friendUserId), cannot view schedule")
+            AppLog.debug("⚠️ Not friends with \(friendUserId), cannot view schedule")
             return []
         }
 
@@ -838,16 +848,16 @@ final class SocialHubService {
             if let visibility = visibilityRows.first?.scheduleVisibility {
                 // If friend has set their schedule to private, don't show it
                 if visibility == "private" {
-                    print("⚠️ Friend has set schedule to private")
+                    AppLog.debug("⚠️ Friend has set schedule to private")
                     return []
                 }
-                print("✅ Friend's schedule visibility: \(visibility), fetching events...")
+                AppLog.debug("✅ Friend's schedule visibility: \(visibility), fetching events...")
             } else {
-                print("⚠️ Could not fetch friend's schedule visibility setting, defaulting to friends_only")
+                AppLog.debug("⚠️ Could not fetch friend's schedule visibility setting, defaulting to friends_only")
             }
 
         } catch {
-            print("⚠️ Failed to check schedule visibility: \(error)")
+            AppLog.debug("⚠️ Failed to check schedule visibility: \(error)")
             // Continue anyway - if we can't check, assume friends_only
         }
 
@@ -861,11 +871,11 @@ final class SocialHubService {
                 .execute()
                 .value
 
-            print("✅ Fetched \(rows.count) events for friend \(friendUserId)")
+            AppLog.debug("✅ Fetched \(rows.count) events for friend \(friendUserId)")
             return rows.map { $0.toDomain() }
         } catch {
-            print("⚠️ Fetch friend events failed: \(error)")
-            print("   Error details: \(error.localizedDescription)")
+            AppLog.debug("⚠️ Fetch friend events failed: \(error)")
+            AppLog.debug("   Error details: \(error.localizedDescription)")
             return []
         }
     }
@@ -886,15 +896,13 @@ final class SocialHubService {
                 .eq("id", value: uid)
                 .execute()
 
-            print("✅ Display name updated")
+            AppLog.debug("✅ Display name updated")
             return nil
         } catch {
-            print("⚠️ Update display name failed: \(error)")
+            AppLog.debug("⚠️ Update display name failed: \(error)")
             return "Failed to update display name"
         }
     }
-
-    
 
     /// Update schedule visibility preference
     func updateScheduleVisibility(_ visibility: ScheduleVisibility) async -> String? {
@@ -910,10 +918,10 @@ final class SocialHubService {
                 .eq("id", value: uid)
                 .execute()
 
-            print("✅ Schedule visibility updated to \(visibility.rawValue)")
+            AppLog.debug("✅ Schedule visibility updated to \(visibility.rawValue)")
             return nil
         } catch {
-            print("⚠️ Update visibility failed: \(error)")
+            AppLog.debug("⚠️ Update visibility failed: \(error)")
             return "Failed to update schedule visibility"
         }
     }
@@ -922,19 +930,21 @@ final class SocialHubService {
 
     /// Remove a friend
     func removeFriend(friendshipId: String) async -> String? {
-        guard currentUserId != nil else { return "Not authenticated" }
+        guard let uid = currentUserId else { return "Not authenticated" }
+        guard isValidUUIDString(friendshipId) else { return "Invalid friendship" }
 
         do {
             try await supabase
                 .from("friends")
                 .delete()
                 .eq("id", value: friendshipId)
+                .or("user_a_id.eq.\(uid),user_b_id.eq.\(uid)")
                 .execute()
 
-            print("✅ Friend removed")
+            AppLog.debug("✅ Friend removed")
             return nil
         } catch {
-            print("⚠️ Remove friend failed: \(error)")
+            AppLog.debug("⚠️ Remove friend failed: \(error)")
             return "Failed to remove friend"
         }
     }
@@ -956,7 +966,7 @@ final class SocialHubService {
 
             return prefs.first
         } catch {
-            print("⚠️ Fetch user preferences failed: \(error)")
+            AppLog.debug("⚠️ Fetch user preferences failed: \(error)")
             return nil
         }
     }
@@ -964,6 +974,7 @@ final class SocialHubService {
     /// Update user preferences
     func updateUserPreferences(_ prefs: UserPreferences) async -> String? {
         guard let uid = currentUserId else { return "Not authenticated" }
+        guard prefs.userId.lowercased() == uid else { return "Invalid preferences" }
 
         do {
             // Upsert preferences - use the UserPreferences struct directly
@@ -972,10 +983,10 @@ final class SocialHubService {
                 .upsert(prefs)
                 .execute()
 
-            print("✅ User preferences updated")
+            AppLog.debug("✅ User preferences updated")
             return nil
         } catch {
-            print("⚠️ Update user preferences failed: \(error)")
+            AppLog.debug("⚠️ Update user preferences failed: \(error)")
             return "Failed to update preferences"
         }
     }

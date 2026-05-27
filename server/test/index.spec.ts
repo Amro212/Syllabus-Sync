@@ -10,6 +10,8 @@ describe('Hello World worker', () => {
 	beforeEach(() => {
 		env.OPENAI_API_KEY = 'test-key';
 		env.ALLOWED_ORIGINS = 'http://localhost:*';
+		env.SUPABASE_URL = 'https://example.supabase.co';
+		env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-test-key';
 	});
 
 	afterEach(() => {
@@ -32,8 +34,15 @@ describe('Hello World worker', () => {
 	});
 
 	it('returns injected grading placeholders when AI yields no valid events', async () => {
-		vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-			new Response(JSON.stringify({
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+			const url = String(input);
+			if (url.includes('/auth/v1/user')) {
+				return new Response(JSON.stringify({ id: '11111111-1111-1111-1111-111111111111' }), {
+					status: 200,
+					headers: { 'Content-Type': 'application/json' },
+				});
+			}
+			return new Response(JSON.stringify({
 				choices: [
 					{
 						message: {
@@ -44,14 +53,15 @@ describe('Hello World worker', () => {
 			}), {
 				status: 200,
 				headers: { 'Content-Type': 'application/json' },
-			})
-		);
+			});
+		});
 
 		const request = new IncomingRequest('http://example.com/parse', {
 			method: 'POST',
 			headers: {
 				Origin: 'http://localhost:3000',
 				'Content-Type': 'application/json',
+				Authorization: 'Bearer valid-token',
 			},
 			body: JSON.stringify({
 				text: [

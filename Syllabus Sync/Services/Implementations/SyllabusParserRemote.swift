@@ -49,11 +49,21 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
         let body = try encoder.encode(payload)
         var request = APIRequest(path: "/parse", method: .post, headers: [:], body: body, timeout: 90)
         request.headers["Content-Type"] = "application/json"
+        do {
+            let token = try await SupabaseAuthService.shared.supabase.auth.session.accessToken
+            request.headers["Authorization"] = "Bearer \(token)"
+        } catch {
+            throw SyllabusParserError.unauthorized
+        }
 
         do {
             let (response, rawResponse): (ParseResult, String) = try await apiClient.sendWithRawResponse(request, as: ParseResult.self)
             diagnostics = mapDiagnostics(from: response)
+            #if DEBUG
             latestRawResponse = rawResponse
+            #else
+            latestRawResponse = nil
+            #endif
             preprocessedText = response.preprocessedText
             gradingScheme = response.gradingScheme ?? []
             return response.events

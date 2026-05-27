@@ -48,7 +48,26 @@ type RecommendationUser = {
 	requestState: 'none' | 'requested' | 'friends';
 };
 
-// Basic in-memory token buckets by IP (per-isolate, best-effort)
+type AuthenticatedUser = {
+	id: string;
+	email?: string | null;
+};
+
+type DurableLimitRequest = {
+	limit: number;
+	windowSec: number;
+	cost?: number;
+};
+
+type DurableLimitResponse = {
+	allowed: boolean;
+	remaining: number;
+	retryAfterSec: number;
+	limit: number;
+	used: number;
+};
+
+// Basic in-memory token buckets (local/test fallback only).
 const buckets = new Map<string, { tokens: number; lastRefill: number }>();
 
 // Basic in-memory OpenAI usage tracking (per-isolate, best-effort)
@@ -64,6 +83,49 @@ const openaiUsage: OpenAIUsage = {
 	totalCost: 0,
 	perIpCalls: new Map(),
 };
+
+export class AbuseLimiter {
+	constructor(private readonly state: DurableObjectState) {}
+
+	async fetch(request: Request): Promise<Response> {
+		if (request.method !== 'POST') {
+			return new Response('Method Not Allowed', { status: 405 });
+		}
+
+		const body = await request.json() as DurableLimitRequest;
+		const limit = Math.max(1, Math.floor(body.limit));
+		const windowSec = Math.max(1, Math.floor(body.windowSec));
+		const cost = Math.max(0, Number(body.cost ?? 1));
+		const now = Date.now();
+		const windowMs = windowSec * 1000;
+		const stored = await this.state.storage.get<{ used: number; resetAt: number }>('window');
+		const current = stored && stored.resetAt > now
+			? stored
+			: { used: 0, resetAt: now + windowMs };
+		const nextUsed = current.used + cost;
+
+		if (nextUsed > limit) {
+			const retryAfterSec = Math.max(1, Math.ceil((current.resetAt - now) / 1000));
+			return Response.json({
+				allowed: false,
+				remaining: Math.max(0, Math.floor(limit - current.used)),
+				retryAfterSec,
+				limit,
+				used: current.used,
+			} satisfies DurableLimitResponse);
+		}
+
+		current.used = nextUsed;
+		await this.state.storage.put('window', current);
+		return Response.json({
+			allowed: true,
+			remaining: Math.max(0, Math.floor(limit - current.used)),
+			retryAfterSec: 0,
+			limit,
+			used: current.used,
+		} satisfies DurableLimitResponse);
+	}
+}
 
 function normalizedCourseCode(code: string): string {
 	return code.trim().toUpperCase();
@@ -124,12 +186,87 @@ function getClientIp(req: Request): string {
 	return ip || 'unknown';
 }
 
-function checkRateLimit(env: Env, req: Request) {
+function isProduction(env: Env): boolean {
+	return (env.NODE_ENV || '').toLowerCase() === 'production';
+}
+
+function isUnsafeProductionOrigin(origin: string): boolean {
+	if (origin.includes('*')) return true;
+	try {
+		const url = new URL(origin);
+		const hostname = url.hostname.toLowerCase();
+		return url.protocol !== 'https:'
+			|| hostname === 'localhost'
+			|| hostname === '127.0.0.1'
+			|| hostname === '::1'
+			|| hostname.endsWith('.localhost');
+	} catch {
+		return true;
+	}
+}
+
+function validateProductionConfig(env: Env): string | null {
+	if (!isProduction(env)) return null;
+	if ((env as any).DEBUG_ALLOW_TEST_FAILURES === 'true') {
+		return 'Production debug failure injection is enabled.';
+	}
+	if (!(env as any).ABUSE_LIMITER) {
+		return 'Production abuse limiter binding is not configured.';
+	}
+	const origins = (env.ALLOWED_ORIGINS ?? '').split(',').map((s: string) => s.trim()).filter(Boolean);
+	const unsafeOrigin = origins.find(isUnsafeProductionOrigin);
+	if (unsafeOrigin) {
+		return `Production CORS origin is unsafe: ${unsafeOrigin}`;
+	}
+	return null;
+}
+
+function bearerTokenFrom(request: Request): string {
+	const authorization = request.headers.get('authorization') || request.headers.get('Authorization') || '';
+	return authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
+}
+
+async function authenticateRequest(env: Env, request: Request): Promise<
+	| { ok: true; user: AuthenticatedUser }
+	| { ok: false; status: 401 | 500; error: string }
+> {
+	const accessToken = bearerTokenFrom(request);
+	if (!accessToken) {
+		return { ok: false, status: 401, error: 'Missing bearer token.' };
+	}
+
+	const serviceRoleKey = (env as any).SUPABASE_SERVICE_ROLE_KEY;
+	const supabaseUrl = (env as any).SUPABASE_URL;
+	if (!serviceRoleKey || !supabaseUrl) {
+		return { ok: false, status: 500, error: 'Authentication is not configured.' };
+	}
+
+	const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+		method: 'GET',
+		headers: {
+			'Authorization': `Bearer ${accessToken}`,
+			'apikey': serviceRoleKey,
+			'Content-Type': 'application/json',
+		},
+	});
+
+	if (!response.ok) {
+		return { ok: false, status: 401, error: 'Unauthorized.' };
+	}
+
+	const user = await response.json() as { id?: string; email?: string | null };
+	if (!user.id) {
+		return { ok: false, status: 401, error: 'Unable to resolve current user.' };
+	}
+
+	return { ok: true, user: { id: user.id.toLowerCase(), email: user.email ?? null } };
+}
+
+function checkRateLimit(env: Env, key: string) {
 	const MAX_REQUESTS = Number.parseInt(env.RATE_LIMIT_REQUESTS || '100', 10) || 100;
 	const WINDOW_MS = 60 * 60 * 1000; // 1 hour window
 	const RATE_PER_MS = MAX_REQUESTS / WINDOW_MS;
 
-	const key = getClientIp(req);
 	const now = Date.now();
 	let bucket = buckets.get(key);
 	if (!bucket) {
@@ -150,6 +287,43 @@ function checkRateLimit(env: Env, req: Request) {
 	const msUntilNext = needed / RATE_PER_MS; // time to regain 1 token
 	const retryAfterSec = Math.ceil(msUntilNext / 1000);
 	return { allowed: false, remaining: 0, retryAfterSec, limit: MAX_REQUESTS } as const;
+}
+
+async function consumeDurableLimit(
+	env: Env,
+	key: string,
+	limit: number,
+	windowSec: number,
+	cost = 1,
+): Promise<DurableLimitResponse | null> {
+	const limiter = (env as any).ABUSE_LIMITER as DurableObjectNamespace | undefined;
+	if (!limiter) return null;
+
+	const id = limiter.idFromName(key);
+	const response = await limiter.get(id).fetch('https://abuse-limiter.local/consume', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ limit, windowSec, cost } satisfies DurableLimitRequest),
+	});
+	if (!response.ok) {
+		throw new Error(`Abuse limiter failed with ${response.status}`);
+	}
+	return await response.json<DurableLimitResponse>();
+}
+
+async function enforceRequestLimit(
+	env: Env,
+	key: string,
+	limit: number,
+	windowSec: number,
+) {
+	const durable = await consumeDurableLimit(env, key, limit, windowSec);
+	if (durable) return durable;
+	if (isProduction(env)) {
+		return { allowed: false, remaining: 0, retryAfterSec: 60, limit, used: 0 } satisfies DurableLimitResponse;
+	}
+	const memory = checkRateLimit(env, key);
+	return { ...memory, used: limit - memory.remaining } satisfies DurableLimitResponse;
 }
 
 export default {
@@ -173,6 +347,11 @@ export default {
 			if (origin === 'null') return true;
 			if (!origin) return true; // Non-CORS requests or server-to-server
 			for (const pattern of allowedOriginPatterns) {
+				if (isProduction(env)) {
+					if (isUnsafeProductionOrigin(pattern)) continue;
+					if (pattern === origin) return true;
+					continue;
+				}
 				// Exact match
 				if (pattern === origin) return true;
 				// Wildcard pattern support, e.g., http://localhost:* or capacitor://*
@@ -184,13 +363,15 @@ export default {
 		};
 
 		const buildCorsHeaders = (origin: string | null) => {
-			const allowOrigin = isOriginAllowed(origin) && origin ? origin : '*';
-			return {
-				'Access-Control-Allow-Origin': allowOrigin,
+			const headers: Record<string, string> = {
 				'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 				'Access-Control-Allow-Headers': 'content-type, x-client-id, authorization',
 				'Vary': 'Origin',
 			};
+			if (origin && isOriginAllowed(origin)) {
+				headers['Access-Control-Allow-Origin'] = origin;
+			}
+			return headers;
 		};
 
 		const corsHeaders = buildCorsHeaders(originHeader);
@@ -209,6 +390,24 @@ export default {
 				error: { message: openaiCheck.message, code: openaiCheck.code },
 			});
 			return new Response(JSON.stringify({ error: openaiCheck.message, code: openaiCheck.code }), {
+				status,
+				headers: { 'Content-Type': 'application/json', ...corsHeaders },
+			});
+		}
+
+		const productionConfigError = validateProductionConfig(env);
+		if (productionConfigError) {
+			const status = 500;
+			logError(env, {
+				ts: nowIso(),
+				requestId,
+				route: path,
+				method,
+				status,
+				durationMs: Date.now() - startedAt,
+				error: { message: productionConfigError, code: 'PRODUCTION_CONFIG_INVALID' },
+			});
+			return new Response(JSON.stringify({ error: 'Server security configuration is invalid.', code: 'PRODUCTION_CONFIG_INVALID' }), {
 				status,
 				headers: { 'Content-Type': 'application/json', ...corsHeaders },
 			});
@@ -259,17 +458,6 @@ export default {
 			if (path === '/parse' && request.method === 'POST') {
 				try {
 					const parseStarted = Date.now();
-					// Rate limit by IP
-					const rl = checkRateLimit(env, request);
-					if (!rl.allowed) {
-						const status = 429;
-						const durationMs = Date.now() - startedAt;
-						logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs });
-						return new Response(JSON.stringify({ error: 'Too Many Requests' }), {
-							status,
-							headers: { 'Content-Type': 'application/json', 'Retry-After': String(rl.retryAfterSec), ...corsHeaders },
-						});
-					}
 					// Enforce CORS allow-list
 					if (!isOriginAllowed(originHeader)) {
 						const status = 403;
@@ -279,6 +467,31 @@ export default {
 							status,
 							headers: { 'Content-Type': 'application/json', ...corsHeaders },
 						});
+					}
+
+					const auth = await authenticateRequest(env, request);
+					if (!auth.ok) {
+						const status = auth.status;
+						const durationMs = Date.now() - startedAt;
+						logRequest(env, status >= 500 ? 'error' : 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs });
+						return new Response(JSON.stringify({ error: auth.error }), {
+							status,
+							headers: { 'Content-Type': 'application/json', ...corsHeaders },
+						});
+					}
+
+					const requestLimit = Number.parseInt(env.RATE_LIMIT_REQUESTS || '100', 10) || 100;
+					for (const key of [`parse:ip:${getClientIp(request)}`, `parse:user:${auth.user.id}`]) {
+						const rl = await enforceRequestLimit(env, key, requestLimit, 60 * 60);
+						if (!rl.allowed) {
+							const status = 429;
+							const durationMs = Date.now() - startedAt;
+							logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs });
+							return new Response(JSON.stringify({ error: 'Too Many Requests' }), {
+								status,
+								headers: { 'Content-Type': 'application/json', 'Retry-After': String(rl.retryAfterSec), ...corsHeaders },
+							});
+						}
 					}
 
 					if ((env as any).DEBUG_ALLOW_TEST_FAILURES === 'true') {
@@ -440,22 +653,33 @@ export default {
 					const perIpLimit = Number.parseInt((env as any).RATE_LIMIT_OPENAI || '10', 10) || 10;
 					const dailyBudget = Number.parseFloat((env as any).OPENAI_DAILY_BUDGET || '0');
 					const costPerCall = Number.parseFloat(((env as any).OPENAI_COST_PER_CALL as string) || '0.02');
-					const usedByIp = openaiUsage.perIpCalls.get(ip) || 0;
+					const usageKey = `${auth.user.id}:${ip}`;
+					const usedByIp = openaiUsage.perIpCalls.get(usageKey) || 0;
+					const openAiWindowSec = 24 * 60 * 60;
+					const openAiLimiter = await consumeDurableLimit(env, `openai:user:${auth.user.id}`, perIpLimit, openAiWindowSec);
 
-					if (usedByIp >= perIpLimit) {
+					if (openAiLimiter ? !openAiLimiter.allowed : usedByIp >= perIpLimit) {
 						const status = 429;
 						logRequest(env, 'info', {
 							ts: nowIso(), requestId, route: path, method, status,
 							durationMs: Date.now() - startedAt,
-							openaiDenied: 'per_ip_cap', perIpLimit, usedByIp,
+							openaiDenied: 'per_user_cap', perIpLimit, usedByIp,
 						});
 						return new Response(JSON.stringify({ error: 'OpenAI usage limit reached. Please try again later.' }), {
 							status,
-							headers: { 'Content-Type': 'application/json', ...corsHeaders },
+							headers: {
+								'Content-Type': 'application/json',
+								...(openAiLimiter ? { 'Retry-After': String(openAiLimiter.retryAfterSec) } : {}),
+								...corsHeaders,
+							},
 						});
 					}
 
-					if (dailyBudget > 0 && (openaiUsage.totalCost + costPerCall) > dailyBudget) {
+					const budgetLimiter = dailyBudget > 0
+						? await consumeDurableLimit(env, `openai:budget:${new Date().toISOString().slice(0, 10)}`, Math.ceil(dailyBudget * 100_000), openAiWindowSec, Math.ceil(costPerCall * 100_000))
+						: null;
+
+					if (budgetLimiter ? !budgetLimiter.allowed : dailyBudget > 0 && (openaiUsage.totalCost + costPerCall) > dailyBudget) {
 						const status = 429;
 						logRequest(env, 'info', {
 							ts: nowIso(), requestId, route: path, method, status,
@@ -511,7 +735,7 @@ export default {
 					const aiTime = Date.now() - aiStarted;
 					openaiUsage.totalCalls += 1;
 					openaiUsage.totalCost += costPerCall;
-					openaiUsage.perIpCalls.set(ip, usedByIp + 1);
+					openaiUsage.perIpCalls.set(usageKey, usedByIp + 1);
 
 					const validationResult = validateEvents(aiItems, {
 						...validationConfig,
@@ -632,126 +856,10 @@ export default {
 				return res;
 			}
 
-			// Auth provider check endpoint - checks if user exists and their provider
+			// Deprecated: account enumeration is intentionally not supported.
 			if (path === '/auth/check-provider' && request.method === 'POST') {
-				try {
-					// Validate content-type
-					const contentType = request.headers.get('content-type') || '';
-					if (!contentType.toLowerCase().startsWith('application/json')) {
-						return json({ error: 'Unsupported Media Type' }, { status: 415 });
-					}
-
-					const body = await request.json() as { email?: string };
-					const email = body.email?.trim().toLowerCase();
-
-					if (!email) {
-						return json({ error: 'Email is required' }, { status: 400 });
-					}
-
-					// Basic email format validation
-					const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
-					if (!emailRegex.test(email)) {
-						return json({ error: 'Invalid email format' }, { status: 400 });
-					}
-
-					// Check for Supabase service role key
-					const serviceRoleKey = (env as any).SUPABASE_SERVICE_ROLE_KEY;
-					const supabaseUrl = (env as any).SUPABASE_URL;
-
-					if (!serviceRoleKey || !supabaseUrl) {
-						// If service role key not configured, return unknown (fail open)
-						logRequest(env, 'warn', {
-							ts: nowIso(),
-							requestId,
-							route: path,
-							method,
-							status: 200,
-							durationMs: Date.now() - startedAt,
-							warning: 'SUPABASE_SERVICE_ROLE_KEY or SUPABASE_URL not configured',
-						});
-						return json({ exists: false, provider: null });
-					}
-
-					// Query Supabase Admin API to find user by email
-					// List all users and filter by email client-side
-					const adminResponse = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
-						method: 'GET',
-						headers: {
-							'Authorization': `Bearer ${serviceRoleKey}`,
-							'apikey': serviceRoleKey,
-							'Content-Type': 'application/json',
-						},
-					});
-
-					if (!adminResponse.ok) {
-						logRequest(env, 'warn', {
-							ts: nowIso(),
-							requestId,
-							route: path,
-							method,
-							status: adminResponse.status,
-							durationMs: Date.now() - startedAt,
-							warning: 'Supabase admin API error',
-						});
-						// On error, fail open (allow the flow)
-						return json({ exists: false, provider: null });
-					}
-
-					const adminData = await adminResponse.json() as {
-						users?: Array<{
-							email?: string;
-							email_confirmed_at?: string | null;
-							app_metadata?: {
-								provider?: string;
-								providers?: string[];
-							}
-						}>
-					};
-					const users = adminData.users || [];
-
-					// Find the user with matching email
-					const user = users.find(u => u.email?.toLowerCase() === email);
-
-					if (!user) {
-						return json({ exists: false, provider: null, emailConfirmed: false });
-					}
-
-					// Get the provider from app_metadata
-					// Prefer the primary provider, fallback to first in providers array
-					const provider = user.app_metadata?.provider || user.app_metadata?.providers?.[0] || 'email';
-					const emailConfirmed = !!user.email_confirmed_at;
-
-					logRequest(env, 'info', {
-						ts: nowIso(),
-						requestId,
-						route: path,
-						method,
-						status: 200,
-						durationMs: Date.now() - startedAt,
-						userExists: true,
-						provider,
-						emailConfirmed,
-					});
-
-					return json({ exists: true, provider, emailConfirmed });
-
-				} catch (error) {
-					logError(env, {
-						ts: nowIso(),
-						requestId,
-						route: path,
-						method,
-						status: 500,
-						durationMs: Date.now() - startedAt,
-						error: {
-							message: (error as Error).message,
-							stack: (error as Error).stack,
-							code: 'AUTH_CHECK_ERROR',
-						},
-					});
-					// On error, fail open (allow the flow)
-					return json({ exists: false, provider: null });
-				}
+				logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status: 410, durationMs: Date.now() - startedAt });
+				return json({ error: 'Account provider lookup is no longer available.' }, { status: 410 });
 			}
 
 			if (path === '/social/recommendations' && request.method === 'GET') {
@@ -762,29 +870,18 @@ export default {
 						return json({ error: 'Supabase social recommendations are not configured.' }, { status: 500 });
 					}
 
-					const authorization = request.headers.get('authorization') || request.headers.get('Authorization');
-					const accessToken = authorization?.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
-					if (!accessToken) {
-						return json({ error: 'Missing bearer token.' }, { status: 401 });
-					}
-
-					const authResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
-						method: 'GET',
-						headers: {
-							'Authorization': `Bearer ${accessToken}`,
-							'apikey': serviceRoleKey,
-							'Content-Type': 'application/json',
-						},
-					});
-
-					if (!authResponse.ok) {
-						return json({ error: 'Unauthorized.' }, { status: 401 });
-					}
-
-					const authUser = await authResponse.json() as { id?: string };
-					const currentUserId = authUser.id?.toLowerCase();
-					if (!currentUserId) {
-						return json({ error: 'Unable to resolve current user.' }, { status: 401 });
+					const auth = await authenticateRequest(env, request);
+					if (!auth.ok) return json({ error: auth.error }, { status: auth.status });
+					const currentUserId = auth.user.id;
+					const socialLimit = Number.parseInt((env as any).RATE_LIMIT_SOCIAL || '60', 10) || 60;
+					for (const key of [`social:recommendations:ip:${getClientIp(request)}`, `social:recommendations:user:${currentUserId}`]) {
+						const rl = await enforceRequestLimit(env, key, socialLimit, 60 * 60);
+						if (!rl.allowed) {
+							return json({ error: 'Too Many Requests' }, {
+								status: 429,
+								headers: { 'Retry-After': String(rl.retryAfterSec) },
+							});
+						}
 					}
 
 					const restHeaders = {

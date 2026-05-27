@@ -575,20 +575,16 @@ struct AuthView: View {
         isLoading = true
         
         Task {
-            // First check if user already exists
-            print("🔍 Checking if email exists: \(email)")
+            // This no longer reveals account existence; Supabase handles duplicate-account errors.
             let providerResult = await authService.checkUserProvider(email: email)
-            print("🔍 Provider check result: \(providerResult)")
             
             if case .success(let info) = providerResult {
-                print("🔍 User exists: \(info.exists), Provider: \(String(describing: info.provider)), Confirmed: \(info.isEmailConfirmed)")
                 if info.exists {
                     // Unverified account: user signed up before but cancelled the OTP modal.
                     // The original OTP is still valid — skip sending a new email to avoid rate
                     // limits and just surface the verification screen directly.
                     // The resend button inside that screen handles the expired-OTP case.
                     if !info.isEmailConfirmed && info.provider == .email {
-                        print("ℹ️ Unverified account — showing OTP screen without re-sending email")
                         await MainActor.run {
                             isLoading = false
                             HapticFeedbackManager.shared.success()
@@ -597,7 +593,6 @@ struct AuthView: View {
                         }
                         return
                     } else {
-                        print("⛔️ Email already exists (verified) - blocking signup")
                         await MainActor.run {
                             isLoading = false
                             HapticFeedbackManager.shared.error()
@@ -612,10 +607,7 @@ struct AuthView: View {
                     }
                 }
             }
-            
-            print("✅ Email doesn't exist - proceeding with signup")
-            
-            // User doesn't exist, proceed with signup
+
             let result = await authService.signUpWithPassword(
                 email: email,
                 password: password,

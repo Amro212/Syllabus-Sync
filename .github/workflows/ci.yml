@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, security ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, develop, security ]
 
 jobs:
   ios-build:
@@ -70,11 +70,8 @@ jobs:
           'ALLOWED_ORIGINS=http://localhost:*' \
           > .dev.vars
       
-    - name: TypeScript type checking
-      run: npx tsc --noEmit
-      
-    - name: Run tests
-      run: npm test -- --run
+    - name: Security release gate
+      run: npm run security:scan
       
     - name: Build check (Wrangler)
       run: npx wrangler deploy --dry-run || echo "Dry run completed"

@@ -28,14 +28,26 @@ struct PreviewView: View {
         case events = "Events"
         case rawOCR = "Raw OCR"
         case processedOCR = "Processed OCR"
+        #if DEBUG
         case aiOutput = "AI Output"
+        #endif
+
+        static var allCases: [PreviewTab] {
+            #if DEBUG
+            return [.events, .rawOCR, .processedOCR, .aiOutput]
+            #else
+            return [.events, .rawOCR, .processedOCR]
+            #endif
+        }
 
         var icon: String {
             switch self {
             case .events: return "calendar"
             case .rawOCR: return "doc.plaintext"
             case .processedOCR: return "doc.text"
+            #if DEBUG
             case .aiOutput: return "brain"
+            #endif
             }
         }
     }
@@ -76,8 +88,10 @@ struct PreviewView: View {
                             rawOCRTabContent
                         case .processedOCR:
                             processedOCRTabContent
+                        #if DEBUG
                         case .aiOutput:
                             aiOutputTabContent
+                        #endif
                         }
                     }
                     .background(AppColors.background)
@@ -104,6 +118,7 @@ struct PreviewView: View {
                                     .foregroundColor(AppColors.textPrimary)
                             }
 
+                            #if DEBUG
                             Button {
                                 HapticFeedbackManager.shared.lightImpact()
                                 showingAdminDebug = true
@@ -112,6 +127,7 @@ struct PreviewView: View {
                                     .font(.lexend(size: 22, weight: .regular))
                                     .foregroundColor(.orange)
                             }
+                            #endif
                         }
                     }
                     .padding(.horizontal, Layout.Spacing.md)
@@ -147,6 +163,7 @@ struct PreviewView: View {
                 .presentationCornerRadius(20)
                 .presentationBackground(.ultraThinMaterial)
         }
+        #if DEBUG
         .sheet(isPresented: $showingAdminDebug) {
             AdminDebugView()
                 .environmentObject(eventStore)
@@ -156,6 +173,7 @@ struct PreviewView: View {
                 .presentationCornerRadius(20)
                 .presentationBackground(.ultraThinMaterial)
         }
+        #endif
     }
 
     private var headerSection: some View {
@@ -224,18 +242,6 @@ struct PreviewView: View {
         .padding(.bottom, 80) // Add bottom padding for tab bar
     }
     
-    private var aiOutputTabContent: some View {
-        VStack(alignment: .leading, spacing: Layout.Spacing.lg) {
-            if let rawResponse = importViewModel.rawAIResponse {
-                AIOutputView(rawResponse: rawResponse)
-            } else {
-                AIOutputEmptyStateView()
-            }
-        }
-        .padding(Layout.Spacing.lg)
-        .padding(.bottom, 80) // Add bottom padding for tab bar
-    }
-
     private var rawOCRTabContent: some View {
         VStack(alignment: .leading, spacing: Layout.Spacing.md) {
             if let tsvData = importViewModel.parserInputText, !tsvData.isEmpty {
@@ -610,7 +616,20 @@ private struct PreviewEmptyStateView: View {
     }
 }
 
-// MARK: - AI Output Views
+#if DEBUG
+private extension PreviewView {
+    var aiOutputTabContent: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.lg) {
+            if let rawResponse = importViewModel.rawAIResponse {
+                AIOutputView(rawResponse: rawResponse)
+            } else {
+                AIOutputEmptyStateView()
+            }
+        }
+        .padding(Layout.Spacing.lg)
+        .padding(.bottom, 80)
+    }
+}
 
 private struct AIOutputView: View {
     let rawResponse: String
@@ -736,3 +755,4 @@ private struct AIOutputEmptyStateView: View {
         )
     }
 }
+#endif

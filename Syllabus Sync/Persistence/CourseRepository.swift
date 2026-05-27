@@ -26,7 +26,7 @@ final class CourseRepository: ObservableObject {
             }
             return fetchedCourses
         case .failure(let error):
-            print("Failed to fetch courses: \(error)")
+            AppLog.debug("Failed to fetch courses: \(error)")
             return []
         }
     }
@@ -43,7 +43,7 @@ final class CourseRepository: ObservableObject {
         case .success(let course):
             return course
         case .failure(let error):
-            print("Failed to fetch course by code: \(error)")
+            AppLog.debug("Failed to fetch course by code: \(error)")
             return nil
         }
     }
@@ -66,7 +66,7 @@ final class CourseRepository: ObservableObject {
             await refresh()
             return savedCourse
         case .failure(let error):
-            print("Failed to save course: \(error)")
+            AppLog.debug("Failed to save course: \(error)")
             await refresh() // Revert optimistic update on failure
             return nil
         }
@@ -83,7 +83,7 @@ final class CourseRepository: ObservableObject {
             await refresh()
             return savedCourses
         case .failure(let error):
-            print("Failed to save courses: \(error)")
+            AppLog.debug("Failed to save courses: \(error)")
             return []
         }
     }
@@ -101,7 +101,7 @@ final class CourseRepository: ObservableObject {
             await refresh()
             return true
         case .failure(let error):
-            print("Failed to delete course: \(error)")
+            AppLog.debug("Failed to delete course: \(error)")
             return false
         }
     }

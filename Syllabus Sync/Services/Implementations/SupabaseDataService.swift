@@ -294,6 +294,7 @@ class SupabaseDataService: DataService {
                     .from("events")
                     .update(updateData)
                     .eq("id", value: eventUUID)
+                    .eq("user_id", value: userId)
                     .select()
                     .execute()
                     .value

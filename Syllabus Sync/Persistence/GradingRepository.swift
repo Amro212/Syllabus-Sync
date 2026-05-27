@@ -28,7 +28,7 @@ final class GradingRepository: ObservableObject {
             }
             self.gradingByCourse = grouped
         case .failure(let error):
-            print("GradingRepository: failed to fetch all – \(error)")
+            AppLog.debug("GradingRepository: failed to fetch all – \(error)")
         }
     }
 
@@ -40,7 +40,7 @@ final class GradingRepository: ObservableObject {
             gradingByCourse[courseId] = entries
             return entries
         case .failure(let error):
-            print("GradingRepository: failed to fetch for course \(courseId) – \(error)")
+            AppLog.debug("GradingRepository: failed to fetch for course \(courseId) – \(error)")
             return gradingByCourse[courseId] ?? []
         }
     }
@@ -56,7 +56,7 @@ final class GradingRepository: ObservableObject {
             gradingByCourse[courseId] = saved
             return saved
         case .failure(let error):
-            print("GradingRepository: failed to save for course \(courseId) – \(error)")
+            AppLog.debug("GradingRepository: failed to save for course \(courseId) – \(error)")
             return gradingByCourse[courseId] ?? []
         }
     }

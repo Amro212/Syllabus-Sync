@@ -108,6 +108,7 @@ export async function callOpenAIParse(
     model: prompt.model,
     messages: prompt.messages,
     temperature: prompt.temperature ?? 0,
+    max_completion_tokens: Number.parseInt((env as any).OPENAI_MAX_COMPLETION_TOKENS || '4096', 10) || 4096,
   };
   if (prompt.response_format) body.response_format = prompt.response_format;
 

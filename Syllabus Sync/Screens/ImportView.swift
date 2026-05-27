@@ -107,7 +107,7 @@ struct ImportView: View {
             }
             currentImportTask = task
         case .failure(let error):
-            print("File import error: \(error)")
+            AppLog.debug("File import error: \(error)")
         }
     }
 }

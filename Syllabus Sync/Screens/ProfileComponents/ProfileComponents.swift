@@ -46,9 +46,6 @@ struct ProfileHeaderView: View {
                         .font(.lexend(size: 15, weight: .medium))
                         .foregroundColor(AppColors.textSecondary)
                 }
-
-                
-
                 // Email with provider badge
                 HStack(spacing: Layout.Spacing.sm) {
                     Image(systemName: "envelope.fill")

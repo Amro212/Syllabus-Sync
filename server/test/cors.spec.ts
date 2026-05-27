@@ -18,12 +18,24 @@ describe('CORS and Content Validation (4.2)', () => {
   beforeEach(() => {
     // Configure allowed origins for tests
     env.ALLOWED_ORIGINS = 'http://localhost:*,capacitor://*';
+    env.NODE_ENV = 'test';
     env.OPENAI_API_KEY = 'test-key';
+    env.SUPABASE_URL = 'https://example.supabase.co';
+    env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-test-key';
     originalFetch = globalThis.fetch;
-    (globalThis as any).fetch = vi.fn(async () => new Response(
-      JSON.stringify({ choices: [{ message: { content: JSON.stringify([goodEvent]) } }] }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    ));
+    (globalThis as any).fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/auth/v1/user')) {
+        return new Response(JSON.stringify({ id: '11111111-1111-1111-1111-111111111111' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: JSON.stringify([goodEvent]) } }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    });
   });
 
   afterEach(() => {
@@ -68,6 +80,7 @@ describe('CORS and Content Validation (4.2)', () => {
       headers: {
         Origin: 'https://evil.com',
         'Content-Type': 'application/json',
+        Authorization: 'Bearer valid-token',
       },
       body: JSON.stringify({ text: 'hello' }),
     });
@@ -84,6 +97,7 @@ describe('CORS and Content Validation (4.2)', () => {
       headers: {
         Origin: origin,
         'Content-Type': 'application/json',
+        Authorization: 'Bearer valid-token',
       },
       body: JSON.stringify({ text: 'hello world', courseCode: 'CS101' }),
     });
@@ -100,6 +114,7 @@ describe('CORS and Content Validation (4.2)', () => {
       headers: {
         Origin: 'null',
         'Content-Type': 'application/json',
+        Authorization: 'Bearer valid-token',
       },
       body: JSON.stringify({ text: 'ok', courseCode: 'CS101' }),
     });
@@ -116,6 +131,7 @@ describe('CORS and Content Validation (4.2)', () => {
       headers: {
         Origin: 'http://localhost:3000',
         'Content-Type': 'text/plain',
+        Authorization: 'Bearer valid-token',
       },
       body: 'plain text',
     });
@@ -135,6 +151,7 @@ describe('CORS and Content Validation (4.2)', () => {
         Origin: 'http://localhost:3000',
         'Content-Type': 'application/json',
         'Content-Length': String(body.length),
+        Authorization: 'Bearer valid-token',
       },
       body,
     });
@@ -151,6 +168,7 @@ describe('CORS and Content Validation (4.2)', () => {
       headers: {
         Origin: 'http://localhost:3000',
         'Content-Type': 'application/json',
+        Authorization: 'Bearer valid-token',
       },
       body: JSON.stringify({ text: longText }),
     });
@@ -166,6 +184,7 @@ describe('CORS and Content Validation (4.2)', () => {
       headers: {
         Origin: 'http://localhost:3000',
         'Content-Type': 'application/json',
+        Authorization: 'Bearer valid-token',
       },
       body: '{ invalid json',
     });
@@ -174,5 +193,75 @@ describe('CORS and Content Validation (4.2)', () => {
     await waitOnExecutionContext(ctx);
     expect(res.status).toBe(400);
   });
-});
 
+  it('rejects POST /parse without bearer token', async () => {
+    const req = new IncomingRequest('http://example.com/parse', {
+      method: 'POST',
+      headers: {
+        Origin: 'http://localhost:3000',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text: 'hello world', courseCode: 'CS101' }),
+    });
+    const ctx = createExecutionContext();
+    const res = await worker.fetch(req, env, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(res.status).toBe(401);
+  });
+
+  it('fails closed in production when CORS contains wildcard or localhost origins', async () => {
+    env.NODE_ENV = 'production';
+    env.ALLOWED_ORIGINS = 'http://localhost:*,https://app.example.com';
+
+    const req = new IncomingRequest('https://api.example.com/health', {
+      method: 'GET',
+      headers: { Origin: 'https://app.example.com' },
+    });
+    const ctx = createExecutionContext();
+    const res = await worker.fetch(req, env, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toMatchObject({ code: 'PRODUCTION_CONFIG_INVALID' });
+  });
+
+  it('allows only exact HTTPS origins in production', async () => {
+    env.NODE_ENV = 'production';
+    env.ALLOWED_ORIGINS = 'https://app.example.com';
+
+    const allowedReq = new IncomingRequest('https://api.example.com/health', {
+      method: 'GET',
+      headers: { Origin: 'https://app.example.com' },
+    });
+    const allowedCtx = createExecutionContext();
+    const allowedRes = await worker.fetch(allowedReq, env, allowedCtx);
+    await waitOnExecutionContext(allowedCtx);
+    expect(allowedRes.status).toBe(200);
+    expect(allowedRes.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.com');
+
+    const blockedReq = new IncomingRequest('https://api.example.com/health', {
+      method: 'GET',
+      headers: { Origin: 'https://sub.app.example.com' },
+    });
+    const blockedCtx = createExecutionContext();
+    const blockedRes = await worker.fetch(blockedReq, env, blockedCtx);
+    await waitOnExecutionContext(blockedCtx);
+    expect(blockedRes.status).toBe(200);
+    expect(blockedRes.headers.get('Access-Control-Allow-Origin')).toBeNull();
+  });
+
+  it('checks all configured exact HTTPS origins in production', async () => {
+    env.NODE_ENV = 'production';
+    env.ALLOWED_ORIGINS = 'https://app.example.com,https://admin.example.com';
+
+    const req = new IncomingRequest('https://api.example.com/health', {
+      method: 'GET',
+      headers: { Origin: 'https://admin.example.com' },
+    });
+    const ctx = createExecutionContext();
+    const res = await worker.fetch(req, env, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://admin.example.com');
+  });
+});

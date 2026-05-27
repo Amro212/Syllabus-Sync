@@ -122,12 +122,14 @@ private extension AppNavigationManager {
 
 /// Main app root that handles all navigation and routing
 struct AppRoot: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var navigationManager = AppNavigationManager()
     @StateObject private var themeManager = ThemeManager()
     @StateObject private var eventStore: EventStore
     @StateObject private var importViewModel: ImportViewModel
     @StateObject private var courseRepository: CourseRepository
     @StateObject private var gradingRepository: GradingRepository
+    @StateObject private var notificationCoordinator = AppNotificationCoordinator.shared
 
     init() {
         let store = EventStore()
@@ -159,11 +161,28 @@ struct AppRoot: View {
         .environmentObject(importViewModel)
         .environmentObject(courseRepository)
         .environmentObject(gradingRepository)
+        .environmentObject(notificationCoordinator)
         .modifier(ThemeEnvironment(themeManager: themeManager))
+        .onAppear {
+            notificationCoordinator.configure()
+            AppLog.debug("AppRoot appeared, currentRoute: \(navigationManager.currentRoute)")
+        }
         .task(id: navigationManager.currentRoute) {
             await loadAuthenticatedDataIfNeeded()
         }
-        .onAppear { AppLog.debug("AppRoot appeared, currentRoute: \(navigationManager.currentRoute)") }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            notificationCoordinator.recordAppOpen()
+            Task {
+                await notificationCoordinator.refreshAuthorizationStatus()
+                await notificationCoordinator.reconcile(events: eventStore.events)
+            }
+        }
+        .onChange(of: eventStore.events) { _, events in
+            Task {
+                await notificationCoordinator.reconcile(events: events)
+            }
+        }
     }
 
     private func loadAuthenticatedDataIfNeeded() async {
@@ -176,6 +195,7 @@ struct AppRoot: View {
         async let coursesLoad: Void = courseRepository.refresh()
         async let gradingLoad: Void = gradingRepository.fetchAll()
         _ = await (eventsLoad, coursesLoad, gradingLoad)
+        await notificationCoordinator.reconcile(events: eventStore.events)
     }
     
     @ViewBuilder

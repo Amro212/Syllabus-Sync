@@ -19,7 +19,6 @@ struct EventEditView: View {
     @State private var selectedRecurrence: RecurrenceFrequency
     @State private var location: String
     @State private var notes: String
-    @State private var reminderMinutes: Int
 
     @FocusState private var focusedField: Field?
 
@@ -85,7 +84,6 @@ struct EventEditView: View {
         _selectedRecurrence = State(initialValue: RecurrenceFrequency.frequency(from: event.recurrenceRule))
         _location = State(initialValue: event.location ?? "")
         _notes = State(initialValue: event.notes ?? "")
-        _reminderMinutes = State(initialValue: event.reminderMinutes ?? 1440)
     }
 
     var body: some View {
@@ -100,7 +98,6 @@ struct EventEditView: View {
                         eventDetailsSection
                         eventTypeAndRecurrenceSection
                         dateAndTimeSection
-                        reminderSection
                         locationAndNotesSection
                     }
                     .padding(.horizontal, 16)
@@ -419,40 +416,6 @@ struct EventEditView: View {
         }
     }
 
-    private var reminderSection: some View {
-        sectionCard(title: "Reminder", icon: "bell.badge") {
-            Menu {
-                Picker(selection: $reminderMinutes) {
-                    Text("At time of event").tag(0)
-                    Text("5 minutes before").tag(5)
-                    Text("15 minutes before").tag(15)
-                    Text("30 minutes before").tag(30)
-                    Text("1 hour before").tag(60)
-                    Text("1 day before").tag(1440)
-                } label: { EmptyView() }
-            } label: {
-                HStack {
-                    Text(reminderLabel(for: reminderMinutes))
-                        .font(.bodyRegular)
-                        .foregroundColor(AppColors.textPrimary)
-                    Spacer()
-                    Image(systemName: "chevron.down")
-                        .font(.caption)
-                        .foregroundColor(AppColors.textSecondary)
-                }
-                .padding(.vertical, 14)
-                .padding(.horizontal, 16)
-                .background(AppColors.surfaceSecondary)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(AppColors.border.opacity(0.35), lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-            .menuIndicator(.hidden)
-        }
-    }
-
     private var locationAndNotesSection: some View {
         sectionCard(title: "Location & Notes", icon: "mappin.and.ellipse") {
             VStack(alignment: .leading, spacing: 16) {
@@ -584,7 +547,7 @@ struct EventEditView: View {
             location: normalizedLocation.isEmpty ? nil : normalizedLocation,
             notes: normalizedNotes.isEmpty ? nil : normalizedNotes,
             recurrenceRule: recurrenceValue,
-            reminderMinutes: reminderMinutes,
+            reminderMinutes: event.reminderMinutes,
             confidence: event.confidence
         )
 
@@ -629,15 +592,4 @@ struct EventEditView: View {
         }
     }
 
-    private func reminderLabel(for minutes: Int) -> String {
-        switch minutes {
-        case 0: return "At time of event"
-        case 5: return "5 minutes before"
-        case 15: return "15 minutes before"
-        case 30: return "30 minutes before"
-        case 60: return "1 hour before"
-        case 1440: return "1 day before"
-        default: return "\(minutes) minutes before"
-        }
-    }
 }

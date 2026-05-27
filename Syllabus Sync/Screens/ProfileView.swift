@@ -12,6 +12,7 @@ struct ProfileView: View {
     @EnvironmentObject var eventStore: EventStore
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var navigationManager: AppNavigationManager
+    @EnvironmentObject var notificationCoordinator: AppNotificationCoordinator
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -50,12 +51,7 @@ struct ProfileView: View {
                                 onTap: { viewModel.showEditDisplayName = true }
                             )
 
-                            EditableFieldRow(
-                                title: "Bio",
-                                value: viewModel.bio.isEmpty ? "Add a bio" : viewModel.bio,
-                                icon: "text.alignleft",
-                                onTap: { viewModel.showEditBio = true }
-                            )
+
 
                             InfoRow(
                                 title: "Email",
@@ -85,14 +81,6 @@ struct ProfileView: View {
                                     await viewModel.updateScheduleVisibility(visibility)
                                 }
                             )
-
-                            NavigationRow(
-                                title: "Blocked Users",
-                                icon: "person.slash",
-                                badge: viewModel.blockedUsers.count,
-                                onTap: { viewModel.showBlockedUsers = true }
-                            )
-
                             ToggleRow(
                                 title: "Friend Request Notifications",
                                 icon: "bell.fill",
@@ -107,6 +95,10 @@ struct ProfileView: View {
                                 icon: "bell.badge.fill",
                                 isOn: $viewModel.notificationsEnabled
                             )
+
+                            NotificationStatusRow(status: notificationCoordinator.authorizationStatus) {
+                                handleNotificationStatusTap()
+                            }
 
                             ToggleRow(
                                 title: "Haptic Feedback",
@@ -171,6 +163,7 @@ struct ProfileView: View {
             viewModel.themeManager = themeManager
             viewModel.navigationManager = navigationManager
             await viewModel.loadProfileData()
+            await notificationCoordinator.refreshAuthorizationStatus()
         }
         .onChange(of: viewModel.showToast) { _, show in
             if show {
@@ -207,14 +200,23 @@ struct ProfileView: View {
         .sheet(isPresented: $viewModel.showEditDisplayName) {
             EditDisplayNameSheet(viewModel: viewModel)
         }
-        .sheet(isPresented: $viewModel.showEditBio) {
-            EditBioSheet(viewModel: viewModel)
-        }
-        .sheet(isPresented: $viewModel.showBlockedUsers) {
-            BlockedUsersSheet(viewModel: viewModel)
-        }
+
         .sheet(isPresented: $viewModel.showFriendRequests) {
             FriendRequestsSheet(viewModel: viewModel)
+        }
+    }
+
+    private func handleNotificationStatusTap() {
+        switch notificationCoordinator.authorizationStatus {
+        case .notDetermined:
+            Task { await notificationCoordinator.requestAuthorization() }
+        case .denied:
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+            UIApplication.shared.open(url)
+        case .authorized, .provisional, .ephemeral:
+            break
+        @unknown default:
+            break
         }
     }
 }

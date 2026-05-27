@@ -248,4 +248,20 @@ describe('CORS and Content Validation (4.2)', () => {
     expect(blockedRes.status).toBe(200);
     expect(blockedRes.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
+
+  it('checks all configured exact HTTPS origins in production', async () => {
+    env.NODE_ENV = 'production';
+    env.ALLOWED_ORIGINS = 'https://app.example.com,https://admin.example.com';
+
+    const req = new IncomingRequest('https://api.example.com/health', {
+      method: 'GET',
+      headers: { Origin: 'https://admin.example.com' },
+    });
+    const ctx = createExecutionContext();
+    const res = await worker.fetch(req, env, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://admin.example.com');
+  });
 });

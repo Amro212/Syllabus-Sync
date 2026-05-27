@@ -39,14 +39,7 @@ enum ScheduleVisibility: String, Codable, CaseIterable {
     }
 }
 
-// MARK: - Blocked User
-
-struct BlockedUser: Identifiable, Codable, Equatable {
-    let id: String
-    let userId: String
-    let username: String
-    let blockedAt: Date
-}
+// (Removed: BlockedUser model)
 
 // MARK: - User Preferences
 
@@ -68,26 +61,4 @@ struct UserPreferences: Codable {
 
 // MARK: - Helper Structs for Supabase Queries
 
-struct BlockRow: Codable {
-    let id: String
-    let blockedId: String
-    let createdAt: String
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case blockedId = "blocked_id"
-        case createdAt = "created_at"
-    }
-}
-
-struct BlockInsert: Codable {
-    let id: String
-    let blockerId: String
-    let blockedId: String
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case blockerId = "blocker_id"
-        case blockedId = "blocked_id"
-    }
-}
+// (Removed: BlockRow and BlockInsert helper structs)

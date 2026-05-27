@@ -349,7 +349,8 @@ export default {
 			for (const pattern of allowedOriginPatterns) {
 				if (isProduction(env)) {
 					if (isUnsafeProductionOrigin(pattern)) continue;
-					return pattern === origin;
+					if (pattern === origin) return true;
+					continue;
 				}
 				// Exact match
 				if (pattern === origin) return true;

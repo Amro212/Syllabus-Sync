@@ -904,28 +904,6 @@ final class SocialHubService {
         }
     }
 
-    /// Update user's bio in users table
-    func updateBio(_ bio: String?) async -> String? {
-        guard let uid = currentUserId else { return "Not authenticated" }
-
-        do {
-            try await supabase
-                .from("users")
-                .update([
-                    "bio": bio ?? "",
-                    "updated_at": ISO8601DateFormatter().string(from: Date())
-                ])
-                .eq("id", value: uid)
-                .execute()
-
-            AppLog.debug("✅ Bio updated")
-            return nil
-        } catch {
-            AppLog.debug("⚠️ Update bio failed: \(error)")
-            return "Failed to update bio"
-        }
-    }
-
     /// Update schedule visibility preference
     func updateScheduleVisibility(_ visibility: ScheduleVisibility) async -> String? {
         guard let uid = currentUserId else { return "Not authenticated" }
@@ -945,122 +923,6 @@ final class SocialHubService {
         } catch {
             AppLog.debug("⚠️ Update visibility failed: \(error)")
             return "Failed to update schedule visibility"
-        }
-    }
-
-    // MARK: - Blocking
-
-    /// Block a user
-    func blockUser(_ userId: String) async -> String? {
-        guard let uid = currentUserId else { return "Not authenticated" }
-        guard isValidUUIDString(userId) else { return "Invalid user" }
-
-        // Cannot block yourself
-        if userId == uid { return "You cannot block yourself" }
-
-        do {
-            // Check if already blocked
-            let existing: [BlockRow] = try await supabase
-                .from("blocked_users")
-                .select()
-                .eq("blocker_id", value: uid)
-                .eq("blocked_id", value: userId)
-                .execute()
-                .value
-
-            if !existing.isEmpty {
-                return "User is already blocked"
-            }
-
-            // Insert block record
-            let insert = BlockInsert(
-                id: UUID().uuidString,
-                blockerId: uid,
-                blockedId: userId
-            )
-            try await supabase
-                .from("blocked_users")
-                .insert(insert)
-                .execute()
-
-            // Remove friendship if exists
-            try await supabase
-                .from("friends")
-                .delete()
-                .or("and(user_a_id.eq.\(uid),user_b_id.eq.\(userId)),and(user_a_id.eq.\(userId),user_b_id.eq.\(uid))")
-                .execute()
-
-            AppLog.debug("✅ User blocked")
-            return nil
-        } catch {
-            AppLog.debug("⚠️ Block user failed: \(error)")
-            return "Failed to block user"
-        }
-    }
-
-    /// Unblock a user
-    func unblockUser(_ userId: String) async -> String? {
-        guard let uid = currentUserId else { return "Not authenticated" }
-        guard isValidUUIDString(userId) else { return "Invalid user" }
-
-        do {
-            try await supabase
-                .from("blocked_users")
-                .delete()
-                .eq("blocker_id", value: uid)
-                .eq("blocked_id", value: userId)
-                .execute()
-
-            AppLog.debug("✅ User unblocked")
-            return nil
-        } catch {
-            AppLog.debug("⚠️ Unblock user failed: \(error)")
-            return "Failed to unblock user"
-        }
-    }
-
-    /// Fetch blocked users
-    func fetchBlockedUsers() async -> [BlockedUser] {
-        guard let uid = currentUserId else { return [] }
-
-        do {
-            let blocks: [BlockRow] = try await supabase
-                .from("blocked_users")
-                .select("id, blocked_id, created_at")
-                .eq("blocker_id", value: uid)
-                .order("created_at", ascending: false)
-                .execute()
-                .value
-
-            if blocks.isEmpty { return [] }
-
-            // Fetch user profiles for blocked users
-            let blockedIds = blocks.map(\.blockedId)
-            let profiles: [UserProfile] = try await supabase
-                .from("users")
-                .select("id, username, updated_at")
-                .in("id", values: blockedIds)
-                .execute()
-                .value
-
-            let profileMap = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
-
-            return blocks.compactMap { block in
-                guard let profile = profileMap[block.blockedId],
-                      let username = profile.username,
-                      let date = ISO8601DateFormatter().date(from: block.createdAt) else {
-                    return nil
-                }
-                return BlockedUser(
-                    id: block.id,
-                    userId: block.blockedId,
-                    username: username,
-                    blockedAt: date
-                )
-            }
-        } catch {
-            AppLog.debug("⚠️ Fetch blocked users failed: \(error)")
-            return []
         }
     }
 
@@ -1102,7 +964,7 @@ final class SocialHubService {
                 .execute()
                 .value
 
- return prefs.first
+            return prefs.first
         } catch {
             AppLog.debug("⚠️ Fetch user preferences failed: \(error)")
             return nil

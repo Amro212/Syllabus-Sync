@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import UserNotifications
 
 // MARK: - Profile Header View
 
@@ -302,6 +303,73 @@ struct ToggleRow: View {
         .padding(Layout.Spacing.md)
         .background(AppColors.surface)
         .cornerRadius(Layout.CornerRadius.lg)
+    }
+}
+
+// MARK: - Notification Status Row
+
+struct NotificationStatusRow: View {
+    let status: UNAuthorizationStatus
+    let onTap: () -> Void
+
+    private var statusText: String {
+        switch status {
+        case .authorized, .provisional, .ephemeral:
+            return "Allowed"
+        case .denied:
+            return "Off in iOS Settings"
+        case .notDetermined:
+            return "Not asked yet"
+        @unknown default:
+            return "Unknown"
+        }
+    }
+
+    private var actionText: String? {
+        switch status {
+        case .denied:
+            return "Open Settings"
+        case .notDetermined:
+            return "Enable"
+        case .authorized, .provisional, .ephemeral:
+            return nil
+        @unknown default:
+            return nil
+        }
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: Layout.Spacing.md) {
+                Image(systemName: "bell.badge")
+                    .font(.lexend(size: 18, weight: .medium))
+                    .foregroundColor(AppColors.accent)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("IOS NOTIFICATION ACCESS")
+                        .font(.lexend(size: 11, weight: .semibold))
+                        .foregroundColor(AppColors.textSecondary)
+                        .tracking(0.5)
+
+                    Text(statusText)
+                        .font(.lexend(size: 15, weight: .medium))
+                        .foregroundColor(AppColors.textPrimary)
+                }
+
+                Spacer()
+
+                if let actionText {
+                    Text(actionText)
+                        .font(.lexend(size: 13, weight: .semibold))
+                        .foregroundColor(AppColors.accent)
+                }
+            }
+            .padding(Layout.Spacing.md)
+            .background(AppColors.surface)
+            .cornerRadius(Layout.CornerRadius.lg)
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 

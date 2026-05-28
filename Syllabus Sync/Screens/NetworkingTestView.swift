@@ -177,7 +177,7 @@ struct NetworkingTestView: View {
                 - Assignment 2 Due: October 5, 2024
                 """
                 
-                let result = try await parser.parse(text: sampleText)
+                let result = try await parser.parse(text: sampleText, requestID: UUID().uuidString)
                 
                 await MainActor.run {
                     testResults.append("✅ Parse endpoint successful")

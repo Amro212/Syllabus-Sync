@@ -35,6 +35,25 @@ describe('Rate Limiting (4.3)', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
+      if (url.includes('/rest/v1/rpc/reserve_ai_parse_credit')) {
+        return new Response(JSON.stringify([{
+          event_id: 'evt-1',
+          credit_source: 'free',
+          reused: false,
+          free_used_count: 1,
+          free_remaining: 1,
+          free_allowance: 2,
+          paid_remaining: 0,
+          total_remaining: 1,
+          can_scan: true,
+        }]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('/rest/v1/rpc/finalize_ai_parse_credit') || url.includes('/rest/v1/rpc/refund_ai_parse_credit')) {
+        return new Response(null, { status: 204 });
+      }
       return new Response(
         JSON.stringify({ choices: [{ message: { content: JSON.stringify([goodEvent]) } }] }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }

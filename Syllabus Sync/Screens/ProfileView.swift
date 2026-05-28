@@ -13,6 +13,7 @@ struct ProfileView: View {
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var navigationManager: AppNavigationManager
     @EnvironmentObject var notificationCoordinator: AppNotificationCoordinator
+    @EnvironmentObject var aiUsageStore: AIScanUsageStore
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -115,6 +116,26 @@ struct ProfileView: View {
                             )
                         }
 
+                        ProfileSection(title: "AI Scans") {
+                            AIScanInlineCard(
+                                snapshot: aiUsageStore.snapshot,
+                                isBusy: aiUsageStore.isPurchasing,
+                                onPurchase: {
+                                    Task { _ = await aiUsageStore.purchaseTopUp() }
+                                },
+                                onSync: {
+                                    Task { _ = await aiUsageStore.syncPurchases() }
+                                }
+                            )
+
+                            if let errorMessage = aiUsageStore.lastErrorMessage, !errorMessage.isEmpty {
+                                Text(errorMessage)
+                                    .font(.lexend(size: 13, weight: .medium))
+                                    .foregroundColor(AppColors.error)
+                                    .padding(.horizontal, Layout.Spacing.sm)
+                            }
+                        }
+
                         // Account Actions Section
                         ProfileSection(title: "Account") {
                             if viewModel.provider == .email {
@@ -164,6 +185,7 @@ struct ProfileView: View {
             viewModel.navigationManager = navigationManager
             await viewModel.loadProfileData()
             await notificationCoordinator.refreshAuthorizationStatus()
+            await aiUsageStore.refresh(force: false)
         }
         .onChange(of: viewModel.showToast) { _, show in
             if show {

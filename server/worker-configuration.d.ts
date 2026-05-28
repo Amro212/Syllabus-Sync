@@ -13,6 +13,12 @@ declare namespace Cloudflare {
         PARSE_CONFIDENCE_THRESHOLD: string;
         OPENAI_TIMEOUT_MS: string;
         OPENAI_RETRIES: string;
+        APPLE_BUNDLE_ID: string;
+        APP_STORE_ISSUER_ID: string;
+        APP_STORE_KEY_ID: string;
+        APP_STORE_PRIVATE_KEY: string;
+        APPLE_IAP_PRODUCT_ID_AI_SCANS_5: string;
+        APPLE_IAP_PACK_CREDITS: string;
         ALLOWED_ORIGINS: string;
         NODE_ENV: string;
         LOG_LEVEL: string;

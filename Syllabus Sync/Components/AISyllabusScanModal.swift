@@ -12,10 +12,12 @@ struct AISyllabusScanModal: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var navigationManager: AppNavigationManager
     @EnvironmentObject var importViewModel: ImportViewModel
+    @EnvironmentObject var aiUsageStore: AIScanUsageStore
     
     @State private var isShowingFilePicker = false
     @State private var selectedFileURL: URL?
     @State private var currentImportTask: Task<Void, Never>?
+    @State private var showPaywall = false
     
     var body: some View {
         ZStack {
@@ -70,9 +72,43 @@ struct AISyllabusScanModal: View {
                 uploadContentView
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
+
+            if showPaywall {
+                Color.black.opacity(0.35)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+
+                AIScanPaywallPopup(
+                    snapshot: activeUsageSnapshot,
+                    isPurchasing: aiUsageStore.isPurchasing,
+                    errorMessage: aiUsageStore.lastErrorMessage,
+                    onPurchase: {
+                        Task {
+                            let purchased = await aiUsageStore.purchaseTopUp()
+                            if purchased {
+                                importViewModel.paywallUsage = nil
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+                                    showPaywall = false
+                                }
+                                if selectedFileURL != nil {
+                                    startScan()
+                                }
+                            }
+                        }
+                    },
+                    onDismiss: {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+                            showPaywall = false
+                        }
+                    }
+                )
+                .transition(.scale(scale: 0.94).combined(with: .opacity))
+                .zIndex(20)
+            }
         }
         .animation(.easeInOut(duration: 0.3), value: importViewModel.isProcessing)
         .animation(.easeInOut(duration: 0.3), value: importViewModel.errorState?.id)
+        .animation(.spring(response: 0.28, dampingFraction: 0.84), value: showPaywall)
         .fileImporter(
             isPresented: $isShowingFilePicker,
             allowedContentTypes: [.pdf],
@@ -80,15 +116,29 @@ struct AISyllabusScanModal: View {
         ) { result in
             handleFileImport(result)
         }
-        .onChange(of: importViewModel.isProcessing) { isProcessing in
+        .onChange(of: importViewModel.isProcessing) { _, isProcessing in
             // When processing completes successfully, navigate to review or preview
             if !isProcessing && importViewModel.progress >= 1.0 {
+                Task { await aiUsageStore.refresh() }
                 dismiss()
                 if importViewModel.needsReview {
                     navigationManager.showParseReview = true
                 } else {
                     navigationManager.switchTab(to: .preview)
                 }
+            }
+        }
+        .onChange(of: importViewModel.paywallUsage?.totalRemaining) { _, _ in
+            if importViewModel.paywallUsage != nil {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+                    showPaywall = true
+                }
+            }
+        }
+        .task {
+            await aiUsageStore.refresh(force: false)
+            if aiUsageStore.snapshot?.canScan == false {
+                showPaywall = true
             }
         }
     }
@@ -108,6 +158,9 @@ struct AISyllabusScanModal: View {
                 .fontWeight(.bold)
                 .foregroundColor(AppColors.accent)
                 .padding(.bottom, 6)
+
+            AIScanUsagePill(snapshot: activeUsageSnapshot)
+                .padding(.bottom, 16)
             
             // Description
             Text("Upload your syllabus PDF to extract dates and events")
@@ -120,13 +173,13 @@ struct AISyllabusScanModal: View {
             // Upload button
             Button {
                 HapticFeedbackManager.shared.mediumImpact()
-                isShowingFilePicker = true
+                beginUploadFlow()
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "doc.fill")
                         .font(.lexend(size: 18, weight: .medium))
                     
-                    Text("Upload Syllabus PDF")
+                    Text(aiUsageStore.canStartScan ? "Upload Syllabus PDF" : "Unlock AI Scan")
                         .font(.body)
                         .fontWeight(.semibold)
                 }
@@ -146,12 +199,21 @@ struct AISyllabusScanModal: View {
             .padding(.bottom, 12)
             
             // Secondary description
-            Text("AI will identify deadlines, exams, and assignments")
+            Text("AI will identify deadlines, exams, assignments, and grading breakdowns")
                 .font(.caption)
                 .foregroundColor(AppColors.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
-                .padding(.bottom, 24)
+                .padding(.bottom, 18)
+
+            if let snapshot = activeUsageSnapshot, snapshot.totalRemaining == 0 {
+                Text("First 2 scans are free. Top up for 5 more whenever you need them.")
+                    .font(.lexend(size: 12, weight: .medium))
+                    .foregroundColor(AppColors.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 18)
+            }
             
             // Bottom buttons
             HStack(spacing: 16) {
@@ -177,10 +239,10 @@ struct AISyllabusScanModal: View {
                     if selectedFileURL != nil {
                         startScan()
                     } else {
-                        isShowingFilePicker = true
+                        beginUploadFlow()
                     }
                 } label: {
-                    Text("Scan")
+                    Text(aiUsageStore.canStartScan ? "Scan" : "Unlock")
                         .font(.body)
                         .fontWeight(.semibold)
                         .foregroundColor(AppColors.background)
@@ -211,11 +273,17 @@ struct AISyllabusScanModal: View {
     
     private func startScan() {
         guard let url = selectedFileURL else { return }
+        guard aiUsageStore.canStartScan else {
+            importViewModel.paywallUsage = activeUsageSnapshot
+            showPaywall = true
+            return
+        }
         
         currentImportTask?.cancel()
         currentImportTask = Task {
             let success = await importViewModel.importSyllabus(from: url)
             if success && !Task.isCancelled {
+                await aiUsageStore.refresh()
                 await MainActor.run {
                     dismiss()
                     if importViewModel.needsReview {
@@ -227,6 +295,19 @@ struct AISyllabusScanModal: View {
             }
             await MainActor.run { currentImportTask = nil }
         }
+    }
+
+    private func beginUploadFlow() {
+        guard aiUsageStore.canStartScan else {
+            importViewModel.paywallUsage = activeUsageSnapshot
+            showPaywall = true
+            return
+        }
+        isShowingFilePicker = true
+    }
+
+    private var activeUsageSnapshot: AIScanUsageSnapshot? {
+        importViewModel.paywallUsage ?? aiUsageStore.snapshot
     }
 }
 
@@ -576,6 +657,14 @@ struct RoundedCorner: Shape {
             Spacer()
             AISyllabusScanModal()
                 .environmentObject(AppNavigationManager())
+                .environmentObject(AIScanUsageStore(apiClient: UnavailableAPIClient()))
+                .environmentObject(ImportViewModel(
+                    extractor: PDFKitExtractor(),
+                    parser: SyllabusParserRemote(apiClient: UnavailableAPIClient()),
+                    eventStore: EventStore(),
+                    courseRepository: CourseRepository(),
+                    gradingRepository: GradingRepository()
+                ))
         }
     }
 }

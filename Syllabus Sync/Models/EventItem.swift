@@ -167,6 +167,7 @@ struct ParseResult: Decodable {
     let source: ParseDiagnostics.Source
     let confidence: Double
     let preprocessedText: String?
+    let usage: AIScanUsageSnapshot?
     let gradingScheme: [GradingSchemeEntry]?
     let diagnostics: DiagnosticsPayload?
 

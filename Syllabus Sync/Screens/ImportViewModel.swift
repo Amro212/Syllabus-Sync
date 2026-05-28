@@ -28,6 +28,7 @@ final class ImportViewModel: ObservableObject {
     @Published var isCourseCodeMissing: Bool = false
     /// Grading scheme entries from the most recent successful parse.
     @Published var gradingScheme: [GradingSchemeEntry] = []
+    @Published var paywallUsage: AIScanUsageSnapshot? = nil
 
     private let extractor: PDFTextExtractor
     private let parser: SyllabusParser
@@ -98,7 +99,7 @@ final class ImportViewModel: ObservableObject {
             preprocessedParserInputText = nil
             let crawl2 = startProgressCrawl(toward: 0.92, message: "Analyzing content...")
             if shouldCancelEarly() { crawl2.cancel(); return false }
-            let events = try await parser.parse(text: tsv)
+            let events = try await parser.parse(text: tsv, requestID: currentRequestID)
             crawl2.cancel()
             if shouldCancelEarly() { return false }
 
@@ -183,7 +184,7 @@ final class ImportViewModel: ObservableObject {
 
         do {
             let crawl = startProgressCrawl(toward: 0.92, message: "Analyzing content...")
-            let events = try await parser.parse(text: tsv, courseCode: trimmed)
+            let events = try await parser.parse(text: tsv, courseCode: trimmed, requestID: currentRequestID)
             crawl.cancel()
             if shouldCancelEarly() { return false }
 
@@ -246,6 +247,7 @@ final class ImportViewModel: ObservableObject {
         progressTask = nil
         needsReview = false
         parsedEventsForReview = []
+        paywallUsage = nil
     }
 
     private func updateProgress(to value: Double, message: String) {
@@ -319,6 +321,21 @@ final class ImportViewModel: ObservableObject {
     }
 
     private func handleImportError(_ error: Error) {
+        if let parserError = error as? SyllabusParserError, case .paymentRequired(let usage) = parserError {
+            paywallUsage = usage
+            errorState = nil
+            withAnimation(.easeInOut(duration: 0.3)) {
+                isProcessing = false
+                progress = 0
+                statusMessage = "AI scans needed"
+            }
+            progressTask?.cancel()
+            progressTask = nil
+            currentRequestID = nil
+            HapticFeedbackManager.shared.warning()
+            return
+        }
+
         let requestID = currentRequestID ?? UUID().uuidString
         let resolved = resolveError(from: error)
 
@@ -423,6 +440,8 @@ final class ImportViewModel: ObservableObject {
             case .courseCodeMissing:
                 isCourseCodeMissing = true
                 return (parserError.errorDescription ?? "We couldn't find a course code in this syllabus.", .validation)
+            case .paymentRequired:
+                return (parserError.errorDescription ?? "You have used all available AI scans.", .server)
             }
         }
 
@@ -436,7 +455,7 @@ final class ImportViewModel: ObservableObject {
                 return ("The parser took too long to respond. Please try again.", .network)
             case .decoding:
                 return ("We received an unexpected response from the parser service.", .invalidResponse)
-            case .server(_, let message, _):
+            case .server(_, let message, _, _):
                 return (message ?? "The parser service returned an error.", .server)
             }
         }

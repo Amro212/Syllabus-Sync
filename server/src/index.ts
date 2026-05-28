@@ -15,6 +15,17 @@ import { detectCourseCode } from './utils/courseCode';
 import { callOpenAIParse } from './clients/openai';
 import { splitMultiDayRecurrence } from './utils/splitMultiDayRecurrence';
 import { extractGradingScheme } from './utils/extractGradingScheme';
+import {
+	aiPackCredits,
+	aiProductID,
+	creditPurchase,
+	findPurchaseEventByTransactionID,
+	finalizeParseCredit,
+	getAIUsageBalance,
+	refundParseCredit,
+	reserveParseCredit,
+} from './aiUsage';
+import { verifyAppStorePurchase } from './appStore';
 
 type SocialUserProfileRow = {
 	id: string;
@@ -454,8 +465,142 @@ export default {
 				return res;
 			}
 
+			if (path === '/ai-usage' && request.method === 'GET') {
+				if (!isOriginAllowed(originHeader)) {
+					const status = 403;
+					logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Forbidden: origin not allowed' }, { status });
+				}
+
+				const auth = await authenticateRequest(env, request);
+				if (!auth.ok) {
+					const status = auth.status;
+					logRequest(env, status >= 500 ? 'error' : 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: auth.error }, { status });
+				}
+
+				const usage = await getAIUsageBalance(env, auth.user.id);
+				logRequest(env, 'info', {
+					ts: nowIso(),
+					requestId,
+					route: path,
+					method,
+					status: 200,
+					durationMs: Date.now() - startedAt,
+				});
+				return json({ usage });
+			}
+
+			if (path === '/iap/credit' && request.method === 'POST') {
+				if (!isOriginAllowed(originHeader)) {
+					const status = 403;
+					logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Forbidden: origin not allowed' }, { status });
+				}
+
+				const auth = await authenticateRequest(env, request);
+				if (!auth.ok) {
+					const status = auth.status;
+					logRequest(env, status >= 500 ? 'error' : 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: auth.error }, { status });
+				}
+
+				const contentType = request.headers.get('content-type') || '';
+				if (!contentType.toLowerCase().startsWith('application/json')) {
+					const status = 415;
+					logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Unsupported Media Type: application/json required' }, { status });
+				}
+
+				let body: any;
+				try {
+					body = await request.json();
+				} catch {
+					const status = 400;
+					logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Bad Request: invalid JSON' }, { status });
+				}
+
+				const transactionID = typeof body?.transactionId === 'string' ? body.transactionId.trim() : '';
+				if (!transactionID) {
+					const status = 400;
+					logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'transactionId is required.' }, { status });
+				}
+
+				const expectedProductID = aiProductID(env);
+				const requestedProductID = typeof body?.productId === 'string' ? body.productId.trim() : expectedProductID;
+				if (requestedProductID !== expectedProductID) {
+					const status = 400;
+					logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Unsupported product identifier.' }, { status });
+				}
+
+				const existingPurchase = await findPurchaseEventByTransactionID(env, transactionID);
+				if (existingPurchase && existingPurchase.user_id !== auth.user.id) {
+					const status = 409;
+					logRequest(env, 'warn', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'This purchase is already linked to another account.' }, { status });
+				}
+
+				if (existingPurchase) {
+					const usage = await getAIUsageBalance(env, auth.user.id);
+					logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status: 200, durationMs: Date.now() - startedAt });
+					return json({ usage, credited: false, duplicate: true });
+				}
+
+				const verifiedPurchase = await verifyAppStorePurchase(env, {
+					transactionID,
+					environment: typeof body?.environment === 'string' ? body.environment : null,
+					signedTransactionInfo: typeof body?.signedTransactionInfo === 'string' ? body.signedTransactionInfo : null,
+				});
+				const expectedBundleID = ((env as any).APPLE_BUNDLE_ID as string | undefined)?.trim() || 'SylSyn.Syllabus-Sync';
+
+				if (verifiedPurchase.bundleID !== expectedBundleID) {
+					const status = 400;
+					logRequest(env, 'warn', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Purchase bundle identifier does not match this app.' }, { status });
+				}
+
+				if (verifiedPurchase.productID !== expectedProductID) {
+					const status = 400;
+					logRequest(env, 'warn', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Purchase product identifier does not match AI scan top-up.' }, { status });
+				}
+
+				if (verifiedPurchase.revocationDate) {
+					const status = 409;
+					logRequest(env, 'warn', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'This purchase has been refunded or revoked.' }, { status });
+				}
+
+				const usage = await creditPurchase(env, auth.user.id, {
+					transactionID: verifiedPurchase.transactionID,
+					originalTransactionID: verifiedPurchase.originalTransactionID,
+					appTransactionID: verifiedPurchase.appTransactionID,
+					productID: verifiedPurchase.productID,
+					environment: verifiedPurchase.environment,
+					credits: aiPackCredits(env),
+					metadata: {
+						signedDate: verifiedPurchase.signedDate,
+					},
+				});
+
+				logRequest(env, 'info', {
+					ts: nowIso(),
+					requestId,
+					route: path,
+					method,
+					status: 200,
+					durationMs: Date.now() - startedAt,
+				});
+				return json({ usage, credited: true, duplicate: false });
+			}
+
 			// Parse endpoint — Milestone 4.2: CORS + content validation + 4.3 rate limiting
 			if (path === '/parse' && request.method === 'POST') {
+				let reservedUsageEventID: string | null = null;
+				let shouldRefundReservation = false;
 				try {
 					const parseStarted = Date.now();
 					// Enforce CORS allow-list
@@ -648,6 +793,31 @@ export default {
 						strict: false
 					};
 
+					const usageReservation = await reserveParseCredit(
+						env,
+						auth.user.id,
+						request.headers.get('x-idempotency-key'),
+					);
+					reservedUsageEventID = usageReservation.eventID;
+					shouldRefundReservation = Boolean(usageReservation.eventID && !usageReservation.reused);
+					if (!usageReservation.canScan || !usageReservation.eventID) {
+						const status = 402;
+						logRequest(env, 'info', {
+							ts: nowIso(),
+							requestId,
+							route: path,
+							method,
+							status,
+							durationMs: Date.now() - startedAt,
+							openaiDenied: 'no_scan_credits',
+						});
+						return json({
+							error: 'No AI scan credits remaining.',
+							code: 'PAYMENT_REQUIRED',
+							usage: usageReservation.usage,
+						}, { status });
+					}
+
 					resetOpenAIUsageIfNewDay();
 					const ip = getClientIp(request);
 					const perIpLimit = Number.parseInt((env as any).RATE_LIMIT_OPENAI || '10', 10) || 10;
@@ -659,6 +829,9 @@ export default {
 					const openAiLimiter = await consumeDurableLimit(env, `openai:user:${auth.user.id}`, perIpLimit, openAiWindowSec);
 
 					if (openAiLimiter ? !openAiLimiter.allowed : usedByIp >= perIpLimit) {
+						if (shouldRefundReservation) {
+							await refundParseCredit(env, usageReservation.eventID);
+						}
 						const status = 429;
 						logRequest(env, 'info', {
 							ts: nowIso(), requestId, route: path, method, status,
@@ -680,6 +853,9 @@ export default {
 						: null;
 
 					if (budgetLimiter ? !budgetLimiter.allowed : dailyBudget > 0 && (openaiUsage.totalCost + costPerCall) > dailyBudget) {
+						if (shouldRefundReservation) {
+							await refundParseCredit(env, usageReservation.eventID);
+						}
 						const status = 429;
 						logRequest(env, 'info', {
 							ts: nowIso(), requestId, route: path, method, status,
@@ -711,6 +887,9 @@ export default {
 					try {
 						aiItems = (await callOpenAIParse(env, promptReq, { requestId, route: path, method })) as unknown[];
 					} catch (e) {
+						if (shouldRefundReservation) {
+							await refundParseCredit(env, usageReservation.eventID);
+						}
 						logError(env, {
 							ts: nowIso(),
 							requestId,
@@ -763,6 +942,9 @@ export default {
 					}
 
 					if (coveredEvents.length === 0) {
+						if (shouldRefundReservation) {
+							await refundParseCredit(env, usageReservation.eventID);
+						}
 						const status = 422;
 						logRequest(env, 'info', {
 							ts: nowIso(), requestId, route: path, method, status,
@@ -785,11 +967,15 @@ export default {
 						? coveredEvents.reduce((sum, e) => sum + (e.confidence ?? 0), 0) / coveredEvents.length
 						: 0;
 
+					await finalizeParseCredit(env, usageReservation.eventID);
+					shouldRefundReservation = false;
+
 					const response = {
 						events: splitEvents,
 						source: 'openai' as const,
 						confidence: Number.isFinite(avgConfidence) ? Number(avgConfidence.toFixed(3)) : 0,
 						preprocessedText: processedText,
+						usage: usageReservation.usage,
 						gradingScheme: gradingScheme?.deliverables?.map(d => ({
 							name: d.name,
 							weight: d.weight,
@@ -821,6 +1007,9 @@ export default {
 					return res;
 
 				} catch (parseError) {
+					if (shouldRefundReservation && reservedUsageEventID) {
+						await refundParseCredit(env, reservedUsageEventID);
+					}
 					const status = 500;
 					logError(env, {
 						ts: nowIso(),

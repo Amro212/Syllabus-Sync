@@ -127,6 +127,7 @@ struct AppRoot: View {
     @StateObject private var themeManager = ThemeManager()
     @StateObject private var eventStore: EventStore
     @StateObject private var importViewModel: ImportViewModel
+    @StateObject private var aiUsageStore: AIScanUsageStore
     @StateObject private var courseRepository: CourseRepository
     @StateObject private var gradingRepository: GradingRepository
     @StateObject private var notificationCoordinator = AppNotificationCoordinator.shared
@@ -135,10 +136,12 @@ struct AppRoot: View {
         let store = EventStore()
         let gradingRepo = GradingRepository()
         let courseRepo = CourseRepository()
-        let parser = SyllabusParserRemote(apiClient: AppConfiguration.makeAPIClient(requestTimeout: 90, maxRetryCount: 2))
+        let apiClient = AppConfiguration.makeAPIClient(requestTimeout: 90, maxRetryCount: 2)
+        let parser = SyllabusParserRemote(apiClient: apiClient)
         _eventStore = StateObject(wrappedValue: store)
         _gradingRepository = StateObject(wrappedValue: gradingRepo)
         _courseRepository = StateObject(wrappedValue: courseRepo)
+        _aiUsageStore = StateObject(wrappedValue: AIScanUsageStore(apiClient: apiClient))
         _importViewModel = StateObject(wrappedValue: ImportViewModel(
             extractor: PDFKitExtractor(),
             parser: parser,
@@ -159,6 +162,7 @@ struct AppRoot: View {
         .environmentObject(themeManager)
         .environmentObject(eventStore)
         .environmentObject(importViewModel)
+        .environmentObject(aiUsageStore)
         .environmentObject(courseRepository)
         .environmentObject(gradingRepository)
         .environmentObject(notificationCoordinator)
@@ -194,7 +198,8 @@ struct AppRoot: View {
         async let eventsLoad: Void = eventStore.fetchEvents()
         async let coursesLoad: Void = courseRepository.refresh()
         async let gradingLoad: Void = gradingRepository.fetchAll()
-        _ = await (eventsLoad, coursesLoad, gradingLoad)
+        async let usageLoad: Void = aiUsageStore.refresh()
+        _ = await (eventsLoad, coursesLoad, gradingLoad, usageLoad)
         await notificationCoordinator.reconcile(events: eventStore.events)
     }
     
@@ -262,6 +267,7 @@ struct TabNavigationView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
     @EnvironmentObject var eventStore: EventStore
     @EnvironmentObject var importViewModel: ImportViewModel
+    @EnvironmentObject var aiUsageStore: AIScanUsageStore
     
     /// Custom function to handle back navigation in tab context
     private func handleBackNavigation() {
@@ -326,6 +332,7 @@ struct TabNavigationView: View {
                         icon: "calendar.badge.plus",
                         label: "Add Reminder",
                         emphasized: true,
+                        badgeText: nil,
                         isVisible: showFabActions,
                         rowDelay: 0.0,
                         action: {
@@ -344,8 +351,9 @@ struct TabNavigationView: View {
                     // AI Syllabus Scan option
                     FABOption(
                         icon: "sparkles",
-                        label: "AI Syllabus Scan",
+                        label: aiScanLabel,
                         emphasized: false,
+                        badgeText: aiScanBadge,
                         isVisible: showFabActions,
                         rowDelay: 0.03,
                         action: {
@@ -387,9 +395,12 @@ struct TabNavigationView: View {
             .zIndex(12) // Topmost to ensure button clicks work
         }
         .ignoresSafeArea(.keyboard) 
+        .task {
+            await aiUsageStore.refresh(force: false)
+        }
         .sheet(isPresented: $showingImportSheet) {
             AISyllabusScanModal()
-                .presentationDetents([.height(300)])
+                .presentationDetents([.height(430)])
                 .presentationDragIndicator(.hidden)
                 .presentationCornerRadius(20)
         }
@@ -409,7 +420,7 @@ struct TabNavigationView: View {
                 editingEvent = nil
             }
         }
-        .onChange(of: navigationManager.selectedTabRoute) { _ in
+        .onChange(of: navigationManager.selectedTabRoute) { _, _ in
             HapticFeedbackManager.shared.selection()
             // Close FAB if tab changes
             fabExpanded = false
@@ -443,6 +454,18 @@ struct TabNavigationView: View {
         isCreatingNewEvent = true
         editingEvent = newEvent
     }
+
+    private var aiScanLabel: String {
+        aiUsageStore.canStartScan ? "AI Syllabus Scan" : "Unlock AI Syllabus Scan"
+    }
+
+    private var aiScanBadge: String? {
+        guard let snapshot = aiUsageStore.snapshot else { return nil }
+        if snapshot.totalRemaining > 0 {
+            return snapshot.totalRemaining == 1 ? "1 left" : "\(snapshot.totalRemaining) left"
+        }
+        return "Buy 5"
+    }
 }
 
 // Reusable FAB Option Component
@@ -450,6 +473,7 @@ private struct FABOption: View {
     let icon: String
     let label: String
     let emphasized: Bool
+    let badgeText: String?
     let isVisible: Bool
     let rowDelay: Double
     let action: () -> Void
@@ -478,6 +502,18 @@ private struct FABOption: View {
                     .foregroundColor(AppColors.textPrimary)
                     .lineLimit(1)
                     .fixedSize()
+
+                if let badgeText {
+                    Text(badgeText)
+                        .font(.lexend(size: 11, weight: .bold))
+                        .foregroundColor(badgeText == "Buy 5" ? AppColors.background : AppColors.textPrimary)
+                        .padding(.horizontal, Layout.Spacing.sm)
+                        .frame(height: 22)
+                        .background(
+                            Capsule()
+                                .fill(badgeText == "Buy 5" ? AppColors.accent : AppColors.surfaceSecondary)
+                        )
+                }
             }
             .padding(.horizontal, Layout.Spacing.sm + 2)
             .padding(.vertical, 9)

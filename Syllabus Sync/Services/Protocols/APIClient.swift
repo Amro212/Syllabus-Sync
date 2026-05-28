@@ -39,7 +39,7 @@ enum APIClientError: LocalizedError {
     case requestFailed(underlying: Error)
     case timeout
     case decoding
-    case server(status: Int, message: String?, retryAfter: Int?)
+    case server(status: Int, message: String?, retryAfter: Int?, rawBody: String?)
 
     var errorDescription: String? {
         switch self {
@@ -51,7 +51,7 @@ enum APIClientError: LocalizedError {
             return "The request timed out."
         case .decoding:
             return "Received an unexpected response from the server."
-        case .server(let status, let message, _):
+        case .server(let status, let message, _, _):
             if let message, !message.isEmpty {
                 return message
             }

@@ -1,8 +1,6 @@
 # Syllabus Sync Server
 
-[![CI](https://github.com/USERNAME/syllabus-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/syllabus-sync/actions/workflows/ci.yml)
-
-> **Note**: Replace `USERNAME` with your actual GitHub username.
+[![CI](https://github.com/Amro212/syllabus-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/Amro212/syllabus-sync/actions/workflows/ci.yml)
 
 Cloudflare Workers API for Syllabus Sync - handles PDF parsing, event extraction, and provides secure access to OpenAI services.
 
@@ -201,5 +199,3 @@ GitHub Actions automatically:
 ## 🔗 Related
 
 - [Main Project README](../README.md)
-- [Architecture Overview](../architecture.md)  
-- [Development Tasks](../tasks.md)

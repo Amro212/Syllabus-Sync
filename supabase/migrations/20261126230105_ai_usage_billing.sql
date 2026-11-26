@@ -48,7 +48,7 @@ returns table (
 )
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   allowance constant integer := 2;
@@ -86,7 +86,7 @@ returns table (
 )
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   allowance constant integer := 2;
@@ -95,6 +95,16 @@ declare
   inserted_event public.ai_usage_events%rowtype;
   remaining_free integer;
 begin
+  insert into public.ai_usage_accounts (user_id)
+  values (target_user_id)
+  on conflict (user_id) do nothing;
+
+  select *
+  into account_row
+  from public.ai_usage_accounts
+  where user_id = target_user_id
+  for update;
+
   if target_request_key is not null then
     select *
     into existing_event
@@ -105,11 +115,6 @@ begin
     limit 1;
 
     if found and existing_event.status in ('reserved', 'consumed') then
-      select *
-      into account_row
-      from public.ai_usage_accounts
-      where user_id = target_user_id;
-
       remaining_free := greatest(0, allowance - coalesce(account_row.free_used_count, 0));
 
       return query
@@ -124,22 +129,16 @@ begin
         remaining_free + coalesce(account_row.paid_remaining, 0),
         (remaining_free + coalesce(account_row.paid_remaining, 0)) > 0;
       return;
+    elsif found and existing_event.status = 'refunded' then
+      update public.ai_usage_events
+      set request_key = null
+      where id = existing_event.id;
     end if;
   end if;
 
-  insert into public.ai_usage_accounts (user_id)
-  values (target_user_id)
-  on conflict (user_id) do nothing;
-
-  select *
-  into account_row
-  from public.ai_usage_accounts
-  where user_id = target_user_id
-  for update;
-
   if account_row.free_used_count < allowance then
     update public.ai_usage_accounts
-    set free_used_count = free_used_count + 1,
+    set free_used_count = ai_usage_accounts.free_used_count + 1,
         updated_at = now()
     where user_id = target_user_id
     returning * into account_row;
@@ -165,7 +164,7 @@ begin
     returning * into inserted_event;
   elsif account_row.paid_remaining > 0 then
     update public.ai_usage_accounts
-    set paid_remaining = paid_remaining - 1,
+    set paid_remaining = ai_usage_accounts.paid_remaining - 1,
         updated_at = now()
     where user_id = target_user_id
     returning * into account_row;
@@ -226,7 +225,7 @@ create or replace function public.finalize_ai_parse_credit(target_event_id uuid)
 returns void
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 begin
   update public.ai_usage_events
@@ -241,7 +240,7 @@ create or replace function public.refund_ai_parse_credit(target_event_id uuid)
 returns void
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   usage_event public.ai_usage_events%rowtype;
@@ -295,7 +294,7 @@ returns table (
 )
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   allowance constant integer := 2;
@@ -307,7 +306,7 @@ begin
   on conflict (user_id) do nothing;
 
   update public.ai_usage_accounts
-  set paid_remaining = paid_remaining + greatest(1, purchased_units),
+  set paid_remaining = ai_usage_accounts.paid_remaining + greatest(1, purchased_units),
       updated_at = now()
   where user_id = target_user_id
   returning * into account_row;
@@ -354,33 +353,15 @@ begin
 end;
 $$;
 
-grant execute on function public.get_ai_usage_balance(uuid) to authenticated;
-grant execute on function public.reserve_ai_parse_credit(uuid, text) to authenticated;
-grant execute on function public.finalize_ai_parse_credit(uuid) to authenticated;
-grant execute on function public.refund_ai_parse_credit(uuid) to authenticated;
-grant execute on function public.credit_ai_purchase(uuid, text, text, text, text, text, integer, jsonb) to authenticated;
+-- Billing is reachable via the authenticated Worker. Clients have no direct ledger access.
+revoke all on public.ai_usage_accounts, public.ai_usage_events from public, anon, authenticated;
+grant select on public.ai_usage_events to service_role;
 
-drop policy if exists ai_usage_accounts_select_self on public.ai_usage_accounts;
-create policy ai_usage_accounts_select_self
-on public.ai_usage_accounts for select
-to authenticated
-using (user_id = auth.uid());
-
-drop policy if exists ai_usage_accounts_insert_self on public.ai_usage_accounts;
-create policy ai_usage_accounts_insert_self
-on public.ai_usage_accounts for insert
-to authenticated
-with check (user_id = auth.uid());
-
-drop policy if exists ai_usage_accounts_update_self on public.ai_usage_accounts;
-create policy ai_usage_accounts_update_self
-on public.ai_usage_accounts for update
-to authenticated
-using (user_id = auth.uid())
-with check (user_id = auth.uid());
-
-drop policy if exists ai_usage_events_select_self on public.ai_usage_events;
-create policy ai_usage_events_select_self
-on public.ai_usage_events for select
-to authenticated
-using (user_id = auth.uid());
+revoke execute on function public.get_ai_usage_balance(uuid),
+  public.reserve_ai_parse_credit(uuid, text), public.finalize_ai_parse_credit(uuid),
+  public.refund_ai_parse_credit(uuid), public.credit_ai_purchase(uuid, text, text, text, text, text, integer, jsonb)
+  from public, anon, authenticated;
+grant execute on function public.get_ai_usage_balance(uuid),
+  public.reserve_ai_parse_credit(uuid, text), public.finalize_ai_parse_credit(uuid),
+  public.refund_ai_parse_credit(uuid), public.credit_ai_purchase(uuid, text, text, text, text, text, integer, jsonb)
+  to service_role;

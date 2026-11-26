@@ -83,18 +83,6 @@ struct Friendship: Identifiable, Codable, Equatable {
     }
 }
 
-struct FriendshipInsert: Codable {
-    let id: String
-    let userAId: String
-    let userBId: String
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case userAId  = "user_a_id"
-        case userBId  = "user_b_id"
-    }
-}
-
 // MARK: - View-level display models
 
 /// A pending request enriched with the sender's profile info

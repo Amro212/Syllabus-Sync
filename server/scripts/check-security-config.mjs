@@ -49,7 +49,7 @@ for (const marker of [
   }
 }
 
-const migration = read('supabase/migrations/202605250001_security_rls.sql');
+const migration = read('supabase/migrations/20261126230041_security_rls.sql');
 const rlsTables = [
   'users',
   'courses',
@@ -87,7 +87,6 @@ const requiredPolicies = [
   'friend_requests_insert_self',
   'friend_requests_update_participant',
   'friends_select_participant',
-  'friends_insert_participant',
   'friends_delete_participant',
   'blocked_users_select_self',
   'blocked_users_insert_self',
@@ -104,7 +103,7 @@ for (const policy of requiredPolicies) {
 for (const marker of [
   'check_social_action_rate_limit',
   'friend_requests_rate_limit',
-  'friends_rate_limit',
+  'friend_request_create_friendship',
   'blocked_users_rate_limit',
 ]) {
   if (!migration.includes(marker)) {
@@ -122,7 +121,7 @@ for (const marker of [
   'RLS is not enabled',
   'No RLS policies found',
   'friend_requests rate-limit trigger missing',
-  'friends rate-limit trigger missing',
+  'friendship creation trigger missing',
   'blocked_users rate-limit trigger missing',
 ]) {
   if (!rlsTest.includes(marker)) {

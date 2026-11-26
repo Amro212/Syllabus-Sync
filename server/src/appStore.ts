@@ -130,7 +130,7 @@ async function signES256(privateKeyPem: string, signingInput: string): Promise<s
 	const keyData = base64urlToBytes(pemBody.replace(/\+/g, '-').replace(/\//g, '_'));
 	const cryptoKey = await crypto.subtle.importKey(
 		'pkcs8',
-		keyData.buffer.slice(keyData.byteOffset, keyData.byteOffset + keyData.byteLength),
+		keyData,
 		{
 			name: 'ECDSA',
 			namedCurve: 'P-256',
@@ -193,7 +193,7 @@ function base64urlBytes(bytes: Uint8Array): string {
 		.replace(/=+$/g, '');
 }
 
-function base64urlToBytes(value: string): Uint8Array {
+function base64urlToBytes(value: string) {
 	const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
 	const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
 	const decoded = atob(padded);

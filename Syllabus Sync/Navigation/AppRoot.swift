@@ -5,6 +5,7 @@
 //  Created by Amro Zabin on 2025-09-06.
 //
 
+import AuthenticationServices
 import Foundation
 import SwiftUI
 
@@ -172,6 +173,19 @@ struct AppRoot: View {
             notificationCoordinator.configure()
             AppLog.debug("AppRoot appeared, currentRoute: \(navigationManager.currentRoute)")
         }
+        .onReceive(NotificationCenter.default.publisher(for: .syllabusAccountDeleted)) { _ in
+            clearAccountCaches()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ASAuthorizationAppleIDProvider.credentialRevokedNotification)) { _ in
+            guard let user = SupabaseAuthService.shared.currentUser, user.provider == .apple else { return }
+            Task {
+                await SupabaseAuthService.shared.signOutAfterAppleRevocation()
+                eventStore.clearEvents()
+                clearAccountCaches()
+                await notificationCoordinator.clearForSignOut(userId: user.id)
+                navigationManager.setRoot(to: .auth)
+            }
+        }
         .task(id: navigationManager.currentRoute) {
             await loadAuthenticatedDataIfNeeded()
         }
@@ -190,6 +204,12 @@ struct AppRoot: View {
                 await notificationCoordinator.reconcile(events: events)
             }
         }
+    }
+
+    private func clearAccountCaches() {
+        importViewModel.clearResults()
+        courseRepository.clearCache()
+        gradingRepository.clearCache()
     }
 
     private func refreshAIUsageOnActivation() async {

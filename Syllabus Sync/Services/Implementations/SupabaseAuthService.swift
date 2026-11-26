@@ -365,6 +365,33 @@ class SupabaseAuthService: NSObject, AuthService {
         self.currentUser = nil
     }
     
+    @MainActor
+    func deleteAccount() async throws {
+        struct DeletionResponse: Decodable {
+            let deleted: Bool
+        }
+
+        let token = try await supabase.auth.session.accessToken
+        let request = APIRequest(path: "/account", method: .delete, headers: ["Authorization": "Bearer \(token)"])
+        let client = AppConfiguration.makeAPIClient(requestTimeout: 30, maxRetryCount: 0)
+        let result = try await client.send(request, as: DeletionResponse.self)
+        guard result.deleted else { throw APIClientError.decoding }
+
+        await clearLocalSession()
+        NotificationCenter.default.post(name: .syllabusAccountDeleted, object: nil)
+    }
+
+    @MainActor
+    func signOutAfterAppleRevocation() async {
+        await clearLocalSession()
+    }
+
+    @MainActor
+    private func clearLocalSession() async {
+        try? await supabase.auth.signOut(scope: .local)
+        currentUser = nil
+    }
+
     // MARK: - Password Reset
     
     func resetPassword(email: String) async throws {
@@ -395,4 +422,8 @@ class SupabaseAuthService: NSObject, AuthService {
             provider: provider ?? .email
         )
     }
+}
+
+extension Notification.Name {
+    static let syllabusAccountDeleted = Notification.Name("syllabusAccountDeleted")
 }

@@ -10,6 +10,7 @@ struct APIRequest {
     enum Method: String {
         case get = "GET"
         case post = "POST"
+        case delete = "DELETE"
     }
 
     let path: String

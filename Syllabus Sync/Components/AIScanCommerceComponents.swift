@@ -86,7 +86,11 @@ struct AIScanCommerceCard: View {
                 .font(.headline)
                 .foregroundStyle(AppColors.textPrimary)
 
-            if let price = usageStore.displayPrice {
+            if usageStore.snapshot?.purchasesAvailable == false {
+                Text("Purchases are temporarily unavailable")
+                    .font(.footnote)
+                    .foregroundStyle(AppColors.textSecondary)
+            } else if let price = usageStore.displayPrice {
                 Text(price)
                     .font(.title2.bold())
                     .foregroundStyle(AppColors.accent)

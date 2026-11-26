@@ -54,7 +54,7 @@ final class AIScanUsageStore: ObservableObject {
     }
 
     var canPurchase: Bool {
-        displayPrice != nil && snapshot?.productId == AIScanCommerceConfig.productID
+        displayPrice != nil && snapshot?.purchasesAvailable == true && snapshot?.productId == AIScanCommerceConfig.productID
     }
 
     func loadProduct() async {

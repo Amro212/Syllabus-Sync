@@ -1,3 +1,4 @@
+import { releasePage } from './releasePages';
 /**
  * Syllabus Sync Server - Cloudflare Workers API
  * 
@@ -345,6 +346,10 @@ export default {
 		const requestId = (globalThis as any).crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
 		const startedAt = Date.now();
 
+		if (method === 'GET' && (path === '/privacy' || path === '/support')) {
+			return releasePage(path);
+		}
+
 		// Build CORS allow-list from env
 		const allowedOriginPatterns = (env.ALLOWED_ORIGINS ?? '')
 			.split(',')
@@ -375,8 +380,8 @@ export default {
 
 		const buildCorsHeaders = (origin: string | null) => {
 			const headers: Record<string, string> = {
-				'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-				'Access-Control-Allow-Headers': 'content-type, x-client-id, authorization',
+				'Access-Control-Allow-Methods': path === '/account' ? 'DELETE, OPTIONS' : 'GET, POST, OPTIONS',
+				'Access-Control-Allow-Headers': 'content-type, x-client-id, x-idempotency-key, authorization',
 				'Vary': 'Origin',
 			};
 			if (origin && isOriginAllowed(origin)) {
@@ -389,7 +394,7 @@ export default {
 
 		// Fail-fast if required secrets are missing (Task 4.5)
 		const openaiCheck = ensureOpenAIKey(env);
-		if (!openaiCheck.ok) {
+		if (path === '/parse' && !openaiCheck.ok) {
 			const status = 500;
 			logError(env, {
 				ts: nowIso(),
@@ -463,6 +468,29 @@ export default {
 					durationMs: Date.now() - startedAt,
 				});
 				return res;
+			}
+
+
+			if (path === '/account' && request.method === 'DELETE') {
+				if (!isOriginAllowed(originHeader)) {
+					return json({ error: 'Forbidden: origin not allowed' }, { status: 403 });
+				}
+				const auth = await authenticateRequest(env, request);
+				if (!auth.ok) return json({ error: auth.error }, { status: auth.status });
+
+				// Supabase cascades deletion to the app records owned by this account.
+				const response = await fetch(new URL(`/auth/v1/admin/users/${encodeURIComponent(auth.user.id)}`, env.SUPABASE_URL), {
+					method: 'DELETE',
+					headers: {
+						Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+						apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+					},
+				});
+				if (!response.ok) {
+					logRequest(env, 'error', { ts: nowIso(), requestId, route: path, method, status: 502, durationMs: Date.now() - startedAt });
+					return json({ error: 'Unable to delete your account right now. Please try again or contact support.' }, { status: 502 });
+				}
+				return json({ deleted: true });
 			}
 
 			if (path === '/ai-usage' && request.method === 'GET') {
@@ -812,6 +840,9 @@ export default {
 					);
 					reservedUsageEventID = usageReservation.eventID;
 					shouldRefundReservation = Boolean(usageReservation.eventID && !usageReservation.reused);
+					if (usageReservation.reused) {
+						return json({ error: 'This scan request has already been processed or is still running.' }, { status: 409 });
+					}
 					if (!usageReservation.canScan || !usageReservation.eventID) {
 						const status = 402;
 						logRequest(env, 'info', {
@@ -917,7 +948,7 @@ export default {
 						});
 						return new Response(JSON.stringify({
 							error: 'OpenAI parsing failed',
-							details: (e as any)?.message || 'Unknown error'
+							...(!isProduction(env) && { details: (e as any)?.message || 'Unknown error' }),
 						}), {
 							status: 502,
 							headers: { 'Content-Type': 'application/json', ...corsHeaders },
@@ -1038,7 +1069,7 @@ export default {
 					});
 					return new Response(JSON.stringify({
 						error: 'Parsing failed',
-						details: (parseError as Error).message
+						...(!isProduction(env) && { details: (parseError as Error).message }),
 					}), {
 						status,
 						headers: { 'Content-Type': 'application/json', ...corsHeaders },

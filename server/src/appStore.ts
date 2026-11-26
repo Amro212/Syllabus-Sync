@@ -36,6 +36,11 @@ export type VerifyPurchaseInput = {
 	signedTransactionInfo?: string | null;
 };
 
+export function isAppStorePurchaseConfigured(env: Env): boolean {
+	return [env.APP_STORE_ISSUER_ID, env.APP_STORE_KEY_ID, env.APP_STORE_PRIVATE_KEY, env.APPLE_BUNDLE_ID]
+		.every(value => Boolean(value?.trim()));
+}
+
 export async function verifyAppStorePurchase(
 	env: Env,
 	input: VerifyPurchaseInput,
@@ -43,8 +48,8 @@ export async function verifyAppStorePurchase(
 	const normalizedEnvironment = normalizeEnvironment(input.environment);
 
 	if (normalizedEnvironment === 'xcode') {
-		if ((env.NODE_ENV || '').toLowerCase() === 'production') {
-			throw new Error('Xcode StoreKit transactions are not allowed in production.');
+		if ((env.NODE_ENV || '').toLowerCase() !== 'development') {
+			throw new Error('Xcode StoreKit transactions are only available in development.');
 		}
 		if (!input.signedTransactionInfo) {
 			throw new Error('Missing signed transaction for Xcode StoreKit validation.');

@@ -43,6 +43,39 @@ describe('worker', () => {
 		expect(await response.text()).toMatchInlineSnapshot(`"{"error":"Not Found","path":"/"}"`);
 	});
 
+	it('serves release pages without API credentials', async () => {
+		const unconfigured = { ...env, OPENAI_API_KEY: '', SUPABASE_SERVICE_ROLE_KEY: '' };
+		for (const [path, title] of [['/privacy', 'Privacy Policy'], ['/support', 'Support']]) {
+			const response = await worker.fetch(new IncomingRequest(`https://example.com${path}`), unconfigured, createExecutionContext());
+			expect(response.status).toBe(200);
+			expect(response.headers.get('Content-Type')).toContain('text/html');
+			expect(await response.text()).toContain(`<h1>${title}</h1>`);
+		}
+	});
+
+	it('requires authentication for account deletion', async () => {
+		const response = await worker.fetch(new IncomingRequest('https://example.com/account', { method: 'DELETE' }), env, createExecutionContext());
+		expect(response.status).toBe(401);
+	});
+
+	it('deletes only the account identified by the signed-in session', async () => {
+		const removeUser = vi.fn();
+		mockFetch(async (input, init) => {
+			if (String(input).endsWith('/auth/v1/user')) return jsonResponse({ id: TEST_USER_ID });
+			removeUser(String(input), init?.method);
+			return jsonResponse({});
+		});
+		const request = new IncomingRequest('https://example.com/account', {
+			method: 'DELETE',
+			headers: { Authorization: 'Bearer valid-token', 'Content-Type': 'application/json' },
+			body: JSON.stringify({ userId: 'ignored' }),
+		});
+		const response = await worker.fetch(request, env, createExecutionContext());
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ deleted: true });
+		expect(removeUser).toHaveBeenCalledExactlyOnceWith(`https://example.supabase.co/auth/v1/admin/users/${TEST_USER_ID}`, 'DELETE');
+	});
+
 	it('returns ai usage balance for authenticated user', async () => {
 		mockFetch(createHandler({
 			getAIUsageBalance: {
@@ -76,6 +109,7 @@ describe('worker', () => {
 			totalRemaining: 4,
 			productId: TEST_PRODUCT_ID,
 			packCredits: 5,
+			purchasesAvailable: true,
 		});
 	});
 

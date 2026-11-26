@@ -43,6 +43,9 @@ final class ProfileViewModel: ObservableObject {
     @Published var showDeleteCloudDataAlert: Bool = false
     @Published var showResetAppDataAlert: Bool = false
     @Published var showSignOutAlert: Bool = false
+    @Published var showDeleteAccountAlert = false
+    @Published private(set) var isDeletingAccount = false
+    @Published var accountDeletionError: String?
 
     // MARK: - Editing State
 
@@ -338,6 +341,25 @@ final class ProfileViewModel: ObservableObject {
             await MainActor.run {
                 showToastMessage("Failed to sign out: \(error.localizedDescription)")
             }
+        }
+    }
+
+    func deleteAccount() async {
+        guard !isDeletingAccount else { return }
+        isDeletingAccount = true
+        defer { isDeletingAccount = false }
+
+        let deletedUserID = currentUser?.id
+        do {
+            try await authService.deleteAccount()
+            eventStore?.clearEvents()
+            if let bundleID = Bundle.main.bundleIdentifier {
+                UserDefaults.standard.removePersistentDomain(forName: bundleID)
+            }
+            await AppNotificationCoordinator.shared.clearForSignOut(userId: deletedUserID)
+            navigationManager?.setRoot(to: .auth)
+        } catch {
+            accountDeletionError = "The app couldn’t confirm deletion. Try again or contact syllabussync@itsamro.me."
         }
     }
 

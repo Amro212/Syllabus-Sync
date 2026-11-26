@@ -14,6 +14,7 @@ struct AIScanUsageSnapshot: Codable, Equatable {
     let canScan: Bool
     let productId: String
     let packCredits: Int
+    var purchasesAvailable: Bool? = nil
 }
 
 struct AIScanUsageEnvelope: Codable {

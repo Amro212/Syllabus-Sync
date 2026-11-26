@@ -379,6 +379,12 @@ struct AuthView: View {
                         .clipShape(Capsule())
                         .disabled(isLoading)
                     
+                    if let privacyURL = AppConfiguration.privacyPolicyURL {
+                        Link("Privacy Policy", destination: privacyURL)
+                            .font(.footnote)
+                            .foregroundStyle(AuthPalette.primary)
+                    }
+
                     // Sign In / Sign Up Toggle
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) {

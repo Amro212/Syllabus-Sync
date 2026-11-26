@@ -1,3 +1,5 @@
+import { isAppStorePurchaseConfigured } from './appStore';
+
 type SupabaseRequestOptions = {
 	method?: 'GET' | 'POST';
 	query?: Record<string, string>;
@@ -14,6 +16,7 @@ export type AIUsageSnapshot = {
 	canScan: boolean;
 	productId: string;
 	packCredits: number;
+	purchasesAvailable: boolean;
 };
 
 type AIUsageBalanceRow = {
@@ -58,6 +61,7 @@ export function mapUsageSnapshot(env: Env, row: AIUsageBalanceRow): AIUsageSnaps
 		canScan: row.can_scan,
 		productId: aiProductID(env),
 		packCredits: aiPackCredits(env),
+		purchasesAvailable: isAppStorePurchaseConfigured(env),
 	};
 }
 

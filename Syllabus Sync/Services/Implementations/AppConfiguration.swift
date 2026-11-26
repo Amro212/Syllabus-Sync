@@ -6,6 +6,14 @@
 import Foundation
 
 enum AppConfiguration {
+    private static var releaseSiteURL: URL? {
+        let configured = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String
+        return validatedURL(configured, schemes: ["https"])
+    }
+
+    static var privacyPolicyURL: URL? { releaseSiteURL?.appendingPathComponent("privacy") }
+    static var supportURL: URL? { releaseSiteURL?.appendingPathComponent("support") }
+
     static var apiBaseURL: URL? {
         #if DEBUG
         if let url = validatedURL(ProcessInfo.processInfo.environment["API_BASE_URL"], schemes: ["http", "https"]) {
@@ -13,8 +21,7 @@ enum AppConfiguration {
         }
         #endif
 
-        let configured = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String
-        if let url = validatedURL(configured, schemes: ["https"]) {
+        if let url = releaseSiteURL {
             return url
         }
 

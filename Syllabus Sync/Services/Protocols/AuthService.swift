@@ -193,7 +193,7 @@ protocol AuthService {
     func signInWithGoogle() async -> AuthResult
     
     /// Sign in with Apple
-    func signInWithApple() async -> AuthResult
+    func signInWithApple(idToken: String, nonce: String, fullName: PersonNameComponents?) async -> AuthResult
     
     /// Sign up with email and password (triggers email confirmation OTP)
     func signUpWithPassword(email: String, password: String, username: String, fullName: String) async -> Result<Void, AuthError>

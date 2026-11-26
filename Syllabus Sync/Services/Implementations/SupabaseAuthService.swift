@@ -111,14 +111,25 @@ class SupabaseAuthService: NSObject, AuthService {
         }
     }
     
-    // MARK: - Apple Sign In (Not used - handled by CloudKit)
-    
-    func signInWithApple() async -> AuthResult {
-        // Apple Sign-In is handled separately via CloudKit
-        // This is just a stub to satisfy the protocol
-        return .failure(error: .unknownError("Use native Apple Sign-In"))
+    // MARK: - Apple Sign In
+
+    func signInWithApple(idToken: String, nonce: String, fullName: PersonNameComponents?) async -> AuthResult {
+        do {
+            let session = try await supabase.auth.signInWithIdToken(
+                credentials: .init(provider: .apple, idToken: idToken, nonce: nonce)
+            )
+            let name = fullName.map { PersonNameComponentsFormatter().string(from: $0) }
+            if let name, !name.isEmpty {
+                _ = try? await supabase.auth.update(user: UserAttributes(data: ["full_name": .string(name)]))
+            }
+            let user = makeAuthUser(from: session.user, fallbackName: name)
+            currentUser = user
+            return .success(user: user)
+        } catch {
+            return .failure(error: .unknownError("Apple sign-in failed. Please try again."))
+        }
     }
-    
+
     // MARK: - Email/Password Sign Up
     
     /// Creates a new account with email + password. Supabase will send a confirmation OTP
@@ -360,50 +371,28 @@ class SupabaseAuthService: NSObject, AuthService {
         try await supabase.auth.resetPasswordForEmail(email)
     }
     
-    // MARK: - Refresh Session
-    
+    // MARK: - Session Persistence
+
     func refreshSession() async throws {
         let session = try await supabase.auth.refreshSession()
-        
-        // Update current user from refreshed session
-        if let user = try? await supabase.auth.user() {
-            self.currentUser = AuthUser(
-                id: user.id.uuidString,
-                email: user.email,
-                displayName: user.userMetadata["full_name"]?.value as? String,
-                photoURL: {
-                    if let urlString = user.userMetadata["avatar_url"]?.value as? String {
-                        return URL(string: urlString)
-                    }
-                    return nil
-                }(),
-                provider: .google
-            )
-        }
+        currentUser = makeAuthUser(from: session.user)
     }
-    
-    // MARK: - Session Persistence
-    
+
     private func restoreSession() async {
-        // Supabase SDK automatically handles session restoration
-        // Just check if there's a current session and update our user
-        if let session = try? await supabase.auth.session {
-            let user = AuthUser(
-                id: session.user.id.uuidString,
-                email: session.user.email,
-                displayName: session.user.userMetadata["full_name"]?.value as? String,
-                photoURL: {
-                    if let urlString = session.user.userMetadata["avatar_url"]?.value as? String {
-                        return URL(string: urlString)
-                    }
-                    return nil
-                }(),
-                provider: session.user.appMetadata["provider"]?.value as? String == "google" ? .google : .email
-            )
-            self.currentUser = user
-        } else {
-            // No session to restore
-            self.currentUser = nil
-        }
+        let session = try? await supabase.auth.session
+        currentUser = session.map { makeAuthUser(from: $0.user) }
+    }
+
+    private func makeAuthUser(from user: User, fallbackName: String? = nil) -> AuthUser {
+        let provider = (user.appMetadata["provider"]?.value as? String).flatMap(AuthProvider.init(rawValue:))
+        let name = user.userMetadata["full_name"]?.value as? String
+        let avatar = user.userMetadata["avatar_url"]?.value as? String
+        return AuthUser(
+            id: user.id.uuidString,
+            email: user.email,
+            displayName: name ?? fallbackName,
+            photoURL: avatar.flatMap(URL.init(string:)),
+            provider: provider ?? .email
+        )
     }
 }

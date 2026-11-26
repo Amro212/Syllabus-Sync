@@ -7,16 +7,14 @@ import Foundation
 
 enum AppConfiguration {
     static var apiBaseURL: URL? {
-        if let env = ProcessInfo.processInfo.environment["API_BASE_URL"],
-           !env.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           let url = URL(string: env) {
+        #if DEBUG
+        if let url = validatedURL(ProcessInfo.processInfo.environment["API_BASE_URL"], schemes: ["http", "https"]) {
             return url
         }
+        #endif
 
-        if let configured = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String,
-           !configured.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           !configured.contains("YOUR_"),
-           let url = URL(string: configured) {
+        let configured = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String
+        if let url = validatedURL(configured, schemes: ["https"]) {
             return url
         }
 
@@ -25,6 +23,15 @@ enum AppConfiguration {
         #else
         return nil
         #endif
+    }
+
+    private static func validatedURL(_ value: String?, schemes: Set<String>) -> URL? {
+        guard let value,
+              let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let scheme = url.scheme?.lowercased(), schemes.contains(scheme),
+              let host = url.host, !host.isEmpty, url.user == nil, url.password == nil,
+              url.query == nil, url.fragment == nil else { return nil }
+        return url
     }
 
     static func makeAPIClient(requestTimeout: TimeInterval, maxRetryCount: Int) -> APIClient {

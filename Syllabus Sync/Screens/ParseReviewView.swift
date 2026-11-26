@@ -177,7 +177,7 @@ struct ParseReviewView: View {
         await importViewModel.completeReviewAndSave(events: allEvents)
         isSaving = false
         navigationManager.showParseReview = false
-        navigationManager.switchTab(to: .preview)
+        navigationManager.switchTab(to: .reminders)
     }
 
     /// Provide a sensible default date when opening the editor for a dateless event.

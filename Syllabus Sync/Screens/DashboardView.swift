@@ -19,8 +19,6 @@ struct DashboardView: View {
     @State private var showShimmer = false
     @State private var buttonScale: CGFloat = 1.0
     @State private var showingImportView = false
-    @State private var showingSocialHub = false
-    @State private var showingAdminDebug = false
     
     // Track if the user has ever added events to distinguish "New User" from "Caught Up"
     // We scope this to the specific user ID to prevent state leaking between accounts
@@ -64,7 +62,7 @@ struct DashboardView: View {
                         .transition(.opacity)
                     }
                     .padding(.top, 60)
-                    .padding(.bottom, 80) // Add bottom padding for tab bar
+                    .padding(.bottom, Layout.Spacing.md)
                 }
                 .background(AppColors.background)
                 .refreshable {
@@ -80,28 +78,6 @@ struct DashboardView: View {
                             .foregroundColor(AppColors.textPrimary)
                         
                         Spacer()
-
-                        HStack(spacing: Layout.Spacing.md) {
-                            Button {
-                                HapticFeedbackManager.shared.lightImpact()
-                                showingSocialHub = true
-                            } label: {
-                                Image(systemName: "person.2.fill")
-                                    .font(.lexend(size: 22, weight: .regular))
-                                    .foregroundColor(AppColors.textPrimary)
-                            }
-
-                            #if DEBUG
-                            Button {
-                                HapticFeedbackManager.shared.lightImpact()
-                                showingAdminDebug = true
-                            } label: {
-                                Image(systemName: "wrench.and.screwdriver.fill")
-                                    .font(.lexend(size: 22, weight: .regular))
-                                    .foregroundColor(.orange)
-                            }
-                            #endif
-                        }
                     }
                     .padding(.horizontal, Layout.Spacing.md)
                     .padding(.bottom, Layout.Spacing.sm)
@@ -137,24 +113,6 @@ struct DashboardView: View {
                 .presentationDragIndicator(.hidden)
                 .presentationCornerRadius(20)
         }
-        .sheet(isPresented: $showingSocialHub) {
-            SocialHubView()
-                .presentationDetents([.fraction(0.93)])
-                .presentationDragIndicator(.hidden)
-                .presentationCornerRadius(20)
-                .presentationBackground(.ultraThinMaterial)
-        }
-        #if DEBUG
-        .sheet(isPresented: $showingAdminDebug) {
-            AdminDebugView()
-                .environmentObject(eventStore)
-                .environmentObject(navigationManager)
-                .presentationDetents([.fraction(0.93)])
-                .presentationDragIndicator(.hidden)
-                .presentationCornerRadius(20)
-                .presentationBackground(.ultraThinMaterial)
-        }
-        #endif
     }
     
     // MARK: - User Preference Logic

@@ -67,14 +67,14 @@ struct AISyllabusScanModal: View {
             handleFileImport(result)
         }
         .onChange(of: importViewModel.isProcessing) { _, isProcessing in
-            // When processing completes successfully, navigate to review or preview
+            // When processing completes successfully, navigate to review or reminders
             if !isProcessing && importViewModel.progress >= 1.0 {
                 Task { await aiUsageStore.refresh() }
                 dismiss()
                 if importViewModel.needsReview {
                     navigationManager.showParseReview = true
                 } else {
-                    navigationManager.switchTab(to: .preview)
+                    navigationManager.switchTab(to: .reminders)
                 }
             }
         }

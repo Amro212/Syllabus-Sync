@@ -18,7 +18,7 @@ enum AppRoute: Hashable {
     case dashboard
     case reminders
     case importSyllabus
-    case preview
+    case friends
     case parseReview
     case calendar
     case courseDetail(course: Course)
@@ -33,7 +33,7 @@ enum AppRoute: Hashable {
         case .dashboard: return "Dashboard"
         case .reminders: return "Reminders"
         case .importSyllabus: return "Import Syllabus"
-        case .preview: return "Preview"
+        case .friends: return "Friends"
         case .parseReview: return "Review Events"
         case .calendar: return "Calendar"
         case .courseDetail: return "Course Details"
@@ -50,7 +50,7 @@ enum AppRoute: Hashable {
         case .dashboard: return "house"
         case .reminders: return "bell"
         case .importSyllabus: return "plus.circle"
-        case .preview: return "eye"
+        case .friends: return "person.2"
         case .parseReview: return "checklist"
         case .calendar: return "calendar"
         case .courseDetail: return "book"
@@ -98,7 +98,8 @@ class AppNavigationManager: ObservableObject {
         navigationPath = NavigationPath()
         
         // Show tab bar for main app sections
-        isTabBarVisible = [.dashboard, .reminders, .importSyllabus, .profile].contains(route)
+        isTabBarVisible = [.dashboard, .reminders, .importSyllabus, .friends, .profile].contains(route)
+        if isTabBarVisible { selectedTabRoute = route }
         
         HapticFeedbackManager.shared.mediumImpact()
     }
@@ -114,7 +115,7 @@ class AppNavigationManager: ObservableObject {
 
 private extension AppNavigationManager {
     var isSignedInShellRoute: Bool {
-        [.dashboard, .reminders, .importSyllabus, .profile].contains(currentRoute)
+        [.dashboard, .reminders, .importSyllabus, .friends, .profile].contains(currentRoute)
     }
 }
 
@@ -226,7 +227,7 @@ struct AppRoot: View {
             case .auth:
                 AuthView()
                     .transition(.dissolve)
-            case .dashboard, .reminders, .importSyllabus, .profile:
+            case .dashboard, .reminders, .importSyllabus, .friends, .profile:
                 TabNavigationView()
                     .transition(.slide)
             default:
@@ -253,8 +254,8 @@ struct AppRoot: View {
             RemindersView()
         case .importSyllabus:
             AISyllabusScanModal()
-        case .preview:
-            PreviewView()
+        case .friends:
+            SocialHubView()
         case .parseReview:
             ParseReviewView()
         case .calendar:
@@ -279,17 +280,6 @@ struct TabNavigationView: View {
     @EnvironmentObject var importViewModel: ImportViewModel
     @EnvironmentObject var aiUsageStore: AIScanUsageStore
     
-    /// Custom function to handle back navigation in tab context
-    private func handleBackNavigation() {
-        // If we're not on the dashboard tab, go to dashboard
-        // Otherwise, use normal back navigation
-        if navigationManager.selectedTabRoute != .dashboard {
-            navigationManager.switchTab(to: .dashboard)
-        } else {
-            navigationManager.popBack()
-        }
-    }
-    
     @State private var showingImportSheet = false
     @State private var fabExpanded = false
     @State private var showFabActions = false
@@ -305,8 +295,8 @@ struct TabNavigationView: View {
                     DashboardView()
                 case .reminders:
                     RemindersView()
-                case .preview:
-                    PreviewView()
+                case .friends:
+                    SocialHubView()
                 case .calendar:
                     CalendarView()
                 case .profile:
@@ -390,21 +380,21 @@ struct TabNavigationView: View {
                         .shadow(color: AppColors.shadow.opacity(0.22), radius: 14, x: 0, y: 8)
                 )
                 .fixedSize()
-                .padding(.bottom, 108)
+                .padding(.bottom, Layout.Spacing.sm)
                 .transition(.scale(scale: 0.92, anchor: .bottom).combined(with: .opacity).combined(with: .move(edge: .bottom)))
                 .zIndex(11) // Above backdrop
             }
             
-            // Custom Tab Bar
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             CustomTabBar(onFabTapped: {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                     fabExpanded.toggle()
                     showFabActions = fabExpanded
                 }
             }, isFabExpanded: fabExpanded)
-            .zIndex(12) // Topmost to ensure button clicks work
         }
-        .ignoresSafeArea(.keyboard) 
+        .toolbar(.hidden, for: .navigationBar)
         .task {
             await aiUsageStore.refresh(force: false)
         }

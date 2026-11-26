@@ -145,7 +145,7 @@ struct ProfileView: View {
                             .font(.lexend(size: 12, weight: .regular))
                             .foregroundColor(AppColors.textSecondary)
                             .padding(.top, Layout.Spacing.lg)
-                            .padding(.bottom, 100)
+                            .padding(.bottom, Layout.Spacing.md)
                     }
                     .padding(.top, Layout.Spacing.md)
                 }

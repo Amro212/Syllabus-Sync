@@ -49,7 +49,7 @@ struct ImportView: View {
                                 let success = await importViewModel.retryWithCourseCode(courseCode)
                                 if success && !Task.isCancelled {
                                     dismiss()
-                                    navigationManager.switchTab(to: .preview)
+                                    navigationManager.switchTab(to: .reminders)
                                 }
                             }
                         },
@@ -57,7 +57,7 @@ struct ImportView: View {
                             HapticFeedbackManager.shared.lightImpact()
                             importViewModel.errorState = nil
                             dismiss()
-                            navigationManager.switchTab(to: .preview)
+                            navigationManager.switchTab(to: .reminders)
                         }
                     )
                     .transition(.opacity)
@@ -99,7 +99,7 @@ struct ImportView: View {
                 if success && !Task.isCancelled {
                     await MainActor.run {
                         dismiss()
-                        navigationManager.switchTab(to: .preview)
+                        navigationManager.switchTab(to: .reminders)
                     }
                 }
                 // Cleanup after task completes

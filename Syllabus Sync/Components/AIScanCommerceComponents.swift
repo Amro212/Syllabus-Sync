@@ -5,282 +5,238 @@
 
 import SwiftUI
 
-struct AIScanUsagePill: View {
-    let snapshot: AIScanUsageSnapshot?
+struct AIScanCommerceCard: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @EnvironmentObject private var usageStore: AIScanUsageStore
 
-    var body: some View {
-        HStack(spacing: Layout.Spacing.sm) {
-            Image(systemName: "sparkles")
-                .font(.lexend(size: 13, weight: .semibold))
-                .foregroundColor(AppColors.accent)
+    var usageOverride: AIScanUsageSnapshot?
+    var onCreditsAvailable: (() -> Void)?
+    var onDismiss: (() -> Void)?
 
-            Text(label)
-                .font(.lexend(size: 13, weight: .semibold))
-                .foregroundColor(AppColors.textPrimary)
-                .lineLimit(1)
-        }
-        .padding(.horizontal, Layout.Spacing.md)
-        .frame(height: 36)
-        .background(
-            Capsule()
-                .fill(AppColors.surface)
-                .overlay(
-                    Capsule()
-                        .stroke(AppColors.border.opacity(0.45), lineWidth: 1)
-                )
-        )
+    private var usage: AIScanUsageSnapshot? {
+        usageOverride ?? usageStore.snapshot
     }
-
-    private var label: String {
-        guard let snapshot else { return "Checking AI scans" }
-        if snapshot.totalRemaining > 0 {
-            return snapshot.totalRemaining == 1 ? "1 scan left" : "\(snapshot.totalRemaining) scans left"
-        }
-        return "Unlock 5 more scans"
-    }
-}
-
-struct AIScanInlineCard: View {
-    let snapshot: AIScanUsageSnapshot?
-    let isBusy: Bool
-    let onPurchase: () -> Void
-    let onSync: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Layout.Spacing.md) {
-            HStack(alignment: .top) {
+            HStack(alignment: .top, spacing: Layout.Spacing.sm) {
                 VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
-                    Text("AI SCANS")
-                        .font(.lexend(size: 11, weight: .bold))
-                        .foregroundColor(AppColors.textSecondary)
-                        .tracking(0.6)
+                    Text(usage?.canScan == false ? "You’re out of AI scans" : "AI syllabus scans")
+                        .font(.titleL.bold())
+                        .foregroundStyle(AppColors.textPrimary)
+                        .accessibilityAddTraits(.isHeader)
 
-                    Text(snapshot?.heroLine ?? "Checking AI scans")
-                        .font(.lexend(size: 20, weight: .bold))
-                        .foregroundColor(AppColors.textPrimary)
-
-                    Text(snapshot?.freeLine ?? "First 2 scans are free")
-                        .font(.lexend(size: 13, weight: .medium))
-                        .foregroundColor(AppColors.textSecondary)
+                    Text("Turn a syllabus PDF into reminders for assignments, quizzes, and exams.")
+                        .font(.body)
+                        .foregroundStyle(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(AIScanCommerceConfig.compareAtPrice)
-                        .font(.lexend(size: 13, weight: .medium))
-                        .foregroundColor(AppColors.textTertiary)
-                        .strikethrough()
-
-                    Text(AIScanCommerceConfig.salePrice)
-                        .font(.lexend(size: 24, weight: .bold))
-                        .foregroundColor(AppColors.accent)
-                }
-            }
-
-            HStack(spacing: Layout.Spacing.sm) {
-                benefitChip("Deadlines")
-                benefitChip("Exams")
-                benefitChip("Grading")
-            }
-
-            HStack(spacing: Layout.Spacing.sm) {
-                Button(action: onPurchase) {
-                    HStack(spacing: Layout.Spacing.sm) {
-                        if isBusy {
-                            ProgressView()
-                                .progressViewStyle(.circular)
-                                .tint(AppColors.background)
-                        } else {
-                            Image(systemName: "cart.fill")
-                                .font(.lexend(size: 14, weight: .semibold))
-                        }
-                        Text("Get 5 scans")
-                            .font(.lexend(size: 15, weight: .bold))
+                if let onDismiss {
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(AppColors.textSecondary)
+                            .frame(width: 44, height: 44)
+                            .background(AppColors.surfaceSecondary, in: Circle())
                     }
-                    .foregroundColor(AppColors.background)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(
-                        RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                            .fill(AppColors.accent)
-                    )
-                }
-                .disabled(isBusy)
-
-                Button(action: onSync) {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.lexend(size: 16, weight: .semibold))
-                        .foregroundColor(AppColors.textPrimary)
-                        .frame(width: 50, height: 50)
-                        .background(
-                            RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                                .fill(AppColors.surfaceSecondary)
-                        )
-                }
-                .disabled(isBusy)
-                .accessibilityLabel("Sync purchases")
-            }
-        }
-        .padding(Layout.Spacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                .fill(AppColors.surface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                        .stroke(AppColors.border.opacity(0.35), lineWidth: 1)
-                )
-        )
-    }
-
-    private func benefitChip(_ text: String) -> some View {
-        Text(text)
-            .font(.lexend(size: 12, weight: .semibold))
-            .foregroundColor(AppColors.textPrimary)
-            .padding(.horizontal, Layout.Spacing.sm)
-            .frame(height: 30)
-            .background(
-                Capsule()
-                    .fill(AppColors.surfaceSecondary)
-            )
-    }
-}
-
-struct AIScanPaywallPopup: View {
-    let snapshot: AIScanUsageSnapshot?
-    let isPurchasing: Bool
-    let errorMessage: String?
-    let onPurchase: () -> Void
-    let onDismiss: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("LIMITED OFFER")
-                    .font(.lexend(size: 11, weight: .bold))
-                    .foregroundColor(AppColors.background)
-                    .padding(.horizontal, Layout.Spacing.sm)
-                    .frame(height: 26)
-                    .background(
-                        Capsule()
-                            .fill(AppColors.accent)
-                    )
-
-                Spacer()
-
-                Button(action: onDismiss) {
-                    Image(systemName: "xmark")
-                        .font(.lexend(size: 14, weight: .bold))
-                        .foregroundColor(AppColors.textSecondary)
-                        .frame(width: 32, height: 32)
-                        .background(
-                            Circle()
-                                .fill(AppColors.surfaceSecondary)
-                        )
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close")
                 }
             }
-            .padding(.bottom, Layout.Spacing.lg)
 
-            VStack(alignment: .leading, spacing: Layout.Spacing.sm) {
-                Text("Scan 5 more syllabi in seconds")
-                    .font(.lexend(size: 28, weight: .bold))
-                    .foregroundColor(AppColors.textPrimary)
+            HStack(spacing: Layout.Spacing.md) {
+                packDetails
+                Spacer(minLength: 0)
+                if !dynamicTypeSize.isAccessibilitySize {
+                    AIScanPromoArtwork()
+                }
+            }
+            .padding(Layout.Spacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppColors.surfaceSecondary, in: .rect(cornerRadius: Layout.CornerRadius.lg))
 
-                Text("Keep instant syllabus-to-calendar sync going without manual date entry.")
-                    .font(.lexend(size: 15, weight: .medium))
-                    .foregroundColor(AppColors.textSecondary)
+            if let message = usageStore.lastErrorMessage {
+                Label(message, systemImage: "info.circle")
+                    .font(.footnote)
+                    .foregroundStyle(AppColors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(alignment: .lastTextBaseline, spacing: Layout.Spacing.sm) {
-                Text(AIScanCommerceConfig.compareAtPrice)
-                    .font(.lexend(size: 18, weight: .medium))
-                    .foregroundColor(AppColors.textTertiary)
-                    .strikethrough()
-
-                Text(AIScanCommerceConfig.salePrice)
-                    .font(.lexend(size: 34, weight: .bold))
-                    .foregroundColor(AppColors.accent)
-
-                Text("for \(AIScanCommerceConfig.packCredits) scans")
-                    .font(.lexend(size: 14, weight: .semibold))
-                    .foregroundColor(AppColors.textSecondary)
-                    .padding(.bottom, 4)
-            }
-            .padding(.top, Layout.Spacing.lg)
-
-            VStack(spacing: Layout.Spacing.sm) {
-                paywallBenefit("assignment turn-ins and exam dates in one import")
-                paywallBenefit("grading breakdown pulled into course view")
-                paywallBenefit(snapshot?.freeLine ?? "first 2 scans already included free")
-            }
-            .padding(.top, Layout.Spacing.lg)
-
-            if let errorMessage, !errorMessage.isEmpty {
-                Text(errorMessage)
-                    .font(.lexend(size: 13, weight: .medium))
-                    .foregroundColor(AppColors.error)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, Layout.Spacing.md)
-            }
-
-            Button(action: onPurchase) {
-                HStack(spacing: Layout.Spacing.sm) {
-                    if isPurchasing {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                            .tint(AppColors.background)
-                    } else {
-                        Image(systemName: "sparkles")
-                            .font(.lexend(size: 16, weight: .bold))
-                    }
-
-                    Text(isPurchasing ? "Contacting App Store..." : "Get 5 scans")
-                        .font(.lexend(size: 16, weight: .bold))
-                }
-                .foregroundColor(AppColors.background)
-                .frame(maxWidth: .infinity)
-                .frame(height: 54)
-                .background(
-                    RoundedRectangle(cornerRadius: Layout.CornerRadius.lg)
-                        .fill(AppColors.accent)
-                )
-            }
-            .disabled(isPurchasing)
-            .padding(.top, Layout.Spacing.xl)
-
-            Text("Purchase handled by App Store. Credits apply to this account.")
-                .font(.lexend(size: 11, weight: .medium))
-                .foregroundColor(AppColors.textTertiary)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, Layout.Spacing.md)
+            actions
         }
-        .padding(Layout.Spacing.xl)
-        .background(
+        .padding(Layout.Spacing.md)
+        .background(AppColors.surface, in: .rect(cornerRadius: Layout.CornerRadius.xl))
+        .overlay {
             RoundedRectangle(cornerRadius: Layout.CornerRadius.xl)
-                .fill(AppColors.background)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Layout.CornerRadius.xl)
-                        .stroke(AppColors.border.opacity(0.35), lineWidth: 1)
-                )
-                .shadow(color: Color.black.opacity(0.22), radius: 24, x: 0, y: 16)
-        )
-        .padding(.horizontal, Layout.Spacing.lg)
+                .strokeBorder(AppColors.border.opacity(0.45), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .task {
+            async let price: Void = usageStore.loadProduct()
+            async let balance: Void = usageStore.refresh(force: false)
+            _ = await (price, balance)
+        }
     }
 
-    private func paywallBenefit(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: Layout.Spacing.sm) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.lexend(size: 14, weight: .bold))
-                .foregroundColor(AppColors.accent)
-                .padding(.top, 2)
+    private var packDetails: some View {
+        VStack(alignment: .leading, spacing: Layout.Spacing.xs) {
+            Text("\(AIScanCommerceConfig.packCredits) AI scans")
+                .font(.headline)
+                .foregroundStyle(AppColors.textPrimary)
 
-            Text(text)
-                .font(.lexend(size: 14, weight: .medium))
-                .foregroundColor(AppColors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
+            if let price = usageStore.displayPrice {
+                Text(price)
+                    .font(.title2.bold())
+                    .foregroundStyle(AppColors.accent)
+            } else if usageStore.isLoadingProduct {
+                ProgressView("Checking price…")
+                    .font(.footnote)
+            } else {
+                Text("Price unavailable")
+                    .font(.footnote)
+                    .foregroundStyle(AppColors.textSecondary)
+            }
+
+            Text("One-time purchase")
+                .font(.footnote)
+                .foregroundStyle(AppColors.textSecondary)
+
+            if let usage {
+                Text(usage.heroLine)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(AppColors.textSecondary)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var actions: some View {
+        VStack(spacing: Layout.Spacing.xs) {
+            Button {
+                Task {
+                    if usageStore.canPurchase {
+                        if await usageStore.purchaseTopUp() {
+                            onCreditsAvailable?()
+                        }
+                    } else {
+                        async let price: Void = usageStore.loadProduct()
+                        async let balance: Void = usageStore.refresh()
+                        _ = await (price, balance)
+                    }
+                }
+            } label: {
+                HStack(spacing: Layout.Spacing.xs) {
+                    if usageStore.isPurchasing {
+                        ProgressView()
+                            .tint(AppColors.background)
+                    }
+                    Text(purchaseButtonTitle)
+                        .font(.headline)
+                }
+                .foregroundStyle(AppColors.background)
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .padding(.horizontal, Layout.Spacing.sm)
+                .background(AppColors.accent, in: .rect(cornerRadius: Layout.CornerRadius.lg))
+            }
+            .buttonStyle(.plain)
+            .disabled(usageStore.isPurchasing || usageStore.isLoadingProduct)
+
+            Button {
+                Task {
+                    if await usageStore.syncPurchases(), usageStore.snapshot?.canScan == true {
+                        onCreditsAvailable?()
+                    }
+                }
+            } label: {
+                Text("Sync purchases")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppColors.textPrimary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .disabled(usageStore.isPurchasing)
+        }
+    }
+
+    private var purchaseButtonTitle: String {
+        if usageStore.isPurchasing { return "Contacting the App Store…" }
+        if usageStore.isLoadingProduct { return "Checking availability…" }
+        return usageStore.canPurchase ? "Buy \(AIScanCommerceConfig.packCredits) scans" : "Check availability"
+    }
+}
+
+private struct AIScanPromoArtwork: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(AppColors.accent.opacity(0.16))
+                .frame(width: 76, height: 76)
+                .offset(x: 15, y: 10)
+
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(AppColors.surface)
+                .frame(width: 58, height: 72)
+                .overlay(
+                    VStack(alignment: .leading, spacing: 7) {
+                        Capsule()
+                            .fill(Color(hex: "9BC292").opacity(0.70))
+                            .frame(width: 36, height: 5)
+                        Capsule()
+                            .fill(Color(hex: "9BC292").opacity(0.55))
+                            .frame(width: 29, height: 5)
+                        Capsule()
+                            .fill(Color(hex: "9BC292").opacity(0.40))
+                            .frame(width: 40, height: 5)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(10)
+                )
+                .rotationEffect(.degrees(7))
+                .shadow(color: AppColors.shadow.opacity(0.12), radius: 10, x: 0, y: 6)
+                .offset(x: 17, y: 3)
+
+            Circle()
+                .fill(Color(hex: "E8D8F0"))
+                .frame(width: 36, height: 36)
+                .overlay(
+                    Circle()
+                        .stroke(AppColors.surface, lineWidth: 7)
+                )
+                .overlay(
+                    Circle()
+                        .stroke(Color(hex: "D6C0E3"), lineWidth: 1)
+                )
+                .offset(x: -18, y: 9)
+
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(AppColors.surface)
+                .frame(width: 38, height: 8)
+                .rotationEffect(.degrees(-42))
+                .offset(x: -38, y: 31)
+
+            Circle()
+                .fill(Color(hex: "95D08F"))
+                .frame(width: 40, height: 40)
+                .overlay(
+                    Text("A+")
+                        .font(.lexend(size: 16, weight: .bold))
+                        .foregroundStyle(AppColors.surface)
+                )
+                .shadow(color: AppColors.shadow.opacity(0.12), radius: 8, x: 0, y: 5)
+                .offset(x: 39, y: -31)
+
+            Image(systemName: "sparkle")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(AppColors.accent.opacity(0.65))
+                .offset(x: -46, y: -20)
+
+            Image(systemName: "sparkle")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(AppColors.accent.opacity(0.55))
+                .offset(x: 4, y: -38)
+        }
+        .frame(width: 108, height: 96)
+        .accessibilityHidden(true)
     }
 }

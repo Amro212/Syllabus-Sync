@@ -38,8 +38,6 @@ struct AIPurchaseCreditEnvelope: Codable {
 enum AIScanCommerceConfig {
     static let productID = "syllabussync.ai_scans_5"
     static let packCredits = 5
-    static let salePrice = "$5.99"
-    static let compareAtPrice = "$10.99"
 }
 
 extension AIScanUsageSnapshot {
@@ -52,7 +50,7 @@ extension AIScanUsageSnapshot {
 
     var freeLine: String {
         if freeRemaining > 0 {
-            return "\(freeRemaining) of \(freeAllowance) free left"
+            return freeRemaining == freeAllowance ? "\(freeAllowance) free scans included" : "\(freeRemaining) free scans left"
         }
         return "\(freeAllowance) free scans used"
     }

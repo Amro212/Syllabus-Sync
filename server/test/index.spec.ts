@@ -215,7 +215,10 @@ describe('worker', () => {
 		expect(finalizeSpy).toHaveBeenCalledTimes(1);
 	});
 
-	it('credits purchased scans through App Store validation', async () => {
+	it.each([
+		{ accountToken: TEST_USER_ID.toUpperCase(), status: 200 },
+		{ accountToken: '22222222-2222-4222-8222-222222222222', status: 409 },
+	])('binds verified scan purchases to the account (status $status)', async ({ accountToken, status }) => {
 		mockFetch(createHandler({
 			findPurchaseEvent: [],
 			creditPurchase: {
@@ -230,6 +233,7 @@ describe('worker', () => {
 				transactionId: '200000000000001',
 				originalTransactionId: '200000000000001',
 				appTransactionId: '300000000000001',
+				appAccountToken: accountToken,
 				productId: TEST_PRODUCT_ID,
 				bundleId: TEST_BUNDLE_ID,
 				environment: 'Sandbox',
@@ -255,7 +259,13 @@ describe('worker', () => {
 		const response = await worker.fetch(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
-		expect(response.status).toBe(200);
+		expect(response.status).toBe(status);
+		if (status === 409) {
+			await expect(response.json()).resolves.toEqual({
+				error: 'Sign in to the Syllabus Sync account used for this purchase.',
+			});
+			return;
+		}
 		const payload = await response.json<any>();
 		expect(payload.credited).toBe(true);
 		expect(payload.usage).toMatchObject({
@@ -316,6 +326,7 @@ function createHandler(options: HandlerOptions) {
 					transactionId: '200000000000001',
 					originalTransactionId: '200000000000001',
 					appTransactionId: '300000000000001',
+					appAccountToken: TEST_USER_ID,
 					productId: TEST_PRODUCT_ID,
 					bundleId: TEST_BUNDLE_ID,
 					environment: 'Sandbox',

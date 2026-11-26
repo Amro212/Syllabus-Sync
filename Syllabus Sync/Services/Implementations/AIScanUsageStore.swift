@@ -8,36 +8,40 @@ import Foundation
 @MainActor
 final class AIScanUsageStore: ObservableObject {
     @Published private(set) var snapshot: AIScanUsageSnapshot?
-    @Published private(set) var isLoading = false
+    @Published private(set) var displayPrice: String?
+    @Published private(set) var isLoadingProduct = false
     @Published private(set) var isPurchasing = false
-    @Published var lastErrorMessage: String?
+    @Published private(set) var lastErrorMessage: String?
 
     private let apiClient: APIClient
     private let purchaseManager: AppStorePurchasing
-    private let isAuthenticatedProvider: @Sendable () -> Bool
+    private let accountIDProvider: @Sendable () -> UUID?
     private let accessTokenProvider: @Sendable () async throws -> String
-    private let encoder = JSONEncoder()
-    private var didLoadOnce = false
-    private var didProcessPendingTransactions = false
-    private var processingTransactionIDs: Set<String> = []
+    private var loadedAccountID: UUID?
+    private var recoveredAccountID: UUID?
+    private var refreshingAccountID: UUID?
+    private var balanceRevision = 0
+    private var creditTasks: [String: Task<Void, Error>] = [:]
     private var updatesTask: Task<Void, Never>?
 
     init(
         apiClient: APIClient,
         purchaseManager: AppStorePurchasing = AppStorePurchaseManager(),
-        isAuthenticatedProvider: @escaping @Sendable () -> Bool = { SupabaseAuthService.shared.isAuthenticated },
+        accountIDProvider: @escaping @Sendable () -> UUID? = {
+            SupabaseAuthService.shared.currentUser.flatMap { UUID(uuidString: $0.id) }
+        },
         accessTokenProvider: @escaping @Sendable () async throws -> String = {
             try await SupabaseAuthService.shared.supabase.auth.session.accessToken
         }
     ) {
         self.apiClient = apiClient
         self.purchaseManager = purchaseManager
-        self.isAuthenticatedProvider = isAuthenticatedProvider
+        self.accountIDProvider = accountIDProvider
         self.accessTokenProvider = accessTokenProvider
         updatesTask = purchaseManager.startListening(
             productIDs: [AIScanCommerceConfig.productID]
         ) { [weak self] record in
-            _ = await self?.applyPurchasedRecord(record, exposeErrors: false)
+            try? await self?.creditPurchase(record)
         }
     }
 
@@ -49,90 +53,131 @@ final class AIScanUsageStore: ObservableObject {
         snapshot?.canScan ?? true
     }
 
-    var currentProductID: String {
-        snapshot?.productId ?? AIScanCommerceConfig.productID
+    var canPurchase: Bool {
+        displayPrice != nil && snapshot?.productId == AIScanCommerceConfig.productID
+    }
+
+    func loadProduct() async {
+        guard displayPrice == nil, !isLoadingProduct else { return }
+        isLoadingProduct = true
+        defer { isLoadingProduct = false }
+
+        do {
+            displayPrice = try await purchaseManager.displayPrice(productID: AIScanCommerceConfig.productID)
+        } catch {
+            displayPrice = nil
+        }
     }
 
     func refresh(force: Bool = true) async {
-        guard isAuthenticatedProvider() else {
+        let accountID = accountIDProvider()
+        if loadedAccountID != accountID {
             snapshot = nil
-            didLoadOnce = false
+            lastErrorMessage = nil
+            loadedAccountID = accountID
+        }
+        guard let accountID else {
+            recoveredAccountID = nil
             return
         }
+        guard refreshingAccountID != accountID, force || snapshot == nil || recoveredAccountID != accountID else { return }
 
-        if !force, didLoadOnce {
-            return
+        refreshingAccountID = accountID
+        defer {
+            if refreshingAccountID == accountID { refreshingAccountID = nil }
         }
 
-        if !didProcessPendingTransactions {
-            didProcessPendingTransactions = true
-            await purchaseManager.consumeUnfinishedTransactions(productIDs: Set([AIScanCommerceConfig.productID])) { [weak self] record in
-                _ = await self?.applyPurchasedRecord(record, exposeErrors: false)
+        if recoveredAccountID != accountID {
+            do {
+                try await recoverPurchases()
+                if accountIDProvider() == accountID { recoveredAccountID = accountID }
+            } catch {
+                // Keep the transaction unfinished so a later refresh or manual sync can retry it.
             }
         }
 
-        isLoading = true
-        defer { isLoading = false }
-
         do {
-            let token = try await accessToken()
-            var request = APIRequest(path: "/ai-usage", method: .get, headers: [:], body: nil, timeout: 30)
-            request.headers["Authorization"] = "Bearer \(token)"
-
-            let envelope: AIScanUsageEnvelope = try await apiClient.send(request, as: AIScanUsageEnvelope.self)
-            snapshot = envelope.usage
-            lastErrorMessage = nil
-            didLoadOnce = true
+            try await loadBalance(for: accountID)
         } catch {
-            lastErrorMessage = friendlyMessage(for: error)
+            if accountIDProvider() == accountID { lastErrorMessage = friendlyMessage(for: error) }
         }
     }
 
     func purchaseTopUp() async -> Bool {
+        guard !isPurchasing, let accountID = accountIDProvider() else { return false }
         isPurchasing = true
         defer { isPurchasing = false }
         lastErrorMessage = nil
 
         do {
-            let record = try await purchaseManager.purchase(productID: currentProductID)
-            return await applyPurchasedRecord(record, exposeErrors: true)
+            let record = try await purchaseManager.purchase(
+                productID: AIScanCommerceConfig.productID,
+                accountID: accountID
+            )
+            try await creditPurchase(record)
+            return true
         } catch {
-            let message = friendlyMessage(for: error)
-            if let message {
-                lastErrorMessage = message
-            }
+            if accountIDProvider() == accountID { lastErrorMessage = friendlyMessage(for: error) }
             return false
         }
     }
 
     func syncPurchases() async -> Bool {
+        guard !isPurchasing, let accountID = accountIDProvider() else { return false }
         isPurchasing = true
         defer { isPurchasing = false }
         lastErrorMessage = nil
 
         do {
             try await purchaseManager.sync()
-            await purchaseManager.consumeUnfinishedTransactions(productIDs: Set([AIScanCommerceConfig.productID])) { [weak self] record in
-                _ = await self?.applyPurchasedRecord(record, exposeErrors: false)
-            }
-            await refresh()
-            return true
+            try await recoverPurchases()
+            try await loadBalance(for: accountID)
+            return accountIDProvider() == accountID
         } catch {
-            let message = friendlyMessage(for: error)
-            if let message {
-                lastErrorMessage = message
-            }
+            if accountIDProvider() == accountID { lastErrorMessage = friendlyMessage(for: error) }
             return false
         }
     }
 
-    private func applyPurchasedRecord(_ record: AppStorePurchaseRecord, exposeErrors: Bool) async -> Bool {
-        guard !processingTransactionIDs.contains(record.transactionID) else { return true }
-        processingTransactionIDs.insert(record.transactionID)
-        defer { processingTransactionIDs.remove(record.transactionID) }
+    private func recoverPurchases() async throws {
+        let accountID = accountIDProvider()
+        let records = await purchaseManager.unfinishedTransactions(productIDs: [AIScanCommerceConfig.productID])
+        var recoveryError: Error?
+        for record in records where record.accountID == nil || record.accountID == accountID {
+            guard accountIDProvider() == accountID else { return }
+            do {
+                try await creditPurchase(record)
+            } catch {
+                recoveryError = error
+            }
+        }
+        if let recoveryError { throw recoveryError }
+    }
 
-        do {
-            let token = try await accessToken()
+    private func loadBalance(for accountID: UUID) async throws {
+        let revision = balanceRevision
+        let token = try await accessTokenProvider()
+        guard accountIDProvider() == accountID else { return }
+        let request = APIRequest(path: "/ai-usage", method: .get, headers: ["Authorization": "Bearer \(token)"], body: nil, timeout: 30)
+        let envelope: AIScanUsageEnvelope = try await apiClient.send(request, as: AIScanUsageEnvelope.self)
+
+        guard accountIDProvider() == accountID, revision == balanceRevision else { return }
+        loadedAccountID = accountID
+        snapshot = envelope.usage
+        lastErrorMessage = nil
+    }
+
+    private func creditPurchase(_ record: AppStorePurchaseRecord) async throws {
+        if let existingTask = creditTasks[record.transactionID] {
+            return try await existingTask.value
+        }
+        guard let accountID = accountIDProvider(), record.accountID == nil || record.accountID == accountID else {
+            throw AppStorePurchaseError.accountChanged
+        }
+
+        let task = Task {
+            let token = try await accessTokenProvider()
+            guard accountIDProvider() == accountID else { throw AppStorePurchaseError.accountChanged }
             let payload = AIPurchaseCreditRequest(
                 transactionId: record.transactionID,
                 originalTransactionId: record.originalTransactionID,
@@ -141,27 +186,28 @@ final class AIScanUsageStore: ObservableObject {
                 environment: record.environment,
                 signedTransactionInfo: record.signedTransactionInfo
             )
-            let body = try encoder.encode(payload)
-            var request = APIRequest(path: "/iap/credit", method: .post, headers: [:], body: body, timeout: 30)
-            request.headers["Authorization"] = "Bearer \(token)"
-            request.headers["Content-Type"] = "application/json"
-
-            let envelope: AIPurchaseCreditEnvelope = try await apiClient.send(request, as: AIPurchaseCreditEnvelope.self)
-            snapshot = envelope.usage
-            didLoadOnce = true
-            lastErrorMessage = nil
-            await record.finish()
-            return true
-        } catch {
-            if exposeErrors, let message = friendlyMessage(for: error) {
-                lastErrorMessage = message
+            let request = APIRequest(
+                path: "/iap/credit", method: .post,
+                headers: ["Authorization": "Bearer \(token)", "Content-Type": "application/json"],
+                body: try JSONEncoder().encode(payload), timeout: 30
+            )
+            let envelope: AIPurchaseCreditEnvelope
+            do {
+                envelope = try await apiClient.send(request, as: AIPurchaseCreditEnvelope.self)
+            } catch {
+                throw AppStorePurchaseError.creditPending
             }
-            return false
+            if accountIDProvider() == accountID {
+                balanceRevision += 1
+                loadedAccountID = accountID
+                snapshot = envelope.usage
+                lastErrorMessage = nil
+            }
+            await record.finish()
         }
-    }
-
-    private func accessToken() async throws -> String {
-        try await accessTokenProvider()
+        creditTasks[record.transactionID] = task
+        defer { creditTasks[record.transactionID] = nil }
+        try await task.value
     }
 
     private func friendlyMessage(for error: Error) -> String? {

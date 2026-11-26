@@ -178,8 +178,10 @@ struct AppRoot: View {
             guard phase == .active else { return }
             notificationCoordinator.recordAppOpen()
             Task {
+                async let usageRefresh: Void = refreshAIUsageOnActivation()
                 await notificationCoordinator.refreshAuthorizationStatus()
                 await notificationCoordinator.reconcile(events: eventStore.events)
+                await usageRefresh
             }
         }
         .onChange(of: eventStore.events) { _, events in
@@ -189,8 +191,16 @@ struct AppRoot: View {
         }
     }
 
-    private func loadAuthenticatedDataIfNeeded() async {
+    private func refreshAIUsageOnActivation() async {
         guard navigationManager.isSignedInShellRoute else { return }
+        await aiUsageStore.refresh(force: false)
+    }
+
+    private func loadAuthenticatedDataIfNeeded() async {
+        guard navigationManager.isSignedInShellRoute else {
+            if navigationManager.currentRoute == .auth { await aiUsageStore.refresh(force: false) }
+            return
+        }
         guard SupabaseAuthService.shared.isAuthenticated else { return }
 
         // Route changes happen after launch/auth decisions, so this avoids
@@ -398,11 +408,9 @@ struct TabNavigationView: View {
         .task {
             await aiUsageStore.refresh(force: false)
         }
-        .sheet(isPresented: $showingImportSheet) {
+        .fullScreenCover(isPresented: $showingImportSheet) {
             AISyllabusScanModal()
-                .presentationDetents([.height(430)])
-                .presentationDragIndicator(.hidden)
-                .presentationCornerRadius(20)
+                .presentationBackground(.clear)
         }
         .fullScreenCover(item: $editingEvent) { event in
             EventEditView(event: event, isCreatingNew: isCreatingNewEvent) { updated in

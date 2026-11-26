@@ -568,6 +568,18 @@ export default {
 					return json({ error: 'Purchase product identifier does not match AI scan top-up.' }, { status });
 				}
 
+				if (verifiedPurchase.transactionID !== transactionID) {
+					const status = 400;
+					logRequest(env, 'warn', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Purchase transaction identifier does not match.' }, { status });
+				}
+
+				if (verifiedPurchase.appAccountToken?.toLowerCase() !== auth.user.id.toLowerCase()) {
+					const status = 409;
+					logRequest(env, 'warn', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Sign in to the Syllabus Sync account used for this purchase.' }, { status });
+				}
+
 				if (verifiedPurchase.revocationDate) {
 					const status = 409;
 					logRequest(env, 'warn', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });

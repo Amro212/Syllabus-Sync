@@ -23,7 +23,7 @@ struct AIScanUsageStoreTests {
         let store = AIScanUsageStore(
             apiClient: apiClient,
             purchaseManager: FakePurchaseManager(),
-            isAuthenticatedProvider: { true },
+            accountIDProvider: { testAccountID },
             accessTokenProvider: { "token" }
         )
 
@@ -66,7 +66,7 @@ struct AIScanUsageStoreTests {
         let store = AIScanUsageStore(
             apiClient: apiClient,
             purchaseManager: purchaseManager,
-            isAuthenticatedProvider: { true },
+            accountIDProvider: { testAccountID },
             accessTokenProvider: { "token" }
         )
 
@@ -77,13 +77,35 @@ struct AIScanUsageStoreTests {
         #expect(purchaseManager.finishedTransactionIDs == ["txn-1"])
     }
 
+    @Test func failedCreditLeavesPurchaseUnfinished() async {
+        let manager = FakePurchaseManager(purchaseRecord: AppStorePurchaseRecord(
+            transactionID: "pending-transaction",
+            originalTransactionID: "pending-transaction",
+            appTransactionID: nil,
+            productID: AIScanCommerceConfig.productID,
+            environment: "sandbox",
+            signedTransactionInfo: "fixture",
+            finishHandler: {}
+        ))
+        let store = AIScanUsageStore(
+            apiClient: FakeAPIClient { _ in throw APIClientError.timeout },
+            purchaseManager: manager,
+            accountIDProvider: { testAccountID },
+            accessTokenProvider: { "token" }
+        )
+
+        #expect(await !store.purchaseTopUp())
+        #expect(manager.finishedTransactionIDs.isEmpty)
+        #expect(store.lastErrorMessage?.contains("Sync purchases") == true)
+    }
+
     @Test func refreshClearsSnapshotWhenSignedOut() async throws {
         let store = AIScanUsageStore(
             apiClient: FakeAPIClient { _ in
                 fatalError("Should not call API")
             },
             purchaseManager: FakePurchaseManager(),
-            isAuthenticatedProvider: { false },
+            accountIDProvider: { nil },
             accessTokenProvider: { "token" }
         )
 
@@ -121,7 +143,11 @@ private final class FakePurchaseManager: AppStorePurchasing {
         self.purchaseRecord = purchaseRecord
     }
 
-    func purchase(productID: String) async throws -> AppStorePurchaseRecord {
+    func displayPrice(productID: String) async throws -> String {
+        "CA$5.99"
+    }
+
+    func purchase(productID: String, accountID: UUID) async throws -> AppStorePurchaseRecord {
         guard let purchaseRecord else {
             throw AppStorePurchaseError.productUnavailable
         }
@@ -130,6 +156,7 @@ private final class FakePurchaseManager: AppStorePurchasing {
             originalTransactionID: purchaseRecord.originalTransactionID,
             appTransactionID: purchaseRecord.appTransactionID,
             productID: purchaseRecord.productID,
+            accountID: accountID,
             environment: purchaseRecord.environment,
             signedTransactionInfo: purchaseRecord.signedTransactionInfo,
             finishHandler: { [weak self] in
@@ -140,10 +167,7 @@ private final class FakePurchaseManager: AppStorePurchasing {
 
     func sync() async throws {}
 
-    func consumeUnfinishedTransactions(
-        productIDs: Set<String>,
-        handler: @escaping @Sendable (AppStorePurchaseRecord) async -> Void
-    ) async {}
+    func unfinishedTransactions(productIDs: Set<String>) async -> [AppStorePurchaseRecord] { [] }
 
     func startListening(
         productIDs: Set<String>,
@@ -153,4 +177,5 @@ private final class FakePurchaseManager: AppStorePurchasing {
     }
 }
 
+private let testAccountID = UUID()
 private let testEncoder = JSONEncoder()

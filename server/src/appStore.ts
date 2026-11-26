@@ -10,6 +10,7 @@ type DecodedTransactionPayload = {
 	transactionId: string;
 	originalTransactionId?: string;
 	appTransactionId?: string;
+	appAccountToken?: string;
 	productId: string;
 	bundleId: string;
 	environment: string;
@@ -21,6 +22,7 @@ export type VerifiedAppStorePurchase = {
 	transactionID: string;
 	originalTransactionID: string | null;
 	appTransactionID: string | null;
+	appAccountToken: string | null;
 	productID: string;
 	bundleID: string;
 	environment: string;
@@ -82,6 +84,7 @@ function mapTransactionPayload(payload: DecodedTransactionPayload): VerifiedAppS
 		transactionID: payload.transactionId,
 		originalTransactionID: payload.originalTransactionId ?? null,
 		appTransactionID: payload.appTransactionId ?? null,
+		appAccountToken: payload.appAccountToken ?? null,
 		productID: payload.productId,
 		bundleID: payload.bundleId,
 		environment: payload.environment,

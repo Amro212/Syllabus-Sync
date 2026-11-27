@@ -41,7 +41,7 @@ describe('OpenRouter client', () => {
     ; (globalThis as any).fetch = mock;
 
     const prompt = {
-      model: 'mistralai/mistral-small-3.2-24b-instruct',
+      model: 'deepseek/deepseek-v4.1-flash-1017',
       messages: [{ role: 'system', content: 'test' }, { role: 'user', content: 'parse' }],
       response_format: { type: 'json_schema', json_schema: { name: 'event_items', schema: { type: 'array', items: {} } } }
     } as any;
@@ -63,7 +63,7 @@ describe('OpenRouter client', () => {
     ; (globalThis as any).fetch = mock;
 
     const prompt = {
-      model: 'mistralai/mistral-small-3.2-24b-instruct',
+      model: 'deepseek/deepseek-v4.1-flash-1017',
       messages: [{ role: 'system', content: 'test' }, { role: 'user', content: 'parse' }],
       response_format: { type: 'json_object' }
     } as any;
@@ -88,7 +88,7 @@ describe('OpenRouter client', () => {
     ; (globalThis as any).fetch = mock;
 
     const prompt = {
-      model: 'mistralai/mistral-small-3.2-24b-instruct',
+      model: 'deepseek/deepseek-v4.1-flash-1017',
       messages: [{ role: 'user', content: 'go' }],
     } as any;
 
@@ -101,7 +101,7 @@ describe('OpenRouter client', () => {
     const mock = vi.fn(async () => new Response(null, { status: 400 }));
     vi.stubGlobal('fetch', mock);
     const prompt = {
-      model: 'mistralai/mistral-small-3.2-24b-instruct',
+      model: 'deepseek/deepseek-v4.1-flash-1017',
       messages: [{ role: 'user' as const, content: 'go' }],
       response_format: { type: 'json_object' as const },
     };

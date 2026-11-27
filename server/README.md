@@ -139,7 +139,7 @@ In Cloudflare, select the **Bilal (Syllabus Sync)** account and open **Workers &
 Add `OPENROUTER_API_KEY` with type **Secret**, then deploy. The Worker reads the encrypted secret from its environment.
 
 For local development, set `OPENROUTER_API_KEY` in the ignored `server/.dev.vars` file.
-The default model is `mistralai/mistral-small-3.2-24b-instruct`. Set `OPENROUTER_MODEL` to override it with a model that supports structured outputs and zero-data-retention routing.
+The default model is `deepseek/deepseek-v4.1-flash-1017`. Set `OPENROUTER_MODEL` to override it with a model that supports structured outputs and zero-data-retention routing.
 Production scans require an app build that presents the OpenRouter disclosure.
 
 ## Security Notes

@@ -11,7 +11,7 @@ describe('buildParseSyllabusRequest', () => {
       timezone: 'America/New_York',
     });
 
-    expect(request.model).toBe('mistralai/mistral-small-3.2-24b-instruct');
+    expect(request.model).toBe('deepseek/deepseek-v4.1-flash-1017');
     expect(request.temperature).toBe(0);
     expect(request.response_format.type).toBe('json_schema');
     expect(request.messages.length).toBeGreaterThan(2); // system + fewshots + user

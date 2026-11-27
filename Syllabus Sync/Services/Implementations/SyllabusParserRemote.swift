@@ -14,11 +14,13 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
     @Published private(set) var latestRawResponse: String?
     @Published private(set) var preprocessedText: String?
     @Published private(set) var gradingScheme: [GradingSchemeEntry] = []
+    @Published private(set) var usageSnapshot: AIScanUsageSnapshot?
 
     var latestDiagnostics: ParseDiagnostics? { diagnostics }
     var rawResponse: String? { latestRawResponse }
     var latestPreprocessedText: String? { preprocessedText }
     var latestGradingScheme: [GradingSchemeEntry] { gradingScheme }
+    var latestUsageSnapshot: AIScanUsageSnapshot? { usageSnapshot }
 
     init(apiClient: APIClient) {
         self.apiClient = apiClient
@@ -28,15 +30,15 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
         self.encoder = encoder
     }
 
-    func parse(text: String) async throws -> [EventItem] {
-        try await performParse(text: text, courseCode: nil)
+    func parse(text: String, requestID: String?) async throws -> [EventItem] {
+        try await performParse(text: text, courseCode: nil, requestID: requestID)
     }
 
-    func parse(text: String, courseCode: String) async throws -> [EventItem] {
-        try await performParse(text: text, courseCode: courseCode)
+    func parse(text: String, courseCode: String, requestID: String?) async throws -> [EventItem] {
+        try await performParse(text: text, courseCode: courseCode, requestID: requestID)
     }
 
-    private func performParse(text: String, courseCode: String?) async throws -> [EventItem] {
+    private func performParse(text: String, courseCode: String?, requestID: String?) async throws -> [EventItem] {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             diagnostics = nil
@@ -49,6 +51,8 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
         let body = try encoder.encode(payload)
         var request = APIRequest(path: "/parse", method: .post, headers: [:], body: body, timeout: 90)
         request.headers["Content-Type"] = "application/json"
+        request.headers["x-ai-provider"] = "openrouter"
+        request.headers["x-idempotency-key"] = requestID ?? UUID().uuidString
         do {
             let token = try await SupabaseAuthService.shared.supabase.auth.session.accessToken
             request.headers["Authorization"] = "Bearer \(token)"
@@ -66,6 +70,7 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
             #endif
             preprocessedText = response.preprocessedText
             gradingScheme = response.gradingScheme ?? []
+            usageSnapshot = response.usage
             return response.events
         } catch {
             latestRawResponse = nil
@@ -77,6 +82,7 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
 
     private func mapDiagnostics(from response: ParseResult) -> ParseDiagnostics {
         let envelope = response.diagnostics
+        let provider = envelope?.openrouter ?? envelope?.openai
         return ParseDiagnostics(
             source: response.source,
             confidence: response.confidence,
@@ -84,9 +90,9 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
             textLength: envelope?.textLength,
             warnings: envelope?.warnings,
             validation: envelope?.validation,
-            openAIModel: envelope?.openai?.usedModel,
-            openAIProcessingTimeMs: envelope?.openai?.processingTimeMs,
-            openAIDeniedReason: envelope?.openai?.denied
+            aiModel: provider?.usedModel,
+            aiProcessingTimeMs: provider?.processingTimeMs,
+            aiDeniedReason: provider?.denied
         )
     }
 
@@ -101,7 +107,7 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
                 return .network(description: "The parser took too long to respond. Please try again.")
             case .decoding:
                 return .decoding
-            case .server(let status, let message, let retryAfter):
+            case .server(let status, let message, let retryAfter, let rawBody):
                 switch status {
                 case 401:
                     return .unauthorized
@@ -109,6 +115,8 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
                     return .courseCodeMissing
                 case 429:
                     return .rateLimited(retryAfter: retryAfter)
+                case 402:
+                    return .paymentRequired(usage: decodeUsageSnapshot(from: rawBody))
                 default:
                     return .server(description: message ?? "The parser returned an error (status \(status)).")
                 }
@@ -120,6 +128,11 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
         }
 
         return .server(description: error.localizedDescription)
+    }
+
+    private func decodeUsageSnapshot(from rawBody: String?) -> AIScanUsageSnapshot? {
+        guard let rawBody, let data = rawBody.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(AIScanUsageEnvelope.self, from: data).usage
     }
 
     private func friendlyMessage(for error: Error) -> String {

@@ -19,7 +19,7 @@
    <img src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
    <img src="https://img.shields.io/badge/Node.js-339933?logo=node.js&logoColor=white" alt="Node.js" />
    <img src="https://img.shields.io/badge/Cloudflare%20Workers-F38020?logo=cloudflare&logoColor=white" alt="Cloudflare Workers" />
-   <img src="https://img.shields.io/badge/OpenAI-111111?logo=openai&logoColor=white" alt="OpenAI" />
+   <img src="https://img.shields.io/badge/OpenRouter-111111?logo=openrouter&logoColor=white" alt="OpenRouter" />
    <img src="https://img.shields.io/badge/EventKit-0A84FF?logo=apple&logoColor=white" alt="EventKit" />
    <img src="https://img.shields.io/badge/Supabase-3FCF8E?logo=supabase&logoColor=white" alt="Supabase" />
 </p>

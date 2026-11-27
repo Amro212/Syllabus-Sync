@@ -5,13 +5,13 @@ import type { GradingSchemeResult } from '../src/utils/extractGradingScheme.js';
 describe('buildParseSyllabusRequest', () => {
   const baseText = 'Assignment 1 due Sept 12, 2025.';
 
-  it('returns a well-formed OpenAI request', () => {
+  it('returns a well-formed OpenRouter request', () => {
     const { request } = buildParseSyllabusRequest(baseText, {
       courseCode: 'CS101',
       timezone: 'America/New_York',
     });
 
-    expect(request.model).toBe('gpt-4.1-mini');
+    expect(request.model).toBe('deepseek/deepseek-v4.1-flash-1017');
     expect(request.temperature).toBe(0);
     expect(request.response_format.type).toBe('json_schema');
     expect(request.messages.length).toBeGreaterThan(2); // system + fewshots + user
@@ -71,9 +71,9 @@ describe('buildParseSyllabusRequest', () => {
 
   it('uses custom model when specified', () => {
     const { request } = buildParseSyllabusRequest(baseText, {
-      model: 'gpt-4o',
+      model: 'mistralai/mistral-medium-3.1',
     });
-    expect(request.model).toBe('gpt-4o');
+    expect(request.model).toBe('mistralai/mistral-medium-3.1');
   });
 
   it('includes preprocessed text in user message', () => {

@@ -177,17 +177,17 @@ struct NetworkingTestView: View {
                 - Assignment 2 Due: October 5, 2024
                 """
                 
-                let result = try await parser.parse(text: sampleText)
+                let result = try await parser.parse(text: sampleText, requestID: UUID().uuidString)
                 
                 await MainActor.run {
                     testResults.append("✅ Parse endpoint successful")
                     testResults.append("📊 Found \(result.count) events")
                     if let diag = parser.latestDiagnostics {
-                        let path = "openai"
+                        let path = diag.source.rawValue
                         testResults.append("🧭 Parser path: \(path)")
                         testResults.append(String(format: "🎯 Confidence: %.3f", diag.confidence))
-                        if diag.source == .openai, let model = diag.openAIModel {
-                            testResults.append("🤖 OpenAI model: \(model)")
+                        if let model = diag.aiModel {
+                            testResults.append("🤖 AI model: \(model)")
                         }
                     }
                     

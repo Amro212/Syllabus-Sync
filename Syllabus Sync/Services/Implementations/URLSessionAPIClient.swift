@@ -179,21 +179,21 @@ final class URLSessionAPIClient: APIClient {
                     }
                 case 401:
                     let message = try decodeServerMessage(from: data)
-                    throw APIClientError.server(status: http.statusCode, message: message, retryAfter: nil)
+                    throw APIClientError.server(status: http.statusCode, message: message, retryAfter: nil, rawBody: decodeRawBody(from: data))
                 case 408, 500..<600:
                     let message = try decodeServerMessage(from: data)
                     if attempt < attempts - 1 {
-                        lastError = APIClientError.server(status: http.statusCode, message: message, retryAfter: parseRetryAfter(from: http))
+                        lastError = APIClientError.server(status: http.statusCode, message: message, retryAfter: parseRetryAfter(from: http), rawBody: decodeRawBody(from: data))
                         try await Task.sleep(nanoseconds: UInt64(0.8 * 1_000_000_000))
                         continue
                     }
-                    throw APIClientError.server(status: http.statusCode, message: message, retryAfter: parseRetryAfter(from: http))
+                    throw APIClientError.server(status: http.statusCode, message: message, retryAfter: parseRetryAfter(from: http), rawBody: decodeRawBody(from: data))
                 case 429:
                     let message = try decodeServerMessage(from: data)
-                    throw APIClientError.server(status: http.statusCode, message: message, retryAfter: parseRetryAfter(from: http))
+                    throw APIClientError.server(status: http.statusCode, message: message, retryAfter: parseRetryAfter(from: http), rawBody: decodeRawBody(from: data))
                 default:
                     let message = try decodeServerMessage(from: data)
-                    throw APIClientError.server(status: http.statusCode, message: message, retryAfter: parseRetryAfter(from: http))
+                    throw APIClientError.server(status: http.statusCode, message: message, retryAfter: parseRetryAfter(from: http), rawBody: decodeRawBody(from: data))
                 }
             } catch {
                 if let apiError = error as? APIClientError {
@@ -268,10 +268,10 @@ final class URLSessionAPIClient: APIClient {
             }
         case 401:
             let message = try decodeServerMessage(from: data)
-            throw APIClientError.server(status: http.statusCode, message: message, retryAfter: nil)
+            throw APIClientError.server(status: http.statusCode, message: message, retryAfter: nil, rawBody: decodeRawBody(from: data))
         default:
             let message = try decodeServerMessage(from: data)
-            throw APIClientError.server(status: http.statusCode, message: message, retryAfter: parseRetryAfter(from: http))
+            throw APIClientError.server(status: http.statusCode, message: message, retryAfter: parseRetryAfter(from: http), rawBody: decodeRawBody(from: data))
         }
     }
 
@@ -286,6 +286,11 @@ final class URLSessionAPIClient: APIClient {
             }
         }
         return nil
+    }
+
+    private func decodeRawBody(from data: Data) -> String? {
+        guard !data.isEmpty else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     private func parseRetryAfter(from response: HTTPURLResponse) -> Int? {

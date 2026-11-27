@@ -14,6 +14,7 @@ struct ImportView: View {
     @EnvironmentObject var importViewModel: ImportViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var isShowingFilePicker = false
+    @State private var showAIConsent = false
     @State private var currentImportTask: Task<Void, Never>? = nil
 
     var body: some View {
@@ -30,7 +31,7 @@ struct ImportView: View {
                     .transition(.opacity)
                 } else {
                     ImportContentView(
-                        onFilePicker: { isShowingFilePicker = true }
+                        onFilePicker: { showAIConsent = true }
                     )
                     .transition(.opacity)
                 }
@@ -49,7 +50,7 @@ struct ImportView: View {
                                 let success = await importViewModel.retryWithCourseCode(courseCode)
                                 if success && !Task.isCancelled {
                                     dismiss()
-                                    navigationManager.switchTab(to: .preview)
+                                    navigationManager.switchTab(to: .reminders)
                                 }
                             }
                         },
@@ -57,7 +58,7 @@ struct ImportView: View {
                             HapticFeedbackManager.shared.lightImpact()
                             importViewModel.errorState = nil
                             dismiss()
-                            navigationManager.switchTab(to: .preview)
+                            navigationManager.switchTab(to: .reminders)
                         }
                     )
                     .transition(.opacity)
@@ -79,6 +80,12 @@ struct ImportView: View {
                 }
             }
         }
+        .alert(AIScanConsent.title, isPresented: $showAIConsent) {
+            Button("Allow and choose PDF") { isShowingFilePicker = true }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(AIScanConsent.message)
+        }
         .fileImporter(
             isPresented: $isShowingFilePicker,
             allowedContentTypes: [.pdf],
@@ -99,7 +106,7 @@ struct ImportView: View {
                 if success && !Task.isCancelled {
                     await MainActor.run {
                         dismiss()
-                        navigationManager.switchTab(to: .preview)
+                        navigationManager.switchTab(to: .reminders)
                     }
                 }
                 // Cleanup after task completes

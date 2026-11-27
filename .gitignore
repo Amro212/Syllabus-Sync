@@ -13,6 +13,8 @@ architecture.md
 /.github/prompts
 /.kilo
 /TestDocs
+# Local syllabus PDFs used for import testing
+/output/pdf/**/*.pdf
 skills-lock.json
 /.stitch
 

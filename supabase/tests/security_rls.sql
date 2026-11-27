@@ -49,10 +49,10 @@ begin
   if not exists (
     select 1
     from pg_trigger
-    where tgname = 'friends_rate_limit'
+    where tgname = 'friend_request_create_friendship'
       and not tgisinternal
   ) then
-    raise exception 'friends rate-limit trigger missing';
+    raise exception 'friendship creation trigger missing';
   end if;
 
   if not exists (
@@ -62,5 +62,11 @@ begin
       and not tgisinternal
   ) then
     raise exception 'blocked_users rate-limit trigger missing';
+  end if;
+  if has_function_privilege('authenticated', 'public.credit_ai_purchase(uuid,text,text,text,text,text,integer,jsonb)', 'execute')
+    or has_function_privilege('anon', 'public.reserve_ai_parse_credit(uuid,text)', 'execute')
+    or has_table_privilege('authenticated', 'public.ai_usage_accounts', 'update')
+    or has_table_privilege('authenticated', 'public.friends', 'insert') then
+    raise exception 'A client role can write application-managed data';
   end if;
 end $$;

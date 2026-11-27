@@ -5,6 +5,7 @@
 //  Created by Amro Zabin on 2025-09-06.
 //
 
+import AuthenticationServices
 import Foundation
 import SwiftUI
 
@@ -18,7 +19,7 @@ enum AppRoute: Hashable {
     case dashboard
     case reminders
     case importSyllabus
-    case preview
+    case friends
     case parseReview
     case calendar
     case courseDetail(course: Course)
@@ -33,7 +34,7 @@ enum AppRoute: Hashable {
         case .dashboard: return "Dashboard"
         case .reminders: return "Reminders"
         case .importSyllabus: return "Import Syllabus"
-        case .preview: return "Preview"
+        case .friends: return "Friends"
         case .parseReview: return "Review Events"
         case .calendar: return "Calendar"
         case .courseDetail: return "Course Details"
@@ -50,7 +51,7 @@ enum AppRoute: Hashable {
         case .dashboard: return "house"
         case .reminders: return "bell"
         case .importSyllabus: return "plus.circle"
-        case .preview: return "eye"
+        case .friends: return "person.2"
         case .parseReview: return "checklist"
         case .calendar: return "calendar"
         case .courseDetail: return "book"
@@ -98,7 +99,8 @@ class AppNavigationManager: ObservableObject {
         navigationPath = NavigationPath()
         
         // Show tab bar for main app sections
-        isTabBarVisible = [.dashboard, .reminders, .importSyllabus, .profile].contains(route)
+        isTabBarVisible = [.dashboard, .reminders, .importSyllabus, .friends, .profile].contains(route)
+        if isTabBarVisible { selectedTabRoute = route }
         
         HapticFeedbackManager.shared.mediumImpact()
     }
@@ -114,7 +116,7 @@ class AppNavigationManager: ObservableObject {
 
 private extension AppNavigationManager {
     var isSignedInShellRoute: Bool {
-        [.dashboard, .reminders, .importSyllabus, .profile].contains(currentRoute)
+        [.dashboard, .reminders, .importSyllabus, .friends, .profile].contains(currentRoute)
     }
 }
 
@@ -127,6 +129,7 @@ struct AppRoot: View {
     @StateObject private var themeManager = ThemeManager()
     @StateObject private var eventStore: EventStore
     @StateObject private var importViewModel: ImportViewModel
+    @StateObject private var aiUsageStore: AIScanUsageStore
     @StateObject private var courseRepository: CourseRepository
     @StateObject private var gradingRepository: GradingRepository
     @StateObject private var notificationCoordinator = AppNotificationCoordinator.shared
@@ -135,10 +138,12 @@ struct AppRoot: View {
         let store = EventStore()
         let gradingRepo = GradingRepository()
         let courseRepo = CourseRepository()
-        let parser = SyllabusParserRemote(apiClient: AppConfiguration.makeAPIClient(requestTimeout: 90, maxRetryCount: 2))
+        let apiClient = AppConfiguration.makeAPIClient(requestTimeout: 90, maxRetryCount: 2)
+        let parser = SyllabusParserRemote(apiClient: apiClient)
         _eventStore = StateObject(wrappedValue: store)
         _gradingRepository = StateObject(wrappedValue: gradingRepo)
         _courseRepository = StateObject(wrappedValue: courseRepo)
+        _aiUsageStore = StateObject(wrappedValue: AIScanUsageStore(apiClient: apiClient))
         _importViewModel = StateObject(wrappedValue: ImportViewModel(
             extractor: PDFKitExtractor(),
             parser: parser,
@@ -159,6 +164,7 @@ struct AppRoot: View {
         .environmentObject(themeManager)
         .environmentObject(eventStore)
         .environmentObject(importViewModel)
+        .environmentObject(aiUsageStore)
         .environmentObject(courseRepository)
         .environmentObject(gradingRepository)
         .environmentObject(notificationCoordinator)
@@ -167,6 +173,19 @@ struct AppRoot: View {
             notificationCoordinator.configure()
             AppLog.debug("AppRoot appeared, currentRoute: \(navigationManager.currentRoute)")
         }
+        .onReceive(NotificationCenter.default.publisher(for: .syllabusAccountDeleted)) { _ in
+            clearAccountCaches()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ASAuthorizationAppleIDProvider.credentialRevokedNotification)) { _ in
+            guard let user = SupabaseAuthService.shared.currentUser, user.provider == .apple else { return }
+            Task {
+                await SupabaseAuthService.shared.signOutAfterAppleRevocation()
+                eventStore.clearEvents()
+                clearAccountCaches()
+                await notificationCoordinator.clearForSignOut(userId: user.id)
+                navigationManager.setRoot(to: .auth)
+            }
+        }
         .task(id: navigationManager.currentRoute) {
             await loadAuthenticatedDataIfNeeded()
         }
@@ -174,8 +193,10 @@ struct AppRoot: View {
             guard phase == .active else { return }
             notificationCoordinator.recordAppOpen()
             Task {
+                async let usageRefresh: Void = refreshAIUsageOnActivation()
                 await notificationCoordinator.refreshAuthorizationStatus()
                 await notificationCoordinator.reconcile(events: eventStore.events)
+                await usageRefresh
             }
         }
         .onChange(of: eventStore.events) { _, events in
@@ -185,8 +206,22 @@ struct AppRoot: View {
         }
     }
 
-    private func loadAuthenticatedDataIfNeeded() async {
+    private func clearAccountCaches() {
+        importViewModel.clearResults()
+        courseRepository.clearCache()
+        gradingRepository.clearCache()
+    }
+
+    private func refreshAIUsageOnActivation() async {
         guard navigationManager.isSignedInShellRoute else { return }
+        await aiUsageStore.refresh(force: false)
+    }
+
+    private func loadAuthenticatedDataIfNeeded() async {
+        guard navigationManager.isSignedInShellRoute else {
+            if navigationManager.currentRoute == .auth { await aiUsageStore.refresh(force: false) }
+            return
+        }
         guard SupabaseAuthService.shared.isAuthenticated else { return }
 
         // Route changes happen after launch/auth decisions, so this avoids
@@ -194,7 +229,8 @@ struct AppRoot: View {
         async let eventsLoad: Void = eventStore.fetchEvents()
         async let coursesLoad: Void = courseRepository.refresh()
         async let gradingLoad: Void = gradingRepository.fetchAll()
-        _ = await (eventsLoad, coursesLoad, gradingLoad)
+        async let usageLoad: Void = aiUsageStore.refresh()
+        _ = await (eventsLoad, coursesLoad, gradingLoad, usageLoad)
         await notificationCoordinator.reconcile(events: eventStore.events)
     }
     
@@ -211,7 +247,7 @@ struct AppRoot: View {
             case .auth:
                 AuthView()
                     .transition(.dissolve)
-            case .dashboard, .reminders, .importSyllabus, .profile:
+            case .dashboard, .reminders, .importSyllabus, .friends, .profile:
                 TabNavigationView()
                     .transition(.slide)
             default:
@@ -238,8 +274,8 @@ struct AppRoot: View {
             RemindersView()
         case .importSyllabus:
             AISyllabusScanModal()
-        case .preview:
-            PreviewView()
+        case .friends:
+            SocialHubView()
         case .parseReview:
             ParseReviewView()
         case .calendar:
@@ -262,17 +298,7 @@ struct TabNavigationView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
     @EnvironmentObject var eventStore: EventStore
     @EnvironmentObject var importViewModel: ImportViewModel
-    
-    /// Custom function to handle back navigation in tab context
-    private func handleBackNavigation() {
-        // If we're not on the dashboard tab, go to dashboard
-        // Otherwise, use normal back navigation
-        if navigationManager.selectedTabRoute != .dashboard {
-            navigationManager.switchTab(to: .dashboard)
-        } else {
-            navigationManager.popBack()
-        }
-    }
+    @EnvironmentObject var aiUsageStore: AIScanUsageStore
     
     @State private var showingImportSheet = false
     @State private var fabExpanded = false
@@ -289,8 +315,8 @@ struct TabNavigationView: View {
                     DashboardView()
                 case .reminders:
                     RemindersView()
-                case .preview:
-                    PreviewView()
+                case .friends:
+                    SocialHubView()
                 case .calendar:
                     CalendarView()
                 case .profile:
@@ -326,6 +352,7 @@ struct TabNavigationView: View {
                         icon: "calendar.badge.plus",
                         label: "Add Reminder",
                         emphasized: true,
+                        badgeText: nil,
                         isVisible: showFabActions,
                         rowDelay: 0.0,
                         action: {
@@ -344,8 +371,9 @@ struct TabNavigationView: View {
                     // AI Syllabus Scan option
                     FABOption(
                         icon: "sparkles",
-                        label: "AI Syllabus Scan",
+                        label: aiScanLabel,
                         emphasized: false,
+                        badgeText: aiScanBadge,
                         isVisible: showFabActions,
                         rowDelay: 0.03,
                         action: {
@@ -372,26 +400,27 @@ struct TabNavigationView: View {
                         .shadow(color: AppColors.shadow.opacity(0.22), radius: 14, x: 0, y: 8)
                 )
                 .fixedSize()
-                .padding(.bottom, 108)
+                .padding(.bottom, Layout.Spacing.sm)
                 .transition(.scale(scale: 0.92, anchor: .bottom).combined(with: .opacity).combined(with: .move(edge: .bottom)))
                 .zIndex(11) // Above backdrop
             }
             
-            // Custom Tab Bar
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             CustomTabBar(onFabTapped: {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                     fabExpanded.toggle()
                     showFabActions = fabExpanded
                 }
             }, isFabExpanded: fabExpanded)
-            .zIndex(12) // Topmost to ensure button clicks work
         }
-        .ignoresSafeArea(.keyboard) 
-        .sheet(isPresented: $showingImportSheet) {
+        .toolbar(.hidden, for: .navigationBar)
+        .task {
+            await aiUsageStore.refresh(force: false)
+        }
+        .fullScreenCover(isPresented: $showingImportSheet) {
             AISyllabusScanModal()
-                .presentationDetents([.height(300)])
-                .presentationDragIndicator(.hidden)
-                .presentationCornerRadius(20)
+                .presentationBackground(.clear)
         }
         .fullScreenCover(item: $editingEvent) { event in
             EventEditView(event: event, isCreatingNew: isCreatingNewEvent) { updated in
@@ -409,7 +438,7 @@ struct TabNavigationView: View {
                 editingEvent = nil
             }
         }
-        .onChange(of: navigationManager.selectedTabRoute) { _ in
+        .onChange(of: navigationManager.selectedTabRoute) { _, _ in
             HapticFeedbackManager.shared.selection()
             // Close FAB if tab changes
             fabExpanded = false
@@ -443,6 +472,18 @@ struct TabNavigationView: View {
         isCreatingNewEvent = true
         editingEvent = newEvent
     }
+
+    private var aiScanLabel: String {
+        aiUsageStore.canStartScan ? "AI Syllabus Scan" : "Unlock AI Syllabus Scan"
+    }
+
+    private var aiScanBadge: String? {
+        guard let snapshot = aiUsageStore.snapshot else { return nil }
+        if snapshot.totalRemaining > 0 {
+            return snapshot.totalRemaining == 1 ? "1 left" : "\(snapshot.totalRemaining) left"
+        }
+        return "Buy 5"
+    }
 }
 
 // Reusable FAB Option Component
@@ -450,6 +491,7 @@ private struct FABOption: View {
     let icon: String
     let label: String
     let emphasized: Bool
+    let badgeText: String?
     let isVisible: Bool
     let rowDelay: Double
     let action: () -> Void
@@ -478,6 +520,18 @@ private struct FABOption: View {
                     .foregroundColor(AppColors.textPrimary)
                     .lineLimit(1)
                     .fixedSize()
+
+                if let badgeText {
+                    Text(badgeText)
+                        .font(.lexend(size: 11, weight: .bold))
+                        .foregroundColor(badgeText == "Buy 5" ? AppColors.background : AppColors.textPrimary)
+                        .padding(.horizontal, Layout.Spacing.sm)
+                        .frame(height: 22)
+                        .background(
+                            Capsule()
+                                .fill(badgeText == "Buy 5" ? AppColors.accent : AppColors.surfaceSecondary)
+                        )
+                }
             }
             .padding(.horizontal, Layout.Spacing.sm + 2)
             .padding(.vertical, 9)

@@ -11,6 +11,10 @@ final class CourseRepository: ObservableObject {
         // Courses will be loaded when needed
     }
     
+    func clearCache() {
+        courses = []
+    }
+
     // MARK: - Fetch
     
     func refresh() async {

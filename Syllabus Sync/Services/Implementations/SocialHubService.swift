@@ -330,40 +330,23 @@ final class SocialHubService {
         }
     }
 
-    /// Accept an incoming friend request – creates friendship and updates request status
+    /// Accept an incoming friend request. The database creates the friendship in the same transaction.
     func acceptFriendRequest(requestId: String, fromUserId: String) async -> String? {
         guard let uid = currentUserId else { return "Not authenticated" }
         guard isValidUUIDString(requestId), isValidUUIDString(fromUserId) else { return "Invalid request" }
 
         do {
-            // Check if already friends (race condition protection)
-            let friendIds = await fetchFriendUserIds()
-            if friendIds.contains(fromUserId) {
-                return "You are already friends with this user"
-            }
-
-            // Update request status
-            try await supabase
+            let accepted: [FriendRequest] = try await supabase
                 .from("friend_requests")
                 .update(["status": "accepted", "updated_at": ISO8601DateFormatter().string(from: Date())])
                 .eq("id", value: requestId)
+                .eq("from_user_id", value: fromUserId)
                 .eq("to_user_id", value: uid)
                 .eq("status", value: "pending")
+                .select()
                 .execute()
-
-            // Create friendship (order user ids for consistent unique pair)
-            let (a, b) = uid < fromUserId ? (uid, fromUserId) : (fromUserId, uid)
-            let friendship = FriendshipInsert(
-                id: UUID().uuidString,
-                userAId: a,
-                userBId: b
-            )
-            try await supabase
-                .from("friends")
-                .insert(friendship)
-                .execute()
-
-            AppLog.debug("✅ Friend request accepted, friendship created")
+                .value
+            guard !accepted.isEmpty else { return "This friend request is no longer pending." }
             return nil
         } catch let error as URLError {
             AppLog.debug("⚠️ Network error accepting request: \(error)")

@@ -5,11 +5,14 @@
 //  Created by Assistant on 2024-01-01.
 //
 
+import AuthenticationServices
+import CryptoKit
 import SwiftUI
 
 struct AuthView: View {
     @EnvironmentObject var navigationManager: AppNavigationManager
     @State private var isLoading = false
+    @State private var appleNonce: String?
     @State private var isSignInMode = true // Default to sign-in
     @State private var errorMessage: String?
     @State private var showError = false
@@ -370,11 +373,18 @@ struct AuthView: View {
                         handleGoogleTap()
                     }
                     
-                    // Apple Button  
-                    AppleSignInButton(isLoading: $isLoading) {
-                        handleAppleTap()
-                    }
+                    SignInWithAppleButton(.continue, onRequest: configureAppleRequest, onCompletion: handleAppleSignIn)
+                        .signInWithAppleButtonStyle(.white)
+                        .frame(height: 56)
+                        .clipShape(Capsule())
+                        .disabled(isLoading)
                     
+                    if let privacyURL = AppConfiguration.privacyPolicyURL {
+                        Link("Privacy Policy", destination: privacyURL)
+                            .font(.footnote)
+                            .foregroundStyle(AuthPalette.primary)
+                    }
+
                     // Sign In / Sign Up Toggle
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) {
@@ -443,24 +453,46 @@ struct AuthView: View {
         }
     }
     
-    private func handleAppleTap() {
-        guard !isLoading else { return }
-        
-        isLoading = true
-        HapticFeedbackManager.shared.mediumImpact()
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-            isLoading = false
-            HapticFeedbackManager.shared.success()
-            
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) {
-                navigationManager.setRoot(to: .onboarding)
+    private func configureAppleRequest(_ request: ASAuthorizationAppleIDRequest) {
+        let nonce = UUID().uuidString + UUID().uuidString
+        appleNonce = nonce
+        request.nonce = SHA256.hash(data: Data(nonce.utf8)).map { String(format: "%02x", $0) }.joined()
+        request.requestedScopes = [.fullName, .email]
+    }
+
+    private func handleAppleSignIn(_ result: Result<ASAuthorization, Error>) {
+        let nonce = appleNonce
+        appleNonce = nil
+
+        do {
+            let authorization = try result.get()
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                  let token = credential.identityToken.flatMap({ String(data: $0, encoding: .utf8) }),
+                  let nonce else {
+                throw AuthError.unknownError("Apple did not return a valid sign-in credential. Please try again.")
             }
+            isLoading = true
+            Task {
+                defer { isLoading = false }
+                switch await authService.signInWithApple(idToken: token, nonce: nonce, fullName: credential.fullName) {
+                case .success:
+                    HapticFeedbackManager.shared.success()
+                    withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) {
+                        navigationManager.setRoot(to: .dashboard)
+                    }
+                case .failure(let error):
+                    HapticFeedbackManager.shared.error()
+                    errorMessage = error.localizedDescription
+                    showError = true
+                }
+            }
+        } catch {
+            guard (error as? ASAuthorizationError)?.code != .canceled else { return }
+            errorMessage = error.localizedDescription
+            showError = true
         }
     }
-    
-    
-    
+
     // MARK: - Form Validation
     
     private var isFormValid: Bool {
@@ -667,33 +699,6 @@ struct AuthView: View {
 }
 
 // MARK: - Button Components
-
-struct AppleSignInButton: View {
-    @Binding var isLoading: Bool
-    var action: () -> Void
-    
-    var body: some View {
-        AuthButton(
-            title: isLoading ? "Signing in..." : "Continue with Apple",
-            textColor: .white,
-            background: LinearGradient(
-                colors: [AuthPalette.appleGoldLight, AuthPalette.appleGoldDark],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
-            borderColor: nil,
-            shadowColor: AuthPalette.appleShadow,
-            isLoading: isLoading,
-            loadingTint: .white,
-            action: action
-        ) {
-            Image(systemName: "applelogo")
-                .font(.lexend(size: 20, weight: .semibold))
-        }
-        .disabled(isLoading)
-        .animation(.spring(response: 0.35, dampingFraction: 0.7), value: isLoading)
-    }
-}
 
 struct EmailSignInButton: View {
     var action: () -> Void

@@ -115,6 +115,10 @@ struct ProfileView: View {
                             )
                         }
 
+                        ProfileSection(title: "AI Scans") {
+                            AIScanCommerceCard()
+                        }
+
                         // Account Actions Section
                         ProfileSection(title: "Account") {
                             if viewModel.provider == .email {
@@ -134,14 +138,27 @@ struct ProfileView: View {
                                 isDestructive: true,
                                 onTap: { viewModel.showSignOutAlert = true }
                             )
+                            .disabled(viewModel.isDeletingAccount)
+
+                            ActionRow(
+                                title: viewModel.isDeletingAccount ? "Deleting account…" : "Delete Account",
+                                icon: "trash",
+                                isDestructive: true,
+                                onTap: { viewModel.showDeleteAccountAlert = true }
+                            )
+                            .disabled(viewModel.isDeletingAccount)
                         }
 
-                        // Footer
-                        Text("Version 1.0 (Beta)")
-                            .font(.lexend(size: 12, weight: .regular))
-                            .foregroundColor(AppColors.textSecondary)
-                            .padding(.top, Layout.Spacing.lg)
-                            .padding(.bottom, 100)
+                        if let privacyURL = AppConfiguration.privacyPolicyURL,
+                           let supportURL = AppConfiguration.supportURL {
+                            HStack(spacing: Layout.Spacing.lg) {
+                                Link("Privacy Policy", destination: privacyURL)
+                                Link("Support", destination: supportURL)
+                            }
+                            .font(.footnote)
+                            .foregroundStyle(AppColors.accent)
+                            .padding(.bottom, Layout.Spacing.md)
+                        }
                     }
                     .padding(.top, Layout.Spacing.md)
                 }
@@ -192,6 +209,22 @@ struct ProfileView: View {
             }
         } message: {
             Text("Are you sure you want to sign out?")
+        }
+        .alert("Permanently delete your account?", isPresented: $viewModel.showDeleteAccountAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete Account", role: .destructive) {
+                Task { await viewModel.deleteAccount() }
+            }
+        } message: {
+            Text("Your profile, courses, reminders, friends, and remaining scan credits will be deleted. If you used Sign in with Apple, remove Syllabus Sync from Sign-In & Security in your Apple Account settings after deletion.")
+        }
+        .alert("Couldn’t confirm deletion", isPresented: Binding(
+            get: { viewModel.accountDeletionError != nil },
+            set: { if !$0 { viewModel.accountDeletionError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(viewModel.accountDeletionError ?? "")
         }
         // Edit sheets
         .sheet(isPresented: $viewModel.showEditUsername) {

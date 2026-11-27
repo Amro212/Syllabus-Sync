@@ -1,20 +1,32 @@
+import { releasePage } from './releasePages';
 /**
  * Syllabus Sync Server - Cloudflare Workers API
  * 
  * Provides endpoints for:
  * - Health check
- * - Syllabus parsing via OpenAI
+ * - Syllabus parsing via OpenRouter
  * - PDF upload/storage (optional)
  */
 import { logRequest, logError, nowIso } from './logging';
-import { ensureOpenAIKey } from './env';
+import { DEFAULT_OPENROUTER_MODEL, ensureOpenRouterKey } from './env';
 import { validateEvents, type ValidationConfig } from './validation/eventValidation';
 import { ensureSchemeCoverage } from './validation/eventValidation';
 import { buildParseSyllabusRequest } from './prompts/parseSyllabus';
 import { detectCourseCode } from './utils/courseCode';
-import { callOpenAIParse } from './clients/openai';
+import { callOpenRouterParse } from './clients/openrouter';
 import { splitMultiDayRecurrence } from './utils/splitMultiDayRecurrence';
 import { extractGradingScheme } from './utils/extractGradingScheme';
+import {
+	aiPackCredits,
+	aiProductID,
+	creditPurchase,
+	findPurchaseEventByTransactionID,
+	finalizeParseCredit,
+	getAIUsageBalance,
+	refundParseCredit,
+	reserveParseCredit,
+} from './aiUsage';
+import { verifyAppStorePurchase } from './appStore';
 
 type SocialUserProfileRow = {
 	id: string;
@@ -70,14 +82,14 @@ type DurableLimitResponse = {
 // Basic in-memory token buckets (local/test fallback only).
 const buckets = new Map<string, { tokens: number; lastRefill: number }>();
 
-// Basic in-memory OpenAI usage tracking (per-isolate, best-effort)
-type OpenAIUsage = {
+// Basic in-memory OpenRouter usage tracking (per-isolate, best-effort)
+type OpenRouterUsage = {
 	dayKey: string; // YYYY-MM-DD UTC
 	totalCalls: number;
 	totalCost: number;
 	perIpCalls: Map<string, number>;
 };
-const openaiUsage: OpenAIUsage = {
+const openrouterUsage: OpenRouterUsage = {
 	dayKey: new Date().toISOString().slice(0, 10),
 	totalCalls: 0,
 	totalCost: 0,
@@ -169,13 +181,13 @@ function inFilter(values: string[]): string {
 	return `in.(${values.join(',')})`;
 }
 
-function resetOpenAIUsageIfNewDay() {
+function resetOpenRouterUsageIfNewDay() {
 	const today = new Date().toISOString().slice(0, 10);
-	if (openaiUsage.dayKey !== today) {
-		openaiUsage.dayKey = today;
-		openaiUsage.totalCalls = 0;
-		openaiUsage.totalCost = 0;
-		openaiUsage.perIpCalls.clear();
+	if (openrouterUsage.dayKey !== today) {
+		openrouterUsage.dayKey = today;
+		openrouterUsage.totalCalls = 0;
+		openrouterUsage.totalCost = 0;
+		openrouterUsage.perIpCalls.clear();
 	}
 }
 
@@ -334,6 +346,10 @@ export default {
 		const requestId = (globalThis as any).crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
 		const startedAt = Date.now();
 
+		if (method === 'GET' && (path === '/privacy' || path === '/support')) {
+			return releasePage(path);
+		}
+
 		// Build CORS allow-list from env
 		const allowedOriginPatterns = (env.ALLOWED_ORIGINS ?? '')
 			.split(',')
@@ -364,8 +380,8 @@ export default {
 
 		const buildCorsHeaders = (origin: string | null) => {
 			const headers: Record<string, string> = {
-				'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-				'Access-Control-Allow-Headers': 'content-type, x-client-id, authorization',
+				'Access-Control-Allow-Methods': path === '/account' ? 'DELETE, OPTIONS' : 'GET, POST, OPTIONS',
+				'Access-Control-Allow-Headers': 'content-type, x-client-id, x-idempotency-key, x-ai-provider, authorization',
 				'Vary': 'Origin',
 			};
 			if (origin && isOriginAllowed(origin)) {
@@ -377,8 +393,8 @@ export default {
 		const corsHeaders = buildCorsHeaders(originHeader);
 
 		// Fail-fast if required secrets are missing (Task 4.5)
-		const openaiCheck = ensureOpenAIKey(env);
-		if (!openaiCheck.ok) {
+		const openrouterCheck = ensureOpenRouterKey(env);
+		if (path === '/parse' && !openrouterCheck.ok) {
 			const status = 500;
 			logError(env, {
 				ts: nowIso(),
@@ -387,9 +403,9 @@ export default {
 				method,
 				status,
 				durationMs: Date.now() - startedAt,
-				error: { message: openaiCheck.message, code: openaiCheck.code },
+				error: { message: openrouterCheck.message, code: openrouterCheck.code },
 			});
-			return new Response(JSON.stringify({ error: openaiCheck.message, code: openaiCheck.code }), {
+			return new Response(JSON.stringify({ error: openrouterCheck.message, code: openrouterCheck.code }), {
 				status,
 				headers: { 'Content-Type': 'application/json', ...corsHeaders },
 			});
@@ -454,8 +470,177 @@ export default {
 				return res;
 			}
 
+
+			if (path === '/account' && request.method === 'DELETE') {
+				if (!isOriginAllowed(originHeader)) {
+					return json({ error: 'Forbidden: origin not allowed' }, { status: 403 });
+				}
+				const auth = await authenticateRequest(env, request);
+				if (!auth.ok) return json({ error: auth.error }, { status: auth.status });
+
+				// Supabase cascades deletion to the app records owned by this account.
+				const response = await fetch(new URL(`/auth/v1/admin/users/${encodeURIComponent(auth.user.id)}`, env.SUPABASE_URL), {
+					method: 'DELETE',
+					headers: {
+						Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+						apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+					},
+				});
+				if (!response.ok) {
+					logRequest(env, 'error', { ts: nowIso(), requestId, route: path, method, status: 502, durationMs: Date.now() - startedAt });
+					return json({ error: 'Unable to delete your account right now. Please try again or contact support.' }, { status: 502 });
+				}
+				return json({ deleted: true });
+			}
+
+			if (path === '/ai-usage' && request.method === 'GET') {
+				if (!isOriginAllowed(originHeader)) {
+					const status = 403;
+					logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Forbidden: origin not allowed' }, { status });
+				}
+
+				const auth = await authenticateRequest(env, request);
+				if (!auth.ok) {
+					const status = auth.status;
+					logRequest(env, status >= 500 ? 'error' : 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: auth.error }, { status });
+				}
+
+				const usage = await getAIUsageBalance(env, auth.user.id);
+				logRequest(env, 'info', {
+					ts: nowIso(),
+					requestId,
+					route: path,
+					method,
+					status: 200,
+					durationMs: Date.now() - startedAt,
+				});
+				return json({ usage });
+			}
+
+			if (path === '/iap/credit' && request.method === 'POST') {
+				if (!isOriginAllowed(originHeader)) {
+					const status = 403;
+					logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Forbidden: origin not allowed' }, { status });
+				}
+
+				const auth = await authenticateRequest(env, request);
+				if (!auth.ok) {
+					const status = auth.status;
+					logRequest(env, status >= 500 ? 'error' : 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: auth.error }, { status });
+				}
+
+				const contentType = request.headers.get('content-type') || '';
+				if (!contentType.toLowerCase().startsWith('application/json')) {
+					const status = 415;
+					logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Unsupported Media Type: application/json required' }, { status });
+				}
+
+				let body: any;
+				try {
+					body = await request.json();
+				} catch {
+					const status = 400;
+					logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Bad Request: invalid JSON' }, { status });
+				}
+
+				const transactionID = typeof body?.transactionId === 'string' ? body.transactionId.trim() : '';
+				if (!transactionID) {
+					const status = 400;
+					logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'transactionId is required.' }, { status });
+				}
+
+				const expectedProductID = aiProductID(env);
+				const requestedProductID = typeof body?.productId === 'string' ? body.productId.trim() : expectedProductID;
+				if (requestedProductID !== expectedProductID) {
+					const status = 400;
+					logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Unsupported product identifier.' }, { status });
+				}
+
+				const existingPurchase = await findPurchaseEventByTransactionID(env, transactionID);
+				if (existingPurchase && existingPurchase.user_id !== auth.user.id) {
+					const status = 409;
+					logRequest(env, 'warn', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'This purchase is already linked to another account.' }, { status });
+				}
+
+				if (existingPurchase) {
+					const usage = await getAIUsageBalance(env, auth.user.id);
+					logRequest(env, 'info', { ts: nowIso(), requestId, route: path, method, status: 200, durationMs: Date.now() - startedAt });
+					return json({ usage, credited: false, duplicate: true });
+				}
+
+				const verifiedPurchase = await verifyAppStorePurchase(env, {
+					transactionID,
+					environment: typeof body?.environment === 'string' ? body.environment : null,
+					signedTransactionInfo: typeof body?.signedTransactionInfo === 'string' ? body.signedTransactionInfo : null,
+				});
+				const expectedBundleID = ((env as any).APPLE_BUNDLE_ID as string | undefined)?.trim() || 'SylSyn.Syllabus-Sync';
+
+				if (verifiedPurchase.bundleID !== expectedBundleID) {
+					const status = 400;
+					logRequest(env, 'warn', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Purchase bundle identifier does not match this app.' }, { status });
+				}
+
+				if (verifiedPurchase.productID !== expectedProductID) {
+					const status = 400;
+					logRequest(env, 'warn', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Purchase product identifier does not match AI scan top-up.' }, { status });
+				}
+
+				if (verifiedPurchase.transactionID !== transactionID) {
+					const status = 400;
+					logRequest(env, 'warn', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Purchase transaction identifier does not match.' }, { status });
+				}
+
+				if (verifiedPurchase.appAccountToken?.toLowerCase() !== auth.user.id.toLowerCase()) {
+					const status = 409;
+					logRequest(env, 'warn', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'Sign in to the Syllabus Sync account used for this purchase.' }, { status });
+				}
+
+				if (verifiedPurchase.revocationDate) {
+					const status = 409;
+					logRequest(env, 'warn', { ts: nowIso(), requestId, route: path, method, status, durationMs: Date.now() - startedAt });
+					return json({ error: 'This purchase has been refunded or revoked.' }, { status });
+				}
+
+				const usage = await creditPurchase(env, auth.user.id, {
+					transactionID: verifiedPurchase.transactionID,
+					originalTransactionID: verifiedPurchase.originalTransactionID,
+					appTransactionID: verifiedPurchase.appTransactionID,
+					productID: verifiedPurchase.productID,
+					environment: verifiedPurchase.environment,
+					credits: aiPackCredits(env),
+					metadata: {
+						signedDate: verifiedPurchase.signedDate,
+					},
+				});
+
+				logRequest(env, 'info', {
+					ts: nowIso(),
+					requestId,
+					route: path,
+					method,
+					status: 200,
+					durationMs: Date.now() - startedAt,
+				});
+				return json({ usage, credited: true, duplicate: false });
+			}
+
 			// Parse endpoint — Milestone 4.2: CORS + content validation + 4.3 rate limiting
 			if (path === '/parse' && request.method === 'POST') {
+				let reservedUsageEventID: string | null = null;
+				let shouldRefundReservation = false;
 				try {
 					const parseStarted = Date.now();
 					// Enforce CORS allow-list
@@ -478,6 +663,13 @@ export default {
 							status,
 							headers: { 'Content-Type': 'application/json', ...corsHeaders },
 						});
+					}
+
+					if (isProduction(env) && request.headers.get('x-ai-provider') !== 'openrouter') {
+						return json({
+							error: 'Update Syllabus Sync and approve the OpenRouter disclosure to scan a syllabus.',
+							code: 'AI_CONSENT_REQUIRED',
+						}, { status: 409 });
 					}
 
 					const requestLimit = Number.parseInt(env.RATE_LIMIT_REQUESTS || '100', 10) || 100;
@@ -648,45 +840,80 @@ export default {
 						strict: false
 					};
 
-					resetOpenAIUsageIfNewDay();
-					const ip = getClientIp(request);
-					const perIpLimit = Number.parseInt((env as any).RATE_LIMIT_OPENAI || '10', 10) || 10;
-					const dailyBudget = Number.parseFloat((env as any).OPENAI_DAILY_BUDGET || '0');
-					const costPerCall = Number.parseFloat(((env as any).OPENAI_COST_PER_CALL as string) || '0.02');
-					const usageKey = `${auth.user.id}:${ip}`;
-					const usedByIp = openaiUsage.perIpCalls.get(usageKey) || 0;
-					const openAiWindowSec = 24 * 60 * 60;
-					const openAiLimiter = await consumeDurableLimit(env, `openai:user:${auth.user.id}`, perIpLimit, openAiWindowSec);
+					const usageReservation = await reserveParseCredit(
+						env,
+						auth.user.id,
+						request.headers.get('x-idempotency-key'),
+					);
+					reservedUsageEventID = usageReservation.eventID;
+					shouldRefundReservation = Boolean(usageReservation.eventID && !usageReservation.reused);
+					if (usageReservation.reused) {
+						return json({ error: 'This scan request has already been processed or is still running.' }, { status: 409 });
+					}
+					if (!usageReservation.canScan || !usageReservation.eventID) {
+						const status = 402;
+						logRequest(env, 'info', {
+							ts: nowIso(),
+							requestId,
+							route: path,
+							method,
+							status,
+							durationMs: Date.now() - startedAt,
+							openrouterDenied: 'no_scan_credits',
+						});
+						return json({
+							error: 'No AI scan credits remaining.',
+							code: 'PAYMENT_REQUIRED',
+							usage: usageReservation.usage,
+						}, { status });
+					}
 
-					if (openAiLimiter ? !openAiLimiter.allowed : usedByIp >= perIpLimit) {
+					resetOpenRouterUsageIfNewDay();
+					const ip = getClientIp(request);
+					const perIpLimit = Number.parseInt((env as any).RATE_LIMIT_OPENROUTER || '10', 10) || 10;
+					const dailyBudget = Number.parseFloat((env as any).OPENROUTER_DAILY_BUDGET || '0');
+					const costPerCall = Number.parseFloat(((env as any).OPENROUTER_COST_PER_CALL as string) || '0.02');
+					const usageKey = `${auth.user.id}:${ip}`;
+					const usedByIp = openrouterUsage.perIpCalls.get(usageKey) || 0;
+					const openRouterWindowSec = 24 * 60 * 60;
+					// Preserve the existing Durable Object counters during the provider switch.
+					const openRouterLimiter = await consumeDurableLimit(env, `openai:user:${auth.user.id}`, perIpLimit, openRouterWindowSec);
+
+					if (openRouterLimiter ? !openRouterLimiter.allowed : usedByIp >= perIpLimit) {
+						if (shouldRefundReservation) {
+							await refundParseCredit(env, usageReservation.eventID);
+						}
 						const status = 429;
 						logRequest(env, 'info', {
 							ts: nowIso(), requestId, route: path, method, status,
 							durationMs: Date.now() - startedAt,
-							openaiDenied: 'per_user_cap', perIpLimit, usedByIp,
+							openrouterDenied: 'per_user_cap', perIpLimit, usedByIp,
 						});
-						return new Response(JSON.stringify({ error: 'OpenAI usage limit reached. Please try again later.' }), {
+						return new Response(JSON.stringify({ error: 'OpenRouter usage limit reached. Please try again later.' }), {
 							status,
 							headers: {
 								'Content-Type': 'application/json',
-								...(openAiLimiter ? { 'Retry-After': String(openAiLimiter.retryAfterSec) } : {}),
+								...(openRouterLimiter ? { 'Retry-After': String(openRouterLimiter.retryAfterSec) } : {}),
 								...corsHeaders,
 							},
 						});
 					}
 
 					const budgetLimiter = dailyBudget > 0
-						? await consumeDurableLimit(env, `openai:budget:${new Date().toISOString().slice(0, 10)}`, Math.ceil(dailyBudget * 100_000), openAiWindowSec, Math.ceil(costPerCall * 100_000))
+						? await consumeDurableLimit(env, `openai:budget:${new Date().toISOString().slice(0, 10)}`, Math.ceil(dailyBudget * 100_000), openRouterWindowSec, Math.ceil(costPerCall * 100_000))
 						: null;
 
-					if (budgetLimiter ? !budgetLimiter.allowed : dailyBudget > 0 && (openaiUsage.totalCost + costPerCall) > dailyBudget) {
+					if (budgetLimiter ? !budgetLimiter.allowed : dailyBudget > 0 && (openrouterUsage.totalCost + costPerCall) > dailyBudget) {
+						if (shouldRefundReservation) {
+							await refundParseCredit(env, usageReservation.eventID);
+						}
 						const status = 429;
 						logRequest(env, 'info', {
 							ts: nowIso(), requestId, route: path, method, status,
 							durationMs: Date.now() - startedAt,
-							openaiDenied: 'budget_exceeded', dailyBudget, spent: openaiUsage.totalCost,
+							openrouterDenied: 'budget_exceeded', dailyBudget, spent: openrouterUsage.totalCost,
 						});
-						return new Response(JSON.stringify({ error: 'OpenAI budget exceeded. Try again tomorrow.' }), {
+						return new Response(JSON.stringify({ error: 'OpenRouter budget exceeded. Try again tomorrow.' }), {
 							status,
 							headers: { 'Content-Type': 'application/json', ...corsHeaders },
 						});
@@ -702,15 +929,18 @@ export default {
 						termStart: (body as any).termStart,
 						termEnd: (body as any).termEnd,
 						timezone: tz,
-						model: (env as any).OPENAI_MODEL || 'gpt-4.1-mini',
+						model: env.OPENROUTER_MODEL?.trim() || DEFAULT_OPENROUTER_MODEL,
 						gradingScheme,
 					});
 
 					let aiItems: unknown[];
 					const aiStarted = Date.now();
 					try {
-						aiItems = (await callOpenAIParse(env, promptReq, { requestId, route: path, method })) as unknown[];
+						aiItems = (await callOpenRouterParse(env, promptReq, { requestId, route: path, method })) as unknown[];
 					} catch (e) {
+						if (shouldRefundReservation) {
+							await refundParseCredit(env, usageReservation.eventID);
+						}
 						logError(env, {
 							ts: nowIso(),
 							requestId,
@@ -719,23 +949,23 @@ export default {
 							status: 502,
 							durationMs: Date.now() - startedAt,
 							error: {
-								message: (e as any)?.message || 'OpenAI parsing failed',
+								message: (e as any)?.message || 'OpenRouter parsing failed',
 								stack: (e as any)?.stack,
-								code: (e as any)?.code || 'OPENAI_ERROR'
+								code: (e as any)?.code || 'OPENROUTER_ERROR'
 							},
 						});
 						return new Response(JSON.stringify({
-							error: 'OpenAI parsing failed',
-							details: (e as any)?.message || 'Unknown error'
+							error: 'AI scanning is temporarily unavailable. Your scan credit was returned.',
+							...(!isProduction(env) && { details: (e as any)?.message || 'Unknown error' }),
 						}), {
 							status: 502,
 							headers: { 'Content-Type': 'application/json', ...corsHeaders },
 						});
 					}
 					const aiTime = Date.now() - aiStarted;
-					openaiUsage.totalCalls += 1;
-					openaiUsage.totalCost += costPerCall;
-					openaiUsage.perIpCalls.set(usageKey, usedByIp + 1);
+					openrouterUsage.totalCalls += 1;
+					openrouterUsage.totalCost += costPerCall;
+					openrouterUsage.perIpCalls.set(usageKey, usedByIp + 1);
 
 					const validationResult = validateEvents(aiItems, {
 						...validationConfig,
@@ -763,6 +993,9 @@ export default {
 					}
 
 					if (coveredEvents.length === 0) {
+						if (shouldRefundReservation) {
+							await refundParseCredit(env, usageReservation.eventID);
+						}
 						const status = 422;
 						logRequest(env, 'info', {
 							ts: nowIso(), requestId, route: path, method, status,
@@ -785,23 +1018,27 @@ export default {
 						? coveredEvents.reduce((sum, e) => sum + (e.confidence ?? 0), 0) / coveredEvents.length
 						: 0;
 
+					await finalizeParseCredit(env, usageReservation.eventID);
+					shouldRefundReservation = false;
+
 					const response = {
 						events: splitEvents,
-						source: 'openai' as const,
+						source: 'openrouter' as const,
 						confidence: Number.isFinite(avgConfidence) ? Number(avgConfidence.toFixed(3)) : 0,
 						preprocessedText: processedText,
+						usage: usageReservation.usage,
 						gradingScheme: gradingScheme?.deliverables?.map(d => ({
 							name: d.name,
 							weight: d.weight,
 							type: d.type,
 						})) ?? [],
 						diagnostics: {
-							source: 'openai' as const,
+							source: 'openrouter' as const,
 							processingTimeMs: Date.now() - parseStarted,
 							textLength: text.length,
 							warnings,
 							validation: validationResult.stats,
-							openai: { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-4.1-mini' }
+							openrouter: { processingTimeMs: aiTime, usedModel: promptReq.model }
 						}
 					};
 
@@ -814,13 +1051,16 @@ export default {
 						status: 200,
 						durationMs: Date.now() - startedAt,
 						payloadChars: typeof text === 'string' ? text.length : 0,
-						parserPath: 'openai',
+						parserPath: 'openrouter',
 						eventsFound: coveredEvents.length,
 						averageConfidence: response.confidence,
 					});
 					return res;
 
 				} catch (parseError) {
+					if (shouldRefundReservation && reservedUsageEventID) {
+						await refundParseCredit(env, reservedUsageEventID);
+					}
 					const status = 500;
 					logError(env, {
 						ts: nowIso(),
@@ -837,7 +1077,7 @@ export default {
 					});
 					return new Response(JSON.stringify({
 						error: 'Parsing failed',
-						details: (parseError as Error).message
+						...(!isProduction(env) && { details: (parseError as Error).message }),
 					}), {
 						status,
 						headers: { 'Content-Type': 'application/json', ...corsHeaders },

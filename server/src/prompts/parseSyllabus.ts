@@ -1,5 +1,5 @@
 /**
- * Prompt builder for OpenAI JSON-mode parsing of syllabi -> EventItemDTO[]
+ * Prompt builder for OpenRouter JSON-mode parsing of syllabi -> EventItemDTO[]
  *
  * Two-pass architecture:
  *   Pass 0 (deterministic): extractGradingScheme() runs regex on the raw text.
@@ -8,9 +8,9 @@
  *                            so the AI only creates events for confirmed
  *                            deliverables.
  *
- * Optimised for gpt-4.1-mini.
  */
 
+import { DEFAULT_OPENROUTER_MODEL } from '../env.js';
 import eventItemSchema from '../../schemas/eventItem.schema.json';
 import { preprocessTextForAI } from '../utils/preprocessTextForAI.js';
 import {
@@ -253,7 +253,7 @@ export function buildParseSyllabusRequest(
 		termStart,
 		termEnd,
 		timezone = 'UTC',
-		model = 'gpt-4.1-mini',
+		model = DEFAULT_OPENROUTER_MODEL,
 		gradingScheme,
 	} = options;
 

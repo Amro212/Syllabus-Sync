@@ -7,7 +7,7 @@ stable
 security definer
 set search_path = public
 as $$
-  select exists (
+  select auth.uid() in (lhs, rhs) and exists (
     select 1
     from public.blocked_users b
     where (b.blocker_id = lhs and b.blocked_id = rhs)
@@ -22,7 +22,7 @@ stable
 security definer
 set search_path = public
 as $$
-  select exists (
+  select auth.uid() in (lhs, rhs) and exists (
     select 1
     from public.friends f
     where (f.user_a_id = lhs and f.user_b_id = rhs)
@@ -54,6 +54,8 @@ as $$
     );
 $$;
 
+revoke execute on function public.is_blocked_between(uuid, uuid),
+  public.are_friends(uuid, uuid), public.can_view_schedule(uuid) from public, anon;
 grant execute on function public.is_blocked_between(uuid, uuid) to authenticated;
 grant execute on function public.are_friends(uuid, uuid) to authenticated;
 grant execute on function public.can_view_schedule(uuid) to authenticated;
@@ -68,7 +70,7 @@ alter table public.blocked_users enable row level security;
 alter table public.user_preferences enable row level security;
 
 create table if not exists public.social_action_rate_limits (
-  user_id uuid not null,
+  user_id uuid not null references auth.users(id) on delete cascade,
   action text not null,
   window_start timestamptz not null,
   count integer not null default 0,
@@ -122,21 +124,32 @@ as $$
 begin
   if tg_op = 'INSERT' then
     perform public.check_social_action_rate_limit(new.from_user_id, 'friend_request_create', 20, 3600);
-  elsif tg_op = 'UPDATE' and old.status is distinct from new.status then
+  elsif old.status is distinct from new.status then
+    if old.status <> 'pending' or not (
+      (auth.uid() = old.from_user_id and new.status = 'cancelled')
+      or (auth.uid() = old.to_user_id and new.status in ('accepted', 'declined'))
+    ) then
+      raise exception 'Invalid friend request transition' using errcode = '42501';
+    end if;
     perform public.check_social_action_rate_limit(auth.uid(), 'friend_request_status_update', 60, 3600);
   end if;
   return new;
 end;
 $$;
 
-create or replace function public.enforce_friendship_rate_limit()
+create or replace function public.create_accepted_friendship()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 begin
-  perform public.check_social_action_rate_limit(auth.uid(), 'friendship_create', 30, 3600);
+  if public.is_blocked_between(new.from_user_id, new.to_user_id) then
+    raise exception 'Friend request is unavailable' using errcode = '42501';
+  end if;
+  insert into public.friends (user_a_id, user_b_id)
+  values (least(new.from_user_id, new.to_user_id), greatest(new.from_user_id, new.to_user_id))
+  on conflict (user_a_id, user_b_id) do nothing;
   return new;
 end;
 $$;
@@ -158,17 +171,33 @@ create trigger friend_requests_rate_limit
 before insert or update on public.friend_requests
 for each row execute function public.enforce_friend_request_rate_limit();
 
-drop trigger if exists friends_rate_limit on public.friends;
-create trigger friends_rate_limit
-before insert on public.friends
-for each row execute function public.enforce_friendship_rate_limit();
+drop trigger if exists friend_request_create_friendship on public.friend_requests;
+create trigger friend_request_create_friendship
+after update of status on public.friend_requests
+for each row when (old.status = 'pending' and new.status = 'accepted')
+execute function public.create_accepted_friendship();
 
 drop trigger if exists blocked_users_rate_limit on public.blocked_users;
 create trigger blocked_users_rate_limit
 before insert on public.blocked_users
 for each row execute function public.enforce_block_rate_limit();
 
-grant execute on function public.check_social_action_rate_limit(uuid, text, integer, integer) to authenticated;
+revoke execute on function public.check_social_action_rate_limit(uuid, text, integer, integer),
+  public.enforce_friend_request_rate_limit(), public.create_accepted_friendship(),
+  public.enforce_block_rate_limit() from public, anon, authenticated;
+
+-- Remove the permissive policies installed before migrations were tracked.
+drop policy if exists "Users can view all usernames" on public.users;
+drop policy if exists "Friends can view each other events" on public.events;
+drop policy if exists "Users can send friend requests" on public.friend_requests;
+drop policy if exists "Users can update own friend requests" on public.friend_requests;
+drop policy if exists "Users can create friendships" on public.friends;
+
+revoke all on public.users, public.courses, public.events, public.grading_entries,
+  public.friend_requests, public.friends, public.blocked_users, public.user_preferences from anon;
+revoke insert on public.friends from public, authenticated;
+revoke update on public.friend_requests from public, authenticated;
+grant update (status, updated_at) on public.friend_requests to authenticated;
 
 drop policy if exists users_select_safe_profiles on public.users;
 create policy users_select_safe_profiles
@@ -279,6 +308,7 @@ on public.friend_requests for insert
 to authenticated
 with check (
   from_user_id = auth.uid()
+  and status = 'pending'
   and to_user_id <> auth.uid()
   and not public.is_blocked_between(from_user_id, to_user_id)
 );
@@ -297,14 +327,6 @@ to authenticated
 using (user_a_id = auth.uid() or user_b_id = auth.uid());
 
 drop policy if exists friends_insert_participant on public.friends;
-create policy friends_insert_participant
-on public.friends for insert
-to authenticated
-with check (
-  (user_a_id = auth.uid() or user_b_id = auth.uid())
-  and user_a_id <> user_b_id
-  and not public.is_blocked_between(user_a_id, user_b_id)
-);
 
 drop policy if exists friends_delete_participant on public.friends;
 create policy friends_delete_participant

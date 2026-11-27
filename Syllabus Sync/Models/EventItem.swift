@@ -147,7 +147,10 @@ struct GradingSchemeEntry: Codable, Equatable, Identifiable {
 /// Diagnostics metadata surfaced by the parsing service.
 struct ParseDiagnostics: Equatable {
     enum Source: String, Codable {
+        case openrouter
         case openai
+
+        var name: String { self == .openrouter ? "OpenRouter" : "OpenAI" }
     }
 
     let source: Source
@@ -156,9 +159,9 @@ struct ParseDiagnostics: Equatable {
     let textLength: Int?
     let warnings: [String]?
     let validation: ParseResult.DiagnosticsPayload.Validation?
-    let openAIModel: String?
-    let openAIProcessingTimeMs: Int?
-    let openAIDeniedReason: String?
+    let aiModel: String?
+    let aiProcessingTimeMs: Int?
+    let aiDeniedReason: String?
 }
 
 /// Complete response returned by the `/parse` endpoint.
@@ -167,6 +170,7 @@ struct ParseResult: Decodable {
     let source: ParseDiagnostics.Source
     let confidence: Double
     let preprocessedText: String?
+    let usage: AIScanUsageSnapshot?
     let gradingScheme: [GradingSchemeEntry]?
     let diagnostics: DiagnosticsPayload?
 
@@ -176,7 +180,8 @@ struct ParseResult: Decodable {
         let textLength: Int?
         let warnings: [String]?
         let validation: Validation?
-        let openai: OpenAI?
+        let openrouter: AIProvider?
+        let openai: AIProvider?
 
         struct Validation: Decodable, Equatable {
             let totalEvents: Int?
@@ -186,7 +191,7 @@ struct ParseResult: Decodable {
             let defaultsApplied: Int?
         }
 
-        struct OpenAI: Decodable {
+        struct AIProvider: Decodable {
             let processingTimeMs: Int?
             let usedModel: String?
             let denied: String?

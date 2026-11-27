@@ -2,8 +2,7 @@
 //  SocialHubView.swift
 //  Syllabus Sync
 //
-//  Main Social Hub modal view with Friends and Discover tabs.
-//  Matches the wireframe: dark modal with gold accents, blurred background peek.
+//  Friends and Discover screen.
 //
 
 import SwiftUI
@@ -11,7 +10,6 @@ import SwiftUI
 // MARK: - Social Hub View
 
 struct SocialHubView: View {
-    @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = SocialHubViewModel()
 
     var body: some View {
@@ -100,26 +98,12 @@ struct SocialHubView: View {
     // MARK: - Header
 
     private var headerSection: some View {
-        HStack {
-            Text("SOCIAL HUB")
-                .font(.lexend(size: 24, weight: .bold))
-                .foregroundColor(AppColors.textPrimary)
-
-            Spacer()
-
-            Button {
-                HapticFeedbackManager.shared.lightImpact()
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.lexend(size: 18, weight: .medium))
-                    .foregroundColor(AppColors.textPrimary)
-                    .frame(width: 36, height: 36)
-                    .background(AppColors.surfaceSecondary)
-                    .clipShape(Circle())
-            }
-        }
-        .padding(.horizontal, Layout.Spacing.lg)
+        Text("Friends")
+            .font(.titleL.bold())
+            .foregroundStyle(AppColors.textPrimary)
+            .accessibilityAddTraits(.isHeader)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Layout.Spacing.lg)
     }
 
     // MARK: - My ID Card

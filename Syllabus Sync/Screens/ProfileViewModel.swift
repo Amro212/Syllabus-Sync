@@ -280,11 +280,11 @@ final class ProfileViewModel: ObservableObject {
         }
 
         do {
-            try await authService.supabase.auth.resetPasswordForEmail(email)
+            try await authService.resetPassword(email: email)
             HapticFeedbackManager.shared.success()
             showToastMessage("✓ Password reset email sent!")
         } catch {
-            showToastMessage("Failed to send password reset email")
+            showToastMessage(error.localizedDescription)
         }
     }
 

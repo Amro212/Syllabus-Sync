@@ -395,7 +395,12 @@ class SupabaseAuthService: NSObject, AuthService {
     // MARK: - Password Reset
     
     func resetPassword(email: String) async throws {
-        try await supabase.auth.resetPasswordForEmail(email)
+        do {
+            try await supabase.auth.resetPasswordForEmail(email)
+        } catch {
+            AppLog.debug("Password reset failed: \(error)")
+            throw AuthErrorHandler.mapError(error.localizedDescription)
+        }
     }
     
     // MARK: - Session Persistence

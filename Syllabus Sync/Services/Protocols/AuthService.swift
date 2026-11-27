@@ -42,6 +42,8 @@ enum AuthError: LocalizedError {
     case invalidOTP
     case otpExpired
     case rateLimitExceeded
+    case emailSendLimitExceeded
+    case serviceUnavailable
     case oauthUserAttemptingEmail(provider: AuthProvider)
     case weakPassword
     case emailAlreadyInUse
@@ -69,6 +71,10 @@ enum AuthError: LocalizedError {
             return "This verification code has expired. Please request a new one."
         case .rateLimitExceeded:
             return "Too many attempts. Please wait a moment and try again."
+        case .emailSendLimitExceeded:
+            return "We've temporarily reached our email sending limit. Please try again later. Restarting the app won't reset this limit."
+        case .serviceUnavailable:
+            return "Our sign-in service is temporarily unavailable. Please try again later."
         case .oauthUserAttemptingEmail(let provider):
             let providerName = provider.rawValue.capitalized
             return "This email uses \(providerName) Sign In. Please tap 'Continue with \(providerName)' below."
@@ -136,13 +142,24 @@ enum AuthErrorHandler {
             return .otpExpired
         }
         
+        // The project-wide email quota is separate from per-user request throttling.
+        if lowercased.contains("email rate limit") ||
+           lowercased.contains("over_email_send_rate_limit") {
+            return .emailSendLimitExceeded
+        }
+
         // Rate limiting
         if lowercased.contains("rate limit") ||
            lowercased.contains("too many requests") ||
-           lowercased.contains("email rate limit") ||
            lowercased.contains("you can only request") ||
-           lowercased.contains("over_email_send_rate_limit") {
+           lowercased.contains("over_request_rate_limit") {
             return .rateLimitExceeded
+        }
+
+        // Auth schema/service failures must not be presented as invalid credentials.
+        if lowercased.contains("database error") ||
+           lowercased.contains("unexpected_failure") {
+            return .serviceUnavailable
         }
         
         // Network errors

@@ -8,6 +8,11 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum AIScanConsent {
+    static let title = "Share syllabus text with OpenRouter?"
+    static let message = "Syllabus Sync extracts text from your PDF on your device. It sends the text to OpenRouter and the AI provider it routes to, so they can identify course dates and grading details. The text can include names, email addresses, and other information in the syllabus."
+}
+
 struct AISyllabusScanModal: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var navigationManager: AppNavigationManager
@@ -53,11 +58,11 @@ struct AISyllabusScanModal: View {
         .animation(.easeInOut(duration: 0.3), value: importViewModel.isProcessing)
         .animation(.easeInOut(duration: 0.3), value: importViewModel.errorState?.id)
         .animation(.spring(response: 0.28, dampingFraction: 0.84), value: showPaywall)
-        .alert("Share syllabus text with OpenAI?", isPresented: $showAIConsent) {
+        .alert(AIScanConsent.title, isPresented: $showAIConsent) {
             Button("Allow and choose PDF") { isShowingFilePicker = true }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Syllabus Sync extracts text from your PDF on your device and sends it to OpenAI to identify course dates and grading details. The text can include names, email addresses, and other information in the syllabus.")
+            Text(AIScanConsent.message)
         }
         .fileImporter(
             isPresented: $isShowingFilePicker,

@@ -4,16 +4,16 @@ import { releasePage } from './releasePages';
  * 
  * Provides endpoints for:
  * - Health check
- * - Syllabus parsing via OpenAI
+ * - Syllabus parsing via OpenRouter
  * - PDF upload/storage (optional)
  */
 import { logRequest, logError, nowIso } from './logging';
-import { ensureOpenAIKey } from './env';
+import { DEFAULT_OPENROUTER_MODEL, ensureOpenRouterKey } from './env';
 import { validateEvents, type ValidationConfig } from './validation/eventValidation';
 import { ensureSchemeCoverage } from './validation/eventValidation';
 import { buildParseSyllabusRequest } from './prompts/parseSyllabus';
 import { detectCourseCode } from './utils/courseCode';
-import { callOpenAIParse } from './clients/openai';
+import { callOpenRouterParse } from './clients/openrouter';
 import { splitMultiDayRecurrence } from './utils/splitMultiDayRecurrence';
 import { extractGradingScheme } from './utils/extractGradingScheme';
 import {
@@ -82,14 +82,14 @@ type DurableLimitResponse = {
 // Basic in-memory token buckets (local/test fallback only).
 const buckets = new Map<string, { tokens: number; lastRefill: number }>();
 
-// Basic in-memory OpenAI usage tracking (per-isolate, best-effort)
-type OpenAIUsage = {
+// Basic in-memory OpenRouter usage tracking (per-isolate, best-effort)
+type OpenRouterUsage = {
 	dayKey: string; // YYYY-MM-DD UTC
 	totalCalls: number;
 	totalCost: number;
 	perIpCalls: Map<string, number>;
 };
-const openaiUsage: OpenAIUsage = {
+const openrouterUsage: OpenRouterUsage = {
 	dayKey: new Date().toISOString().slice(0, 10),
 	totalCalls: 0,
 	totalCost: 0,
@@ -181,13 +181,13 @@ function inFilter(values: string[]): string {
 	return `in.(${values.join(',')})`;
 }
 
-function resetOpenAIUsageIfNewDay() {
+function resetOpenRouterUsageIfNewDay() {
 	const today = new Date().toISOString().slice(0, 10);
-	if (openaiUsage.dayKey !== today) {
-		openaiUsage.dayKey = today;
-		openaiUsage.totalCalls = 0;
-		openaiUsage.totalCost = 0;
-		openaiUsage.perIpCalls.clear();
+	if (openrouterUsage.dayKey !== today) {
+		openrouterUsage.dayKey = today;
+		openrouterUsage.totalCalls = 0;
+		openrouterUsage.totalCost = 0;
+		openrouterUsage.perIpCalls.clear();
 	}
 }
 
@@ -381,7 +381,7 @@ export default {
 		const buildCorsHeaders = (origin: string | null) => {
 			const headers: Record<string, string> = {
 				'Access-Control-Allow-Methods': path === '/account' ? 'DELETE, OPTIONS' : 'GET, POST, OPTIONS',
-				'Access-Control-Allow-Headers': 'content-type, x-client-id, x-idempotency-key, authorization',
+				'Access-Control-Allow-Headers': 'content-type, x-client-id, x-idempotency-key, x-ai-provider, authorization',
 				'Vary': 'Origin',
 			};
 			if (origin && isOriginAllowed(origin)) {
@@ -393,8 +393,8 @@ export default {
 		const corsHeaders = buildCorsHeaders(originHeader);
 
 		// Fail-fast if required secrets are missing (Task 4.5)
-		const openaiCheck = ensureOpenAIKey(env);
-		if (path === '/parse' && !openaiCheck.ok) {
+		const openrouterCheck = ensureOpenRouterKey(env);
+		if (path === '/parse' && !openrouterCheck.ok) {
 			const status = 500;
 			logError(env, {
 				ts: nowIso(),
@@ -403,9 +403,9 @@ export default {
 				method,
 				status,
 				durationMs: Date.now() - startedAt,
-				error: { message: openaiCheck.message, code: openaiCheck.code },
+				error: { message: openrouterCheck.message, code: openrouterCheck.code },
 			});
-			return new Response(JSON.stringify({ error: openaiCheck.message, code: openaiCheck.code }), {
+			return new Response(JSON.stringify({ error: openrouterCheck.message, code: openrouterCheck.code }), {
 				status,
 				headers: { 'Content-Type': 'application/json', ...corsHeaders },
 			});
@@ -665,6 +665,13 @@ export default {
 						});
 					}
 
+					if (isProduction(env) && request.headers.get('x-ai-provider') !== 'openrouter') {
+						return json({
+							error: 'Update Syllabus Sync and approve the OpenRouter disclosure to scan a syllabus.',
+							code: 'AI_CONSENT_REQUIRED',
+						}, { status: 409 });
+					}
+
 					const requestLimit = Number.parseInt(env.RATE_LIMIT_REQUESTS || '100', 10) || 100;
 					for (const key of [`parse:ip:${getClientIp(request)}`, `parse:user:${auth.user.id}`]) {
 						const rl = await enforceRequestLimit(env, key, requestLimit, 60 * 60);
@@ -852,7 +859,7 @@ export default {
 							method,
 							status,
 							durationMs: Date.now() - startedAt,
-							openaiDenied: 'no_scan_credits',
+							openrouterDenied: 'no_scan_credits',
 						});
 						return json({
 							error: 'No AI scan credits remaining.',
@@ -861,17 +868,18 @@ export default {
 						}, { status });
 					}
 
-					resetOpenAIUsageIfNewDay();
+					resetOpenRouterUsageIfNewDay();
 					const ip = getClientIp(request);
-					const perIpLimit = Number.parseInt((env as any).RATE_LIMIT_OPENAI || '10', 10) || 10;
-					const dailyBudget = Number.parseFloat((env as any).OPENAI_DAILY_BUDGET || '0');
-					const costPerCall = Number.parseFloat(((env as any).OPENAI_COST_PER_CALL as string) || '0.02');
+					const perIpLimit = Number.parseInt((env as any).RATE_LIMIT_OPENROUTER || '10', 10) || 10;
+					const dailyBudget = Number.parseFloat((env as any).OPENROUTER_DAILY_BUDGET || '0');
+					const costPerCall = Number.parseFloat(((env as any).OPENROUTER_COST_PER_CALL as string) || '0.02');
 					const usageKey = `${auth.user.id}:${ip}`;
-					const usedByIp = openaiUsage.perIpCalls.get(usageKey) || 0;
-					const openAiWindowSec = 24 * 60 * 60;
-					const openAiLimiter = await consumeDurableLimit(env, `openai:user:${auth.user.id}`, perIpLimit, openAiWindowSec);
+					const usedByIp = openrouterUsage.perIpCalls.get(usageKey) || 0;
+					const openRouterWindowSec = 24 * 60 * 60;
+					// Preserve the existing Durable Object counters during the provider switch.
+					const openRouterLimiter = await consumeDurableLimit(env, `openai:user:${auth.user.id}`, perIpLimit, openRouterWindowSec);
 
-					if (openAiLimiter ? !openAiLimiter.allowed : usedByIp >= perIpLimit) {
+					if (openRouterLimiter ? !openRouterLimiter.allowed : usedByIp >= perIpLimit) {
 						if (shouldRefundReservation) {
 							await refundParseCredit(env, usageReservation.eventID);
 						}
@@ -879,23 +887,23 @@ export default {
 						logRequest(env, 'info', {
 							ts: nowIso(), requestId, route: path, method, status,
 							durationMs: Date.now() - startedAt,
-							openaiDenied: 'per_user_cap', perIpLimit, usedByIp,
+							openrouterDenied: 'per_user_cap', perIpLimit, usedByIp,
 						});
-						return new Response(JSON.stringify({ error: 'OpenAI usage limit reached. Please try again later.' }), {
+						return new Response(JSON.stringify({ error: 'OpenRouter usage limit reached. Please try again later.' }), {
 							status,
 							headers: {
 								'Content-Type': 'application/json',
-								...(openAiLimiter ? { 'Retry-After': String(openAiLimiter.retryAfterSec) } : {}),
+								...(openRouterLimiter ? { 'Retry-After': String(openRouterLimiter.retryAfterSec) } : {}),
 								...corsHeaders,
 							},
 						});
 					}
 
 					const budgetLimiter = dailyBudget > 0
-						? await consumeDurableLimit(env, `openai:budget:${new Date().toISOString().slice(0, 10)}`, Math.ceil(dailyBudget * 100_000), openAiWindowSec, Math.ceil(costPerCall * 100_000))
+						? await consumeDurableLimit(env, `openai:budget:${new Date().toISOString().slice(0, 10)}`, Math.ceil(dailyBudget * 100_000), openRouterWindowSec, Math.ceil(costPerCall * 100_000))
 						: null;
 
-					if (budgetLimiter ? !budgetLimiter.allowed : dailyBudget > 0 && (openaiUsage.totalCost + costPerCall) > dailyBudget) {
+					if (budgetLimiter ? !budgetLimiter.allowed : dailyBudget > 0 && (openrouterUsage.totalCost + costPerCall) > dailyBudget) {
 						if (shouldRefundReservation) {
 							await refundParseCredit(env, usageReservation.eventID);
 						}
@@ -903,9 +911,9 @@ export default {
 						logRequest(env, 'info', {
 							ts: nowIso(), requestId, route: path, method, status,
 							durationMs: Date.now() - startedAt,
-							openaiDenied: 'budget_exceeded', dailyBudget, spent: openaiUsage.totalCost,
+							openrouterDenied: 'budget_exceeded', dailyBudget, spent: openrouterUsage.totalCost,
 						});
-						return new Response(JSON.stringify({ error: 'OpenAI budget exceeded. Try again tomorrow.' }), {
+						return new Response(JSON.stringify({ error: 'OpenRouter budget exceeded. Try again tomorrow.' }), {
 							status,
 							headers: { 'Content-Type': 'application/json', ...corsHeaders },
 						});
@@ -921,14 +929,14 @@ export default {
 						termStart: (body as any).termStart,
 						termEnd: (body as any).termEnd,
 						timezone: tz,
-						model: (env as any).OPENAI_MODEL || 'gpt-4.1-mini',
+						model: env.OPENROUTER_MODEL?.trim() || DEFAULT_OPENROUTER_MODEL,
 						gradingScheme,
 					});
 
 					let aiItems: unknown[];
 					const aiStarted = Date.now();
 					try {
-						aiItems = (await callOpenAIParse(env, promptReq, { requestId, route: path, method })) as unknown[];
+						aiItems = (await callOpenRouterParse(env, promptReq, { requestId, route: path, method })) as unknown[];
 					} catch (e) {
 						if (shouldRefundReservation) {
 							await refundParseCredit(env, usageReservation.eventID);
@@ -941,13 +949,13 @@ export default {
 							status: 502,
 							durationMs: Date.now() - startedAt,
 							error: {
-								message: (e as any)?.message || 'OpenAI parsing failed',
+								message: (e as any)?.message || 'OpenRouter parsing failed',
 								stack: (e as any)?.stack,
-								code: (e as any)?.code || 'OPENAI_ERROR'
+								code: (e as any)?.code || 'OPENROUTER_ERROR'
 							},
 						});
 						return new Response(JSON.stringify({
-							error: 'OpenAI parsing failed',
+							error: 'AI scanning is temporarily unavailable. Your scan credit was returned.',
 							...(!isProduction(env) && { details: (e as any)?.message || 'Unknown error' }),
 						}), {
 							status: 502,
@@ -955,9 +963,9 @@ export default {
 						});
 					}
 					const aiTime = Date.now() - aiStarted;
-					openaiUsage.totalCalls += 1;
-					openaiUsage.totalCost += costPerCall;
-					openaiUsage.perIpCalls.set(usageKey, usedByIp + 1);
+					openrouterUsage.totalCalls += 1;
+					openrouterUsage.totalCost += costPerCall;
+					openrouterUsage.perIpCalls.set(usageKey, usedByIp + 1);
 
 					const validationResult = validateEvents(aiItems, {
 						...validationConfig,
@@ -1015,7 +1023,7 @@ export default {
 
 					const response = {
 						events: splitEvents,
-						source: 'openai' as const,
+						source: 'openrouter' as const,
 						confidence: Number.isFinite(avgConfidence) ? Number(avgConfidence.toFixed(3)) : 0,
 						preprocessedText: processedText,
 						usage: usageReservation.usage,
@@ -1025,12 +1033,12 @@ export default {
 							type: d.type,
 						})) ?? [],
 						diagnostics: {
-							source: 'openai' as const,
+							source: 'openrouter' as const,
 							processingTimeMs: Date.now() - parseStarted,
 							textLength: text.length,
 							warnings,
 							validation: validationResult.stats,
-							openai: { processingTimeMs: aiTime, usedModel: (env as any).OPENAI_MODEL || 'gpt-4.1-mini' }
+							openrouter: { processingTimeMs: aiTime, usedModel: promptReq.model }
 						}
 					};
 
@@ -1043,7 +1051,7 @@ export default {
 						status: 200,
 						durationMs: Date.now() - startedAt,
 						payloadChars: typeof text === 'string' ? text.length : 0,
-						parserPath: 'openai',
+						parserPath: 'openrouter',
 						eventsFound: coveredEvents.length,
 						averageConfidence: response.confidence,
 					});

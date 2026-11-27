@@ -51,6 +51,7 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
         let body = try encoder.encode(payload)
         var request = APIRequest(path: "/parse", method: .post, headers: [:], body: body, timeout: 90)
         request.headers["Content-Type"] = "application/json"
+        request.headers["x-ai-provider"] = "openrouter"
         request.headers["x-idempotency-key"] = requestID ?? UUID().uuidString
         do {
             let token = try await SupabaseAuthService.shared.supabase.auth.session.accessToken
@@ -81,6 +82,7 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
 
     private func mapDiagnostics(from response: ParseResult) -> ParseDiagnostics {
         let envelope = response.diagnostics
+        let provider = envelope?.openrouter ?? envelope?.openai
         return ParseDiagnostics(
             source: response.source,
             confidence: response.confidence,
@@ -88,9 +90,9 @@ final class SyllabusParserRemote: ObservableObject, SyllabusParser {
             textLength: envelope?.textLength,
             warnings: envelope?.warnings,
             validation: envelope?.validation,
-            openAIModel: envelope?.openai?.usedModel,
-            openAIProcessingTimeMs: envelope?.openai?.processingTimeMs,
-            openAIDeniedReason: envelope?.openai?.denied
+            aiModel: provider?.usedModel,
+            aiProcessingTimeMs: provider?.processingTimeMs,
+            aiDeniedReason: provider?.denied
         )
     }
 

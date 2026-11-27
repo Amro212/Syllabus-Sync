@@ -7,13 +7,12 @@ export interface PromptRequest {
   model: string;
   temperature?: number;
   messages: ChatMessage[];
-  // When present and type is 'json_schema', we call the Responses API
   response_format?:
   | { type: 'json_object' }
   | { type: 'json_schema'; json_schema: { name: string; schema: unknown; strict?: boolean } };
 }
 
-export interface OpenAIClientOptions {
+export interface OpenRouterClientOptions {
   timeoutMs?: number; // default 20000
   retries?: number; // default 2 (total attempts = retries + 1)
 }
@@ -46,40 +45,29 @@ function isRetriableStatus(status: number): boolean {
   return status === 408 || status === 429 || (status >= 500 && status < 600);
 }
 
-function extractTextFromResponse(data: any): string | null {
-  // Try Responses API shapes first
-  if (typeof data?.output_text === 'string' && data.output_text.trim().length > 0) {
-    return data.output_text;
+class OpenRouterHTTPError extends Error {
+  readonly code = 'OPENROUTER_HTTP';
+
+  constructor(readonly status: number) {
+    super(`OpenRouter HTTP ${status}`);
   }
-  const maybeOutputText = data?.output?.[0]?.content?.[0]?.text;
-  if (typeof maybeOutputText === 'string') return maybeOutputText;
-
-  // Chat Completions shape
-  const chatText = data?.choices?.[0]?.message?.content;
-  if (typeof chatText === 'string') return chatText;
-
-  // Some SDKs nest under message.content[0].text
-  const deepText = data?.choices?.[0]?.message?.content?.[0]?.text;
-  if (typeof deepText === 'string') return deepText;
-
-  return null;
 }
 
-export async function callOpenAIParse(
+export async function callOpenRouterParse(
   env: Env,
   prompt: PromptRequest,
   reqMeta?: { requestId?: string; route?: string; method?: string },
-  options: OpenAIClientOptions = {}
+  options: OpenRouterClientOptions = {}
 ): Promise<unknown[]> {
-  const timeoutOverride = parseInt((env as any).OPENAI_TIMEOUT_MS || '', 10);
-  const retriesOverride = parseInt((env as any).OPENAI_RETRIES || '', 10);
+  const timeoutOverride = parseInt(env.OPENROUTER_TIMEOUT_MS || '', 10);
+  const retriesOverride = parseInt(env.OPENROUTER_RETRIES || '', 10);
   const timeoutMs = options.timeoutMs
     ?? (Number.isFinite(timeoutOverride) && timeoutOverride > 0 ? timeoutOverride : undefined)
     ?? DEFAULT_TIMEOUT_MS;
   const retries = options.retries
     ?? (Number.isFinite(retriesOverride) && retriesOverride >= 0 ? retriesOverride : undefined)
     ?? DEFAULT_RETRIES;
-  const apiKey = env.OPENAI_API_KEY;
+  const apiKey = env.OPENROUTER_API_KEY?.trim();
   const started = Date.now();
   const requestId = reqMeta?.requestId || (globalThis as any).crypto?.randomUUID?.() || 'unknown';
   const route = reqMeta?.route || '/parse';
@@ -94,31 +82,27 @@ export async function callOpenAIParse(
       method,
       status,
       durationMs: Date.now() - started,
-      error: { message: 'OPENAI_API_KEY missing', code: 'CONFIG_MISSING' },
+      error: { message: 'OPENROUTER_API_KEY missing', code: 'CONFIG_MISSING' },
     });
-    throw Object.assign(new Error('OPENAI_API_KEY missing'), { code: 'CONFIG_MISSING' });
+    throw Object.assign(new Error('OPENROUTER_API_KEY missing'), { code: 'CONFIG_MISSING' });
   }
 
-  // Use Chat Completions for maximum compatibility. Some Responses API deployments
-  // expect a different structure (e.g., text.format) and reject response_format.
-  // We include response_format if present; on 400 complaining about response_format,
-  // we retry without it and rely on strict prompting + local validation.
-  let url = 'https://api.openai.com/v1/chat/completions';
-  let body: any = {
-    model: prompt.model,
-    messages: prompt.messages,
-    temperature: prompt.temperature ?? 0,
-    max_completion_tokens: Number.parseInt((env as any).OPENAI_MAX_COMPLETION_TOKENS || '4096', 10) || 4096,
-  };
-  if (prompt.response_format) body.response_format = prompt.response_format;
-
+  const url = 'https://openrouter.ai/api/v1/chat/completions';
   const init: RequestInit = {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
+      'X-OpenRouter-Title': 'Syllabus Sync',
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      model: prompt.model,
+      messages: prompt.messages,
+      temperature: prompt.temperature ?? 0,
+      max_tokens: Number.parseInt(env.OPENROUTER_MAX_COMPLETION_TOKENS || '4096', 10) || 4096,
+      response_format: prompt.response_format,
+      provider: { require_parameters: true, data_collection: 'deny', zdr: true },
+    }),
   };
 
   let lastError: any = null;
@@ -133,60 +117,26 @@ export async function callOpenAIParse(
           method,
           status: 0,
           durationMs: 0,
-          openaiRequest: { model: body.model, temperature: body.temperature, timeoutMs, retries }
+          openrouterRequest: { model: prompt.model, temperature: prompt.temperature ?? 0, timeoutMs, retries }
         });
       }
 
       const res = await fetchWithTimeout(url, init, timeoutMs);
-      if (!res.ok) {
-        const status = res.status;
-        const text = await res.text().catch(() => '');
-        // Fallback: some servers reject response_format; retry once without it
-        if (
-          status === 400 &&
-          body.response_format &&
-          (/Unsupported parameter:\s*'response_format'|moved to 'text\.format'|Invalid value for 'response_format'/i.test(text)) &&
-          attempt === 0 // Only try this fallback on first attempt
-        ) {
-          logRequest(env, 'warn', {
-            ts: nowIso(),
-            requestId,
-            route,
-            method,
-            status: 0,
-            durationMs: Date.now() - started,
-            openaiWarning: 'Removing response_format due to API incompatibility'
-          });
-          delete body.response_format;
-          init.body = JSON.stringify(body);
-          const delay = calcBackoff(attempt);
-          await sleep(delay);
-          continue;
-        }
-        if (isRetriableStatus(status) && attempt < retries) {
-          const delay = calcBackoff(attempt);
-          await sleep(delay);
-          continue;
-        }
-        const err = new Error(`OpenAI HTTP ${status}: ${text.slice(0, 300)}`);
-        (err as any).code = 'OPENAI_HTTP';
-        (err as any).status = status;
-        throw err;
-      }
-      const data = await res.json();
-      const text = extractTextFromResponse(data);
+      if (!res.ok) throw new OpenRouterHTTPError(res.status);
+      const data = await res.json<{ choices?: { message?: { content?: string } }[]; error?: { code?: number } }>();
+      if (data.error) throw new OpenRouterHTTPError(data.error.code ?? 502);
+      const text = data.choices?.[0]?.message?.content;
       if (!text) {
-        const err = new Error('OpenAI returned empty content');
-        (err as any).code = 'OPENAI_EMPTY';
+        const err = new Error('OpenRouter returned empty content');
+        (err as any).code = 'OPENROUTER_EMPTY';
         throw err;
       }
       let parsed: unknown;
       try {
         parsed = JSON.parse(text);
       } catch (e) {
-        const err = new Error('Invalid JSON from OpenAI');
+        const err = new Error('Invalid JSON from OpenRouter');
         (err as any).code = 'INVALID_JSON';
-        (err as any).raw = text?.slice?.(0, 300);
         throw err;
       }
 
@@ -220,12 +170,9 @@ export async function callOpenAIParse(
       });
       return eventsArray as unknown[];
     } catch (error) {
-      lastError = normalizeOpenAIError(error);
-      if (attempt < retries) {
-        const delay = calcBackoff(attempt);
-        await sleep(delay);
-        continue;
-      }
+      lastError = normalizeOpenRouterError(error);
+      if (attempt === retries || (error instanceof OpenRouterHTTPError && !isRetriableStatus(error.status))) break;
+      await sleep(calcBackoff(attempt));
     }
   }
 
@@ -237,12 +184,12 @@ export async function callOpenAIParse(
     status: 502,
     durationMs: Date.now() - started,
     error: {
-      message: (lastError as any)?.message || 'OpenAI call failed',
+      message: (lastError as any)?.message || 'OpenRouter call failed',
       stack: (lastError as any)?.stack,
-      code: (lastError as any)?.code || 'OPENAI_ERROR',
+      code: (lastError as any)?.code || 'OPENROUTER_ERROR',
     },
   });
-  throw (lastError as Error) || Object.assign(new Error('OpenAI call failed'), { code: 'OPENAI_ERROR' });
+  throw (lastError as Error) || Object.assign(new Error('OpenRouter call failed'), { code: 'OPENROUTER_ERROR' });
 }
 
 function extractEventsArray(parsed: unknown): unknown[] | null {
@@ -284,16 +231,16 @@ function stripTimezoneOffsets(events: unknown[]): unknown[] {
   });
 }
 
-function normalizeOpenAIError(error: unknown): Error {
+function normalizeOpenRouterError(error: unknown): Error {
   if (error instanceof Error) {
     return error;
   }
   if (typeof error === 'string') {
     const err = new Error(error);
-    (err as any).code = error === 'timeout' ? 'OPENAI_TIMEOUT' : 'OPENAI_ERROR';
+    (err as any).code = error === 'timeout' ? 'OPENROUTER_TIMEOUT' : 'OPENROUTER_ERROR';
     return err;
   }
-  const err = new Error('OpenAI call failed');
+  const err = new Error('OpenRouter call failed');
   Object.assign(err as any, error ?? {});
   return err;
 }

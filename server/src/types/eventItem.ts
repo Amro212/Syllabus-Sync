@@ -86,7 +86,7 @@ export interface ParseResponse {
   confidence: number;
   gradingScheme?: GradingSchemeEntryDTO[];
   diagnostics?: {
-    source: 'openai';
+    source: 'openrouter';
     processingTimeMs: number;
     textLength: number;
     warnings?: string[];
@@ -97,7 +97,7 @@ export interface ParseResponse {
       clampedEvents: number;
       defaultsApplied: number;
     };
-    openai?: {
+    openrouter?: {
       processingTimeMs?: number;
       usedModel?: string;
     };

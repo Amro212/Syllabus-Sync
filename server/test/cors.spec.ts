@@ -19,7 +19,7 @@ describe('CORS and Content Validation (4.2)', () => {
     // Configure allowed origins for tests
     env.ALLOWED_ORIGINS = 'http://localhost:*,capacitor://*';
     env.NODE_ENV = 'test';
-    env.OPENAI_API_KEY = 'test-key';
+    env.OPENROUTER_API_KEY = 'test-key';
     env.SUPABASE_URL = 'https://example.supabase.co';
     env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-test-key';
     originalFetch = globalThis.fetch;

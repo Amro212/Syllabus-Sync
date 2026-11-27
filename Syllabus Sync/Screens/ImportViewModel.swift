@@ -497,18 +497,18 @@ final class ImportViewModel: ObservableObject {
 
     private func buildDiagnosticsString(from diagnostics: ParseDiagnostics?) -> String? {
         guard let diagnostics else { return nil }
-        let source = "OpenAI"
+        let source = diagnostics.source.name
         var components: [String] = [source]
 
         if let formatted = NumberFormatter.percentageFormatter.string(from: NSNumber(value: diagnostics.confidence)) {
             components.append("Confidence \(formatted)")
         }
 
-        if let model = diagnostics.openAIModel {
+        if let model = diagnostics.aiModel {
             components.append(model)
         }
 
-        if let denied = diagnostics.openAIDeniedReason {
+        if let denied = diagnostics.aiDeniedReason {
             components.append("Denied: \(denied)")
         }
 

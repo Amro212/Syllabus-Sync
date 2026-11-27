@@ -4,7 +4,7 @@
 
 > **Note**: Replace `USERNAME` with your actual GitHub username.
 
-Cloudflare Workers API for Syllabus Sync - handles PDF parsing, event extraction, and provides secure access to OpenAI services.
+Cloudflare Workers API for Syllabus Sync - handles PDF parsing, event extraction, and provides secure access to OpenRouter services.
 
 ## 🚀 Quick Start
 
@@ -48,7 +48,7 @@ curl -X POST http://localhost:8787/upload
 - **Language**: TypeScript with strict typing
 - **Validation**: Custom runtime validation (Workers-compatible)
 - **Testing**: Vitest with Workers pool
-- **Parsing Strategy**: OpenAI-powered with validation
+- **Parsing Strategy**: OpenRouter-powered with validation
 
 ## 📁 Structure
 
@@ -56,7 +56,7 @@ curl -X POST http://localhost:8787/upload
 server/
 ├── src/
 │   ├── index.ts              # Main Worker entry point
-│   ├── clients/              # OpenAI client
+│   ├── clients/              # OpenRouter client
 │   ├── prompts/              # Parsing prompts
 │   ├── utils/                # Date utils, course code detection
 │   ├── types/
@@ -70,7 +70,7 @@ server/
 │   ├── validation.spec.ts    # Validation unit tests
 │   ├── cors.spec.ts          # CORS tests
 │   ├── rateLimit.spec.ts     # Rate limiting tests
-│   └── openaiClient.spec.ts  # OpenAI client tests
+│   └── openrouterClient.spec.ts  # OpenRouter client tests
 ├── wrangler.jsonc            # Cloudflare Workers config
 └── package.json
 ```
@@ -90,7 +90,7 @@ npm test -- --watch   # Watch mode for development
 - ✅ JSON schema compliance
 - ✅ CORS handling
 - ✅ Rate limiting
-- ✅ OpenAI client
+- ✅ OpenRouter client
 - ✅ Error handling and edge cases
 
 ## 🔧 Configuration
@@ -104,13 +104,13 @@ npm test -- --watch   # Watch mode for development
 
 2. **Fill in your secrets in `.dev.vars`:**
    ```bash
-   # Required for OpenAI parsing
-   OPENAI_API_KEY=sk-your-actual-openai-api-key
+   # Required for OpenRouter parsing
+   OPENROUTER_API_KEY=sk-or-v1-your-openrouter-api-key
    
    # Optional: customize rate limits
    RATE_LIMIT_REQUESTS=100
-   RATE_LIMIT_OPENAI=10
-   OPENAI_DAILY_BUDGET=10.00
+   RATE_LIMIT_OPENROUTER=10
+   OPENROUTER_DAILY_BUDGET=10.00
    
    # CORS allowed origins for local development
    ALLOWED_ORIGINS=capacitor://*,http://localhost:*
@@ -119,12 +119,12 @@ npm test -- --watch   # Watch mode for development
 3. **For production deployment, use Wrangler secrets:**
    ```bash
    # Set production secrets (never commit these!)
-   wrangler secret put OPENAI_API_KEY
+   wrangler secret put OPENROUTER_API_KEY
    wrangler secret put SUPABASE_URL
    wrangler secret put SUPABASE_SERVICE_ROLE_KEY
    wrangler secret put ALLOWED_ORIGINS
    wrangler secret put RATE_LIMIT_REQUESTS
-   wrangler secret put RATE_LIMIT_OPENAI
+   wrangler secret put RATE_LIMIT_OPENROUTER
    wrangler secret put RATE_LIMIT_SOCIAL
    ```
 
@@ -132,12 +132,22 @@ npm test -- --watch   # Watch mode for development
    `https://syllabussync.example`. Wildcards, localhost, and plaintext HTTP make
    the Worker fail closed with `PRODUCTION_CONFIG_INVALID`.
 
-### Security Notes
+#### Set the OpenRouter key
+
+Create an API key for this Worker in the [OpenRouter workspace](https://openrouter.ai/settings/keys).
+In Cloudflare, select the **Bilal (Syllabus Sync)** account and open **Workers & Pages → server → Settings → Variables and Secrets**.
+Add `OPENROUTER_API_KEY` with type **Secret**, then deploy. The Worker reads the encrypted secret from its environment.
+
+For local development, set `OPENROUTER_API_KEY` in the ignored `server/.dev.vars` file.
+The default model is `mistralai/mistral-small-3.2-24b-instruct`. Set `OPENROUTER_MODEL` to override it with a model that supports structured outputs and zero-data-retention routing.
+Production scans require an app build that presents the OpenRouter disclosure.
+
+## Security Notes
 - ⚠️ **Never commit `.dev.vars`** - it contains your API keys
 - ✅ The `.dev.vars.example` file is safe to commit (no real secrets)  
 - ✅ Use `wrangler secret put` for production secrets
 - ✅ All secrets are server-side only (never exposed to client)
-- ✅ Durable Object `ABUSE_LIMITER` backs production parse/OpenAI/social limits
+- ✅ Durable Object `ABUSE_LIMITER` backs production parse/OpenRouter/social limits
 
 ### Wrangler Configuration
 See `wrangler.jsonc` for Workers-specific settings:
@@ -152,7 +162,7 @@ See `wrangler.jsonc` for Workers-specific settings:
 - **Rate Limiting**: Durable Object-backed user/IP request throttling  
 - **Input Validation**: Strict runtime type checking
 - **Error Handling**: Structured error responses
-- **Budget Controls**: Durable OpenAI per-user caps and daily budget
+- **Budget Controls**: Durable OpenRouter per-user caps and daily budget
 - **Social Abuse Controls**: Server recommendation throttles plus Supabase social action triggers
 
 ## 📋 Development Workflow

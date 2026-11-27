@@ -14,6 +14,7 @@ struct ImportView: View {
     @EnvironmentObject var importViewModel: ImportViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var isShowingFilePicker = false
+    @State private var showAIConsent = false
     @State private var currentImportTask: Task<Void, Never>? = nil
 
     var body: some View {
@@ -30,7 +31,7 @@ struct ImportView: View {
                     .transition(.opacity)
                 } else {
                     ImportContentView(
-                        onFilePicker: { isShowingFilePicker = true }
+                        onFilePicker: { showAIConsent = true }
                     )
                     .transition(.opacity)
                 }
@@ -78,6 +79,12 @@ struct ImportView: View {
                     .foregroundColor(AppColors.textTertiary)
                 }
             }
+        }
+        .alert(AIScanConsent.title, isPresented: $showAIConsent) {
+            Button("Allow and choose PDF") { isShowingFilePicker = true }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(AIScanConsent.message)
         }
         .fileImporter(
             isPresented: $isShowingFilePicker,

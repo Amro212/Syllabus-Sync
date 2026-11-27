@@ -14,7 +14,7 @@ RJEuuQYkanmIO31bg+UAsq0TPwLF3MvUupNjmQrU5SvrpQPvmSKrVwew
 
 describe('worker', () => {
 	beforeEach(() => {
-		env.OPENAI_API_KEY = 'test-key';
+		env.OPENROUTER_API_KEY = 'test-key';
 		env.ALLOWED_ORIGINS = 'http://localhost:*';
 		env.SUPABASE_URL = 'https://example.supabase.co';
 		env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-test-key';
@@ -44,7 +44,7 @@ describe('worker', () => {
 	});
 
 	it('serves release pages without API credentials', async () => {
-		const unconfigured = { ...env, OPENAI_API_KEY: '', SUPABASE_SERVICE_ROLE_KEY: '' };
+		const unconfigured = { ...env, OPENROUTER_API_KEY: '', SUPABASE_SERVICE_ROLE_KEY: '' };
 		for (const [path, title] of [['/privacy', 'Privacy Policy'], ['/support', 'Support']]) {
 			const response = await worker.fetch(new IncomingRequest(`https://example.com${path}`), unconfigured, createExecutionContext());
 			expect(response.status).toBe(200);
@@ -74,6 +74,17 @@ describe('worker', () => {
 		expect(response.status).toBe(200);
 		expect(await response.json()).toEqual({ deleted: true });
 		expect(removeUser).toHaveBeenCalledExactlyOnceWith(`https://example.supabase.co/auth/v1/admin/users/${TEST_USER_ID}`, 'DELETE');
+	});
+
+	it('requires a current app build before accepting syllabus text in production', async () => {
+		mockFetch(createHandler({}));
+		const production = { ...env, NODE_ENV: 'production', ALLOWED_ORIGINS: '' };
+		const response = await worker.fetch(new IncomingRequest('https://example.com/parse', {
+			method: 'POST',
+			headers: { Authorization: 'Bearer valid-token' },
+		}), production, createExecutionContext());
+		expect(response.status).toBe(409);
+		expect(await response.json()).toMatchObject({ code: 'AI_CONSENT_REQUIRED' });
 	});
 
 	it('returns ai usage balance for authenticated user', async () => {
@@ -155,7 +166,7 @@ describe('worker', () => {
 		});
 	});
 
-	it('refunds reserved credit when OpenAI parsing fails', async () => {
+	it('refunds reserved credit when OpenRouter parsing fails', async () => {
 		const refundSpy = vi.fn();
 		mockFetch(createHandler({
 			reserveParseCredit: {
@@ -169,7 +180,7 @@ describe('worker', () => {
 				total_remaining: 1,
 				can_scan: true,
 			},
-			openAIError: 'boom',
+			openRouterError: 'boom',
 			onRefund: refundSpy,
 		}));
 
@@ -209,7 +220,7 @@ describe('worker', () => {
 				can_scan: true,
 			},
 			finalizeParseCredit: finalizeSpy,
-			openAIContent: '{"events":[]}',
+			openRouterContent: '{"events":[]}',
 		}));
 
 		const request = new IncomingRequest('http://example.com/parse', {
@@ -312,8 +323,8 @@ describe('worker', () => {
 type HandlerOptions = {
 	getAIUsageBalance?: Record<string, unknown>;
 	reserveParseCredit?: Record<string, unknown>;
-	openAIContent?: string;
-	openAIError?: string;
+	openRouterContent?: string;
+	openRouterError?: string;
 	findPurchaseEvent?: Record<string, unknown>[];
 	creditPurchase?: Record<string, unknown>;
 	appStoreTransactionPayload?: Record<string, unknown>;
@@ -368,14 +379,14 @@ function createHandler(options: HandlerOptions) {
 			});
 		}
 		if (url.includes('/v1/chat/completions')) {
-			if (options.openAIError) {
-				return new Response(options.openAIError, { status: 500 });
+			if (options.openRouterError) {
+				return new Response(options.openRouterError, { status: 500 });
 			}
 			return jsonResponse({
 				choices: [
 					{
 						message: {
-							content: options.openAIContent ?? JSON.stringify([{
+							content: options.openRouterContent ?? JSON.stringify([{
 								id: 'a1',
 								courseCode: 'CS101',
 								type: 'ASSIGNMENT',

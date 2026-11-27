@@ -144,7 +144,7 @@ export function preprocessTextForAI(text: string): string {
 			return processLine(line, inBoilerplate);
 		})
 		// Strip lines that belong to boilerplate sections entirely.
-		// This prevents gpt-4o-mini from losing focus on long documents filled
+		// This prevents the model from losing focus on long documents filled
 		// with policy text (academic integrity, accessibility, etc.) that never
 		// contains dates or deliverables.
 		.filter((line): line is string => line !== null)
